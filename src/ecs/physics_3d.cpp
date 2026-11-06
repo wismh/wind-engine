@@ -10,9 +10,11 @@ namespace engine {
 void run_physics_3d(ecs::World& world) {
     const float dt = world.ctx<Time>().fixed_delta_time;
 
+    wake_sleepers_by_velocity_3d(world);
     integrate_kinematic_3d(world, dt);
     ecs::update_world_transforms(world);
 
+    wake_sleepers_by_overlap_3d(world);
     integrate_dynamic_3d(world, dt);
     ecs::update_world_transforms(world);
 

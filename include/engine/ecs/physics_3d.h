@@ -24,6 +24,8 @@ struct RigidBody3D {
     BodyType3D type{BodyType3D::Kinematic};
     float mass{1.f};  // Dynamic only. Non-positive or non-finite uses kMinDynamicMass3D.
     float gravity_scale{1.f};
+    // Dynamic only. Kinematic and static ignore it. A missing serialized key loads false.
+    bool sleeping{false};
 };
 
 // Not a component. world.ctx<Physics3DConfig>() default-constructs it (gravity zero) on first use.
@@ -37,6 +39,9 @@ inline constexpr float kContactSlop3D = 1.0e-3f;
 // Restitution is 0 when the approach is this slow or slower (v_rel_n >= -kBounceThreshold3D).
 inline constexpr float kBounceThreshold3D = 1.f;
 inline constexpr int kPositionIterations3D = 8;
+inline constexpr float kSleepLinear3D = 0.05f;
+inline constexpr float kSleepAngular3D = 0.05f;
+inline constexpr int kSleepSteps3D = 8;
 
 struct BoxCollider3D {
     // Full extents in the box's local axes. Not multiplied by Transform.scale.

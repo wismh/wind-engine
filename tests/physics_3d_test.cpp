@@ -102,6 +102,7 @@ TEST(Physics3D, SphereRestsOnStaticFloor) {
     step_physics_n(world, 90);
     EXPECT_NEAR(engine::ecs::world_position(world, sphere).y, rest_y, 1e-4f);
     EXPECT_NEAR(world.get<engine::RigidBody3D>(sphere).velocity.y, 0.f, 1e-4f);
+    EXPECT_TRUE(world.get<engine::RigidBody3D>(sphere).sleeping);
     EXPECT_EQ(world.get<engine::Transform>(floor).position, (glm::vec3{0.f, -1.f, 0.f}));
 }
 
@@ -122,6 +123,7 @@ TEST(Physics3D, BoxStackRestsWithNoTorque) {
     EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
     EXPECT_NEAR(world.get<engine::RigidBody3D>(crate).velocity.y, 0.f, 1e-4f);
     EXPECT_NEAR(glm::length(world.get<engine::RigidBody3D>(crate).angular_velocity), 0.f, 1e-5f);
+    EXPECT_TRUE(world.get<engine::RigidBody3D>(crate).sleeping);
     EXPECT_EQ(world.get<engine::Transform>(crate).rotation, (glm::quat{1.f, 0.f, 0.f, 0.f}));
     EXPECT_EQ(world.get<engine::Transform>(floor).position, (glm::vec3{0.f, -1.f, 0.f}));
 }

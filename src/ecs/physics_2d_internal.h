@@ -6,6 +6,7 @@
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/world.h>
 
+#include "broadphase.h"
 #include "contact_2d.h"
 
 #include <glm/vec2.hpp>
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 #include <map>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -70,6 +72,19 @@ struct PhysicsContactCache2D {
     };
     std::map<ContactCacheKey2D, Impulse> impulses{};
 };
+
+// Quiet-step counter. Not a component and not serialized.
+struct PhysicsSleepState2D {
+    std::map<ecs::Entity, int> quiet{};
+};
+
+[[nodiscard]] bool layers_match_2d(const ColliderItem2D& a, const ColliderItem2D& b);
+[[nodiscard]] ContactShape2D contact_shape_of_2d(const ColliderItem2D& item);
+[[nodiscard]] Aabb aabb_of_2d(const ColliderItem2D& item);
+
+void wake_sleepers_by_velocity_2d(ecs::World& world);
+void wake_sleepers_by_overlap_2d(ecs::World& world);
+void update_sleep_2d(ecs::World& world, std::span<const ecs::Entity> contacting);
 
 void integrate_kinematic_2d(ecs::World& world, float dt);
 void integrate_dynamic_2d(ecs::World& world, float dt);

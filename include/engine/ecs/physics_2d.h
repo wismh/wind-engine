@@ -26,6 +26,8 @@ struct RigidBody2D {
     // Radians/sec about world +Z. Kinematic and static store it. Only a dynamic body integrates it,
     // and only a dynamic body is written by the solver.
     float angular_velocity{0.f};
+    // Dynamic only. Kinematic and static ignore it. A missing serialized key loads false.
+    bool sleeping{false};
 };
 
 // Not a component. world.ctx<Physics2DConfig>() default-constructs it (gravity zero) on first use.
@@ -38,6 +40,9 @@ inline constexpr float kContactSlop2D = 1.0e-3f;
 // Restitution is 0 when the approach is this slow or slower (v_rel_n >= -kBounceThreshold2D).
 inline constexpr float kBounceThreshold2D = 1.f;
 inline constexpr int kPositionIterations2D = 8;
+inline constexpr float kSleepLinear2D = 0.05f;
+inline constexpr float kSleepAngular2D = 0.05f;
+inline constexpr int kSleepSteps2D = 8;
 
 struct BoxCollider2D {
     // Full extents in the box's local XY. Not multiplied by Transform.scale.

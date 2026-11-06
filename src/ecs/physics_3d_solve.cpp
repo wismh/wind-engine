@@ -1,9 +1,10 @@
 #include "physics_3d_internal.h"
 
-#include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 
+#include "broadphase.h"
+#include "contact_islands.h"
 #include "inertia_3d.h"
 #include "solver_3d.h"
 
@@ -13,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <numeric>
+#include <span>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -24,23 +26,13 @@ struct SolverSlot {
     ecs::Entity entity{};
     SolverBody3D body{};
     int depth{0};
+    bool frozen{false};
 };
 
 struct ItemPair {
     int item_a{0};
     int item_b{0};
 };
-
-[[nodiscard]] std::pair<ecs::Entity, ecs::Entity> make_pair(ecs::Entity a, ecs::Entity b) {
-    if (b < a) {
-        return {b, a};
-    }
-    return {a, b};
-}
-
-[[nodiscard]] bool layers_match(const ColliderItem3D& a, const ColliderItem3D& b) {
-    return (a.layer & b.mask) != 0 && (b.layer & a.mask) != 0;
-}
 
 [[nodiscard]] bool is_dynamic(const RigidBody3D* body) {
     return body != nullptr && body->type == BodyType3D::Dynamic;
@@ -85,24 +77,6 @@ struct ItemPair {
         return inverse_inertia_world(item.rotation, inertia);
     }
     return glm::mat3{0.f};
-}
-
-[[nodiscard]] ContactShape3D to_shape(const ColliderItem3D& item) {
-    ContactShape3D shape;
-    shape.center = item.position;
-    shape.rotation = item.rotation;
-    if (item.shape == ColliderShape3D::Box) {
-        shape.kind = ContactShapeKind3D::Box;
-        shape.half_extents = item.box_size * 0.5f;
-    } else if (item.shape == ColliderShape3D::Sphere) {
-        shape.kind = ContactShapeKind3D::Sphere;
-        shape.radius = item.radius;
-    } else {
-        shape.kind = ContactShapeKind3D::Capsule;
-        shape.radius = item.radius;
-        shape.height = item.height;
-    }
-    return shape;
 }
 
 void fill_solver_shape(SolverShape3D& shape, const ColliderItem3D& collider) {
@@ -171,74 +145,37 @@ std::vector<ColliderItem3D> gather_colliders_3d(ecs::World& world) {
     return colliders;
 }
 
-void publish_collision_events_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders) {
-    PhysicsOverlapState3D& state = world.ctx<PhysicsOverlapState3D>();
-    std::map<std::pair<ecs::Entity, ecs::Entity>, bool> current;
-    ecs::EventWriter<CollisionEvent3D> writer{world};
-
-    for (std::size_t i = 0; i < colliders.size(); ++i) {
-        for (std::size_t j = i + 1; j < colliders.size(); ++j) {
-            const ColliderItem3D& a = colliders[i];
-            const ColliderItem3D& b = colliders[j];
-            if (a.entity == b.entity || !layers_match(a, b)) {
-                continue;
-            }
-            const auto pair = make_pair(a.entity, b.entity);
-            const ColliderItem3D& first = pair.first == a.entity ? a : b;
-            const ColliderItem3D& second = pair.first == a.entity ? b : a;
-            const ContactManifold3D manifold = make_contact_3d(to_shape(first), to_shape(second));
-            if (manifold.count == 0) {
-                continue;
-            }
-            const bool is_trigger = a.is_trigger || b.is_trigger;
-            const bool inserted = current.emplace(pair, is_trigger).second;
-            if (!inserted) {
-                continue;
-            }
-            const CollisionPhase phase = state.last.contains(pair) ? CollisionPhase::Stay : CollisionPhase::Enter;
-            writer.send(CollisionEvent3D{
-                    .a = pair.first,
-                    .b = pair.second,
-                    .phase = phase,
-                    .is_trigger = is_trigger,
-                    .normal = manifold.normal,
-                    .penetration = manifold.points[0].penetration,
-                    .point = manifold.points[0].point,
-            });
-        }
-    }
-
-    for (const auto& [pair, was_trigger] : state.last) {
-        if (!current.contains(pair)) {
-            writer.send(CollisionEvent3D{pair.first, pair.second, CollisionPhase::Exit, was_trigger});
-        }
-    }
-    state.last = std::move(current);
-}
-
 void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders) {
-    std::vector<ItemPair> item_pairs;
+    std::vector<Aabb> bounds(colliders.size());
     for (std::size_t i = 0; i < colliders.size(); ++i) {
-        for (std::size_t j = i + 1; j < colliders.size(); ++j) {
-            const ColliderItem3D& a = colliders[i];
-            const ColliderItem3D& b = colliders[j];
-            if (a.entity == b.entity || a.is_trigger || b.is_trigger || !layers_match(a, b)) {
-                continue;
-            }
-            const bool dynamic_a = is_dynamic(world.try_get<RigidBody3D>(a.entity));
-            const bool dynamic_b = is_dynamic(world.try_get<RigidBody3D>(b.entity));
-            if (!dynamic_a && !dynamic_b) {
-                continue;
-            }
-            if (a.entity < b.entity) {
-                item_pairs.push_back(ItemPair{static_cast<int>(i), static_cast<int>(j)});
-            } else {
-                item_pairs.push_back(ItemPair{static_cast<int>(j), static_cast<int>(i)});
-            }
+        bounds[i] = aabb_of_3d(colliders[i]);
+    }
+    Broadphase tree;
+    tree.rebuild(bounds);
+    std::vector<std::pair<int, int>> candidates;
+    tree.query_pairs(candidates);
+
+    std::vector<ItemPair> item_pairs;
+    for (const auto& [index_a, index_b] : candidates) {
+        const ColliderItem3D& a = colliders[static_cast<std::size_t>(index_a)];
+        const ColliderItem3D& b = colliders[static_cast<std::size_t>(index_b)];
+        if (a.entity == b.entity || a.is_trigger || b.is_trigger || !layers_match_3d(a, b)) {
+            continue;
+        }
+        const bool dynamic_a = is_dynamic(world.try_get<RigidBody3D>(a.entity));
+        const bool dynamic_b = is_dynamic(world.try_get<RigidBody3D>(b.entity));
+        if (!dynamic_a && !dynamic_b) {
+            continue;
+        }
+        if (a.entity < b.entity) {
+            item_pairs.push_back(ItemPair{index_a, index_b});
+        } else {
+            item_pairs.push_back(ItemPair{index_b, index_a});
         }
     }
     if (item_pairs.empty()) {
         world.ctx<PhysicsContactCache3D>().impulses.clear();
+        update_sleep_3d(world, {});
         return;
     }
 
@@ -284,6 +221,13 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
             slot.body.inverse_inertia = inverse_inertia_for(world, entity, colliders);
             slot.body.velocity = rigid->velocity;
             slot.body.angular_velocity = rigid->angular_velocity;
+            if (rigid->sleeping) {
+                slot.frozen = true;
+                slot.body.inverse_mass = 0.f;
+                slot.body.inverse_inertia = glm::mat3{0.f};
+                slot.body.velocity = glm::vec3{0.f};
+                slot.body.angular_velocity = glm::vec3{0.f};
+            }
         } else if (rigid != nullptr && rigid->type == BodyType3D::Kinematic) {
             slot.body.velocity = kinematic_world_velocity(world, entity, rigid->velocity);
             slot.body.angular_velocity = rigid->angular_velocity;
@@ -344,6 +288,47 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         return key;
     };
 
+    std::vector<ecs::Entity> entities;
+    entities.reserve(slots.size());
+    for (const SolverSlot& slot : slots) {
+        entities.push_back(slot.entity);
+    }
+    std::vector<IslandBodyPair> links(pairs.size());
+    std::vector<std::uint8_t> overlapping(pairs.size(), 0);
+    refresh_bodies();
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
+        const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
+        links[i] = IslandBodyPair{shape_a.body, shape_b.body};
+        if (shape_a.body == shape_b.body) {
+            continue;
+        }
+        const ContactManifold3D manifold =
+                make_contact_3d(contact_shape_3d(shape_a, bodies[static_cast<std::size_t>(shape_a.body)].position),
+                                contact_shape_3d(shape_b, bodies[static_cast<std::size_t>(shape_b.body)].position));
+        if (manifold.count > 0) {
+            overlapping[i] = 1;
+        }
+    }
+    const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping);
+    if (islands.empty()) {
+        world.ctx<PhysicsContactCache3D>().impulses.clear();
+        update_sleep_3d(world, {});
+        return;
+    }
+    std::vector<SolverPair3D> ordered;
+    std::vector<std::size_t> group_begin;
+    std::vector<std::size_t> group_count;
+    ordered.reserve(pairs.size());
+    for (const std::vector<int>& island : islands) {
+        group_begin.push_back(ordered.size());
+        for (int index : island) {
+            ordered.push_back(pairs[static_cast<std::size_t>(index)]);
+        }
+        group_count.push_back(ordered.size() - group_begin.back());
+    }
+    pairs = std::move(ordered);
+
     PhysicsContactCache3D& cache = world.ctx<PhysicsContactCache3D>();
     std::vector<ContactImpulse3D> impulses(pairs.size());
     refresh_bodies();
@@ -370,20 +355,24 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         impulses[i].point.tangent[1] = found->second.tangent[1];
     }
 
-    for (int iteration = 0; iteration < kPositionIterations3D; ++iteration) {
-        refresh_bodies();
-        solve_position_iteration_3d(bodies, shapes, pairs, impulses);
-        for (int index : write_order) {
-            const std::size_t slot = static_cast<std::size_t>(index);
-            if (!bodies[slot].dynamic) {
-                continue;
+    for (std::size_t group = 0; group < group_begin.size(); ++group) {
+        const std::span<const SolverPair3D> pair_span{pairs.data() + group_begin[group], group_count[group]};
+        const std::span<ContactImpulse3D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
+        for (int iteration = 0; iteration < kPositionIterations3D; ++iteration) {
+            refresh_bodies();
+            solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
+            for (int index : write_order) {
+                const std::size_t slot = static_cast<std::size_t>(index);
+                if (!bodies[slot].dynamic || slots[slot].frozen) {
+                    continue;
+                }
+                ecs::set_world_position(world, slots[slot].entity, bodies[slot].position);
             }
-            ecs::set_world_position(world, slots[slot].entity, bodies[slot].position);
         }
     }
 
     for (std::size_t i = 0; i < slots.size(); ++i) {
-        if (!bodies[i].dynamic) {
+        if (!bodies[i].dynamic || slots[i].frozen) {
             continue;
         }
         RigidBody3D& rigid = world.get<RigidBody3D>(slots[i].entity);
@@ -404,6 +393,19 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         rebuilt.impulses.emplace(cache_key_for(pairs[i]), stored);
     }
     cache = std::move(rebuilt);
+
+    std::vector<ecs::Entity> contacting;
+    contacting.reserve(pairs.size() * 2);
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        if (!impulses[i].touched) {
+            continue;
+        }
+        const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
+        const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
+        contacting.push_back(slots[static_cast<std::size_t>(shape_a.body)].entity);
+        contacting.push_back(slots[static_cast<std::size_t>(shape_b.body)].entity);
+    }
+    update_sleep_3d(world, contacting);
 }
 
 }

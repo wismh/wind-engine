@@ -58,8 +58,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/grid_query.h` | `CellPredicate`, `raycast_grid` (DDA through solid cells), `sweep_aabb` (axis-separated box move), 3D and 2D | [ECS](../modules/ECS.md#grid-queries) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D` (with `angular_velocity`), `Physics2DConfig`, box, circle, and polygon colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/physics_3d.h` | `BodyType3D`, `RigidBody3D`, `Physics3DConfig`, box, sphere, and capsule colliders, `CollisionEvent3D`, `run_physics_3d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D` (with `angular_velocity` and `sleeping`), `Physics2DConfig`, box, circle, and polygon colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_3d.h` | `BodyType3D`, `RigidBody3D` (with `sleeping`), `Physics3DConfig`, box, sphere, and capsule colliders, `CollisionEvent3D`, `run_physics_3d` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
@@ -251,19 +251,27 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/contact_2d_polygon.cpp` | Convex polygon and rotated-box contact, up to two points | [ECS](../modules/ECS.md) |
 | `src/ecs/inertia_2d.h`, `src/ecs/inertia_2d.cpp` | Box, circle, and convex-polygon inertia about the body origin | [ECS](../modules/ECS.md) |
 | `src/ecs/solver_2d.h`, `src/ecs/solver_2d.cpp` | One positional iteration with per-point normal and friction impulses; no `World` | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d.cpp` | Fixed-step entry: integrate, events, then the 2D solver | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and yaw | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d_solve.cpp` | Collider gather, collision events, and the warm-started solve | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d_internal.h` | Shared gather types and the contact-impulse cache | [ECS](../modules/ECS.md) |
+| `src/ecs/broadphase.h`, `src/ecs/broadphase.cpp` | Deterministic dynamic AABB tree. Closed bounds, no `World` | [ECS](../modules/ECS.md) |
+| `src/ecs/contact_islands.h`, `src/ecs/contact_islands.cpp` | Union-find contact islands ordered by the lowest entity. No `World` | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d.cpp` | Fixed-step entry: wake, integrate, events, then the 2D solver | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and yaw. Sleeping dynamics are skipped | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_shape.cpp` | 2D layer test, contact shape, and closed AABB. Z is `[-1, 1]` | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_events.cpp` | Collision events from broadphase candidates sorted back to gather order | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_sleep.cpp` | Wake on velocity or a real overlap, and the quiet-step counter | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_solve.cpp` | Collider gather and the warm-started island solve | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_internal.h` | Shared gather types, the contact-impulse cache, and the sleep counter | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_3d.h`, `src/ecs/contact_3d.cpp` | Sphere, capsule, and sphere-box contact. No `World` | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_3d_box.cpp` | Identity box-box overlap center, and SAT for a rotated box | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_3d_capsule_box.cpp` | Capsule segment against a box | [ECS](../modules/ECS.md) |
 | `src/ecs/inertia_3d.h`, `src/ecs/inertia_3d.cpp` | Box, solid-sphere, and capsule inertia, and the world inverse tensor | [ECS](../modules/ECS.md) |
 | `src/ecs/solver_3d.h`, `src/ecs/solver_3d.cpp` | One positional iteration with one point, a normal, and two tangents. No `World` | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_3d.cpp` | Fixed-step entry: integrate, events, then the 3D solver | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_3d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and spin | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_3d_solve.cpp` | Collider gather, collision events, and the warm-started solve | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_3d_internal.h` | Shared gather types and the 3D contact-impulse cache | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d.cpp` | Fixed-step entry: wake, integrate, events, then the 3D solver | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and spin. Sleeping dynamics are skipped | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_shape.cpp` | 3D layer test, contact shape, and closed AABB for sphere, box, and capsule | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_events.cpp` | 3D collision events from broadphase candidates sorted back to gather order | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_sleep.cpp` | Wake on velocity or a real overlap, and the 3D quiet-step counter | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_solve.cpp` | Collider gather and the warm-started 3D island solve | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_3d_internal.h` | Shared gather types, the 3D contact-impulse cache, and the sleep counter | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/transform.cpp` | Transform model matrix calculations and Euler conversions | [ECS](../modules/ECS.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
@@ -641,6 +649,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/post_process_test.cpp` | Prepare, ping-pong, frame targets, absent stack, viewport, bloom without HDR, missing shader, `post_stack` serialization | [Render](../modules/Render.md#post-process) |
 | `tests/frustum_test.cpp` | Frustum planes (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate), `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
+| `tests/physics_broadphase_test.cpp` | Closed AABB pairs, one Enter among separated shapes, sleep, wake, and serializer | [ECS](../modules/ECS.md) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/physics_3d_test.cpp` | 3D integration, rest, bounce, friction, kinematic push, 2D skip, serializer | [ECS](../modules/ECS.md) |
 | `tests/physics_3d_contact_test.cpp` | Sphere, box, and capsule contacts, and capsule inertia | [ECS](../modules/ECS.md) |
