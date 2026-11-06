@@ -38,7 +38,7 @@ The windowed host is `Engine<GameT>` in `include/engine/core/engine.h`, included
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | [Core](../modules/Core.md) | Loop, time, input poll, composition root, fatal errors, log, window control | Gameplay, GPU objects |
-| [ECS](../modules/ECS.md) | Entities, views, schedules, events, camera, AABB and circle physics | OpenGL, XML |
+| [ECS](../modules/ECS.md) | Entities, views, schedules, events, camera, 2D and 3D rigid-body physics | OpenGL, XML |
 | [Resources](../modules/Resources.md) | `.meta`, catalog, codegen, `get` | Painting pixels |
 | [Render](../modules/Render.md) | Materials, commands, sort, OpenGL backend, UI device | Asset GUIDs, UI bind names |
 | [UI](../modules/UI.md) | XML and C++ builder, CSS, layout, hit-test, MVVM | World sprites |

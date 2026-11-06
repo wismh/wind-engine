@@ -34,7 +34,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | Page | Area |
 | --- | --- |
 | [Core](modules/Core.md) | Host, time, input, log, windows, fatal errors |
-| [ECS](modules/ECS.md) | World, schedules, events, camera, physics probe |
+| [ECS](modules/ECS.md) | World, schedules, events, camera, 2D and 3D physics |
 | [Resources](modules/Resources.md) | GUIDs, `.meta`, `AssetsDb`, codegen |
 | [Render](modules/Render.md) | Materials, commands, sort, OpenGL, UI device |
 | [UI](modules/UI.md) | Documents, CSS, layout, input, paint, MVVM |
