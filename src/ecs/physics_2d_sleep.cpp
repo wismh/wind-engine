@@ -1,6 +1,5 @@
 #include "physics_2d_internal.h"
-
-#include <engine/ecs/physics_3d.h>
+#include "physics_owner.h"
 
 #include <glm/geometric.hpp>
 
@@ -55,7 +54,7 @@ void clear_sleep(ecs::World& world, ecs::Entity entity) {
 
 void wake_sleepers_by_velocity_2d(ecs::World& world) {
     world.view<RigidBody2D>().each([&](ecs::Entity entity, RigidBody2D& body) {
-        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType::Dynamic || !body.sleeping) {
+        if (claimed_by_physics_3d(world, entity) || body.type != BodyType::Dynamic || !body.sleeping) {
             return;
         }
         const float linear = glm::length(body.velocity);
@@ -73,8 +72,8 @@ void wake_sleepers_by_overlap_2d(ecs::World& world) {
     for (const auto& [index_a, index_b] : candidate_pairs(colliders)) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
-        if (a.entity == b.entity || world.try_get<RigidBody3D>(a.entity) != nullptr ||
-            world.try_get<RigidBody3D>(b.entity) != nullptr || !layers_match_2d(a, b)) {
+        if (a.entity == b.entity || claimed_by_physics_3d(world, a.entity) ||
+            claimed_by_physics_3d(world, b.entity) || !layers_match_2d(a, b)) {
             continue;
         }
         const RigidBody2D* body_a = world.try_get<RigidBody2D>(a.entity);
@@ -105,7 +104,7 @@ void update_sleep_2d(ecs::World& world, std::span<const ecs::Entity> contacting)
     const std::unordered_set<ecs::Entity> hits(contacting.begin(), contacting.end());
     std::map<ecs::Entity, int> next;
     world.view<RigidBody2D>().each([&](ecs::Entity entity, RigidBody2D& body) {
-        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType::Dynamic) {
+        if (claimed_by_physics_3d(world, entity) || body.type != BodyType::Dynamic) {
             return;
         }
         const float linear = glm::length(body.velocity);

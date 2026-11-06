@@ -1,7 +1,7 @@
 #include "physics_2d_internal.h"
+#include "physics_owner.h"
 
 #include <engine/ecs/hierarchy.h>
-#include <engine/ecs/physics_3d.h>
 #include <engine/ecs/transform.h>
 
 #include <glm/gtc/quaternion.hpp>
@@ -81,7 +81,7 @@ void integrate_kinematic_2d(ecs::World& world, float dt) {
     world.view<Transform, RigidBody2D>().each(
             [&world, dt](ecs::Entity entity, Transform& transform, const RigidBody2D& body) {
         // A 3D body is integrated by run_physics_3d. Do not move it here as well.
-        if (world.try_get<RigidBody3D>(entity) != nullptr) {
+        if (claimed_by_physics_3d(world, entity)) {
             return;
         }
         if (body.type != BodyType::Kinematic) {
@@ -95,7 +95,7 @@ void integrate_dynamic_2d(ecs::World& world, float dt) {
     const glm::vec3 gravity = world.ctx<Physics2DConfig>().gravity;
     std::vector<ecs::Entity> dynamics;
     world.view<Transform, RigidBody2D>().each([&](ecs::Entity entity, const Transform&, const RigidBody2D& body) {
-        if (world.try_get<RigidBody3D>(entity) != nullptr) {
+        if (claimed_by_physics_3d(world, entity)) {
             return;
         }
         if (body.type == BodyType::Dynamic && !body.sleeping) {

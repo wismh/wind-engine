@@ -255,6 +255,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/broadphase.h`, `src/ecs/broadphase.cpp` | Deterministic dynamic AABB tree. Closed bounds, no `World` | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_islands.h`, `src/ecs/contact_islands.cpp` | Union-find contact islands ordered by the lowest entity. No `World` | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d.cpp` | Fixed-step entry: wake, integrate, events, then the 2D solver | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_owner.h`, `src/ecs/physics_owner.cpp` | `claimed_by_physics_3d`: the only 2D check for a `RigidBody3D` | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and yaw. Sleeping dynamics are skipped | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_shape.cpp` | 2D layer test, contact shape, and closed AABB. Z is `[-1, 1]` | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_events.cpp` | Collision events from broadphase candidates sorted back to gather order | [ECS](../modules/ECS.md) |

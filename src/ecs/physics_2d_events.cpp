@@ -1,7 +1,7 @@
 #include "physics_2d_internal.h"
+#include "physics_owner.h"
 
 #include <engine/ecs/events.h>
-#include <engine/ecs/physics_3d.h>
 
 #include <algorithm>
 #include <utility>
@@ -41,7 +41,7 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
     for (const auto& [index_a, index_b] : candidate_pairs(colliders)) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
-        if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
+        if (claimed_by_physics_3d(world, a.entity) || claimed_by_physics_3d(world, b.entity)) {
             continue;
         }
         if (!layers_match_2d(a, b)) {
