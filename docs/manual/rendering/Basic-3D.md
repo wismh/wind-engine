@@ -74,7 +74,7 @@ world.emplace<engine::render::AmbientLight>(world.create(), engine::render::Ambi
 
 ## 3. What the Engine Does
 
-Every frame the render system pushes one `CmdSetView` per window (camera view, that window's projection, camera position, and the lights), then the sorted draws. The backend sets the lighting uniforms on every mesh draw; a shader that does not declare them ignores them. A custom lit shader can read the same uniforms (`uNormalMatrix`, `uLightCount`, `uLightDirections`, `uLightColors`, `uAmbient`, `uCameraPosition`; see [Materials & Shaders](Materials-and-Shaders.md)).
+Every frame the render system pushes one `CmdSetView` per window (camera view, that window's projection, camera position, and the lights), then the sorted draws. The backend sets the lighting uniforms on every mesh draw; a shader that does not declare them ignores them. A custom lit shader can read the same uniforms (`uNormalMatrix`, `uLightCount`, `uLightColorKind`, `uLightDirRange`, `uLightPosSpot`, `uLightSpotBias`, `uAmbient`, `uCameraPosition`, `uGloss`; see [Materials & Shaders](Materials-and-Shaders.md)). `#include ".forward_light.glsl"` pastes the builtin shade function when that file sits next to the shader.
 
 Opaque depth-tested draws go first, nearest first, so the depth buffer hides what is behind. See [Command Buffer & Sorting](Command-Buffer-and-Sort.md#2-draw-order).
 

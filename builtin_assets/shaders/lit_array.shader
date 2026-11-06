@@ -1,8 +1,6 @@
 <shader lang="slang">
 <slang><![CDATA[
-// builtin::shader_lit sampling a texture array: uTexture is a Sampler2DArray, the layer is MeshVertex::layer.
-// Same number as engine::render::kMaxDirectionalLights (include/engine/render/scene_lights.h).
-#define kMaxDirectionalLights 4
+// shader_lit sampling a texture array: uTexture is a Sampler2DArray, the layer is MeshVertex::layer.
 
 struct VertexInput {
     [[vk::location(0)]] float3 aPosition : POSITION;
@@ -19,29 +17,24 @@ struct VertexOutput {
     [[vk::location(2)]] float4 vColor : COLOR0;
     [[vk::location(3)]] float3 vViewPos : TEXCOORD1;
     [[vk::location(4)]] nointerpolation float vLayer : TEXCOORD2;
+    [[vk::location(5)]] float3 vWorldPos : TEXCOORD3;
 };
 
 uniform float4x4 uModel;
 uniform float4x4 uView;
 uniform float4x4 uProjection;
-// Inverse transpose of mat3(uModel), set by the backend for every mesh draw.
 uniform float3x3 uNormalMatrix;
 uniform float2 uUvScale;
 uniform float2 uUvOffset;
 
 uniform Sampler2DArray uTexture;
 uniform float4 uColor;
-uniform int uLightCount;
-// World-space directions the lights travel along (unit length), and color * intensity.
-uniform float3 uLightDirections[kMaxDirectionalLights];
-uniform float3 uLightColors[kMaxDirectionalLights];
-uniform float3 uAmbient;
-// RenderState::alpha_cutoff, 0 when unset (alpha is never below 0).
 uniform float uAlphaCutoff;
-// CmdSetView::fog: enabled flag, color, and (start, end).
 uniform int uFogEnabled;
 uniform float3 uFogColor;
 uniform float2 uFogRange;
+
+#include ".forward_light.slang"
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -50,7 +43,9 @@ VertexOutput vertexMain(VertexInput input) {
     out.vNormal = mul(uNormalMatrix, input.aNormal);
     out.vColor = input.aColor;
     out.vLayer = input.aLayer;
-    float4 viewPos = mul(uView, mul(uModel, float4(input.aPosition, 1.0)));
+    float3 worldPos = mul(uModel, float4(input.aPosition, 1.0)).xyz;
+    out.vWorldPos = worldPos;
+    float4 viewPos = mul(uView, float4(worldPos, 1.0));
     out.vViewPos = viewPos.xyz;
     out.position = mul(uProjection, viewPos);
     return out;
@@ -63,14 +58,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         discard;
     }
     float3 normal = normalize(input.vNormal);
-    float3 light = uAmbient;
-    for (int i = 0; i < 4; ++i) {
-        if (i >= uLightCount) {
-            break;
-        }
-        light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
+    if (uHasNormalMap != 0) {
+        normal = perturb_normal(normal, input.vWorldPos, input.vUV, uNormal.Sample(input.vUV).rgb);
     }
-    float3 color = albedo.rgb * light;
+    float3 color = forward_shade(albedo.rgb, normal, input.vWorldPos, true);
     if (uFogEnabled != 0) {
         float fog = clamp((uFogRange.y - length(input.vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
         color = lerp(uFogColor, color, fog);
@@ -93,11 +84,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         out vec4 vColor;
         out vec3 vViewPos;
         flat out float vLayer;
+        out vec3 vWorldPos;
 
         uniform mat4 uModel;
         uniform mat4 uView;
         uniform mat4 uProjection;
-        // Inverse transpose of mat3(uModel), set by the backend for every mesh draw.
         uniform mat3 uNormalMatrix;
         uniform vec2 uUvScale;
         uniform vec2 uUvOffset;
@@ -107,7 +98,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
             vNormal = uNormalMatrix * aNormal;
             vColor = aColor;
             vLayer = aLayer;
-            vec4 viewPos = uView * uModel * vec4(aPosition, 1.0);
+            vec3 worldPos = (uModel * vec4(aPosition, 1.0)).xyz;
+            vWorldPos = worldPos;
+            vec4 viewPos = uView * vec4(worldPos, 1.0);
             vViewPos = viewPos.xyz;
             gl_Position = uProjection * viewPos;
         }
@@ -116,9 +109,6 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     <fragment><![CDATA[
         #version 330 core
 
-        // Same number as engine::render::kMaxDirectionalLights (include/engine/render/scene_lights.h).
-        #define kMaxDirectionalLights 4
-
         out vec4 FragColor;
 
         in vec2 vUV;
@@ -126,20 +116,16 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         in vec4 vColor;
         in vec3 vViewPos;
         flat in float vLayer;
+        in vec3 vWorldPos;
 
         uniform sampler2DArray uTexture;
         uniform vec4 uColor;
-        uniform int uLightCount;
-        // World-space directions the lights travel along (unit length), and color * intensity.
-        uniform vec3 uLightDirections[4];
-        uniform vec3 uLightColors[4];
-        uniform vec3 uAmbient;
-        // RenderState::alpha_cutoff, 0 when unset (alpha is never below 0).
         uniform float uAlphaCutoff;
-        // CmdSetView::fog: enabled flag, color, and (start, end).
         uniform int uFogEnabled;
         uniform vec3 uFogColor;
         uniform vec2 uFogRange;
+
+        #include ".forward_light.glsl"
 
         void main() {
             vec4 albedo = texture(uTexture, vec3(vUV, vLayer)) * uColor * vColor;
@@ -147,14 +133,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                 discard;
             }
             vec3 normal = normalize(vNormal);
-            vec3 light = uAmbient;
-            for (int i = 0; i < 4; ++i) {
-                if (i >= uLightCount) {
-                    break;
-                }
-                light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
+            if (uHasNormalMap != 0) {
+                normal = perturb_normal(normal, vWorldPos, vUV, texture(uNormal, vUV).rgb);
             }
-            vec3 color = albedo.rgb * light;
+            vec3 color = forward_shade(albedo.rgb, normal, vWorldPos, true);
             if (uFogEnabled != 0) {
                 float fog = clamp((uFogRange.y - length(vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
                 color = mix(uFogColor, color, fog);

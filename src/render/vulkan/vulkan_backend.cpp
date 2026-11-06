@@ -193,6 +193,24 @@ void write_mat4_array(
     }
 }
 
+void write_vec4_array(
+    std::vector<std::uint8_t>& buf,
+    const SpirvReflection& refl,
+    std::string_view name,
+    std::span<const glm::vec4> values) {
+    const SpirvUniformMember* mem = refl.find_uniform(name);
+    if (!mem || values.empty()) {
+        return;
+    }
+    const std::uint32_t stride = mem->array_stride > 0 ? mem->array_stride : 16u;
+    const std::uint32_t count = std::min(
+        static_cast<std::uint32_t>(values.size()),
+        mem->array_elements > 0 ? mem->array_elements : static_cast<std::uint32_t>(values.size()));
+    for (std::uint32_t i = 0; i < count; ++i) {
+        write_bytes(buf, mem->offset + i * stride, &values[i][0], sizeof(glm::vec4));
+    }
+}
+
 void write_vec3_array(
     std::vector<std::uint8_t>& buf,
     const SpirvReflection& refl,
@@ -220,12 +238,14 @@ void write_view_uniforms(
     write_mat4(buf, refl, "uProjection", vulkan_projection(view.projection));
     write_vec3(buf, refl, "uCameraPosition", view.camera_position);
     write_float(buf, refl, "uTime", view.time);
-    const int count = std::clamp(
-        view.lights.directional_count, 0, static_cast<int>(kMaxDirectionalLights));
+    const PackedForwardLights packed = pack_forward_lights(view.lights);
+    const int count = std::clamp(packed.count, 0, static_cast<int>(kMaxForwardLights));
     write_int(buf, refl, "uLightCount", count);
-    write_vec3_array(buf, refl, "uLightDirections", view.lights.directions);
-    write_vec3_array(buf, refl, "uLightColors", view.lights.colors);
-    write_vec3(buf, refl, "uAmbient", view.lights.ambient);
+    write_vec4_array(buf, refl, "uLightColorKind", packed.color_kind);
+    write_vec4_array(buf, refl, "uLightDirRange", packed.direction_range);
+    write_vec4_array(buf, refl, "uLightPosSpot", packed.position_spot);
+    write_vec4_array(buf, refl, "uLightSpotBias", packed.spot_bias);
+    write_vec3(buf, refl, "uAmbient", packed.ambient);
     // Zero is off for every fog uniform, as in a zero-initialized UBO.
     write_int(buf, refl, "uFogEnabled", view.fog.has_value() ? 1 : 0);
     const Fog fog = view.fog.value_or(Fog{});
@@ -592,6 +612,8 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
     // No cutoff is 0: alpha is never below it, so nothing is discarded.
     write_float(ubo, refl, "uAlphaCutoff", cmd.material->render_state().alpha_cutoff.value_or(0.0f));
+    write_float(ubo, refl, "uGloss", cmd.material->gloss());
+    write_int(ubo, refl, "uHasNormalMap", cmd.material->texture(1) ? 1 : 0);
     if (cmd.bone_count > 0 && cmd.bones != nullptr) {
         write_mat4_array(ubo, refl, "uBones", std::span<const glm::mat4>(cmd.bones, static_cast<std::size_t>(cmd.bone_count)));
     }
@@ -602,7 +624,29 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
         }
     }
 
-    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo);
+    VulkanTexture* normal_tex = nullptr;
+    if (refl.has_normal_sampler) {
+        if (const auto bound = std::dynamic_pointer_cast<VulkanTexture>(cmd.material->texture(1));
+            bound && bound->valid() && bound->layers() == 0 && bound->ensure_gpu_image()) {
+            normal_tex = bound.get();
+        } else {
+            if (!white_texture_) {
+                const TextureDesc white_desc{
+                        .width = 1,
+                        .height = 1,
+                        .rgba = {255, 255, 255, 255},
+                        .filter = FilterMode::Nearest,
+                        .wrap = WrapMode::Clamp,
+                };
+                white_texture_ = std::make_shared<VulkanTexture>(context_, white_desc);
+            }
+            normal_tex = white_texture_.get();
+        }
+        if (normal_tex == nullptr || !normal_tex->ensure_gpu_image()) {
+            return;
+        }
+    }
+    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo, normal_tex);
     if (ds == VK_NULL_HANDLE) {
         return;
     }
@@ -873,7 +917,8 @@ VulkanTexture* VulkanRenderBackend::resolve_albedo(
 
 VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     const std::vector<std::uint8_t>& ubo_bytes,
-    VulkanTexture& texture) {
+    VulkanTexture& texture,
+    VulkanTexture* normal) {
     if (!ensure_shared_objects() || !ensure_frame_slot(active_slot_)) {
         return VK_NULL_HANDLE;
     }
@@ -913,7 +958,14 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     img_info.imageView = texture.image_view();
     img_info.sampler = texture.sampler();
 
-    std::array<VkWriteDescriptorSet, 2> writes{};
+    VkDescriptorImageInfo normal_info{};
+    if (normal != nullptr) {
+        normal_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        normal_info.imageView = normal->image_view();
+        normal_info.sampler = normal->sampler();
+    }
+
+    std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = ds;
     writes[0].dstBinding = 0;
@@ -928,7 +980,18 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     writes[1].descriptorCount = 1;
     writes[1].pImageInfo = &img_info;
 
-    fn.vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    std::uint32_t write_count = 2;
+    if (normal != nullptr) {
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = ds;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].descriptorCount = 1;
+        writes[2].pImageInfo = &normal_info;
+        write_count = 3;
+    }
+
+    fn.vkUpdateDescriptorSets(device, write_count, writes.data(), 0, nullptr);
     return ds;
 }
 

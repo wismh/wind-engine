@@ -155,7 +155,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
     }
 
     if (type == typeid(render::IShader)) {
-        const auto desc = parse_shader_xml(*bytes);
+        const auto desc = parse_shader_xml(*bytes, path.parent_path());
         if (!desc) {
             return std::unexpected(AssetError::Corrupt);
         }
@@ -377,20 +377,31 @@ std::expected<std::shared_ptr<void>, AssetError> load_material(
         return std::unexpected(shader.error());
     }
 
-    std::shared_ptr<render::ITexture> albedo;
-    if (!desc->albedo.empty()) {
-        const auto albedo_id = AssetId::parse(desc->albedo);
-        if (!albedo_id) {
+    auto load_texture = [&](const std::string& uri) -> std::expected<std::shared_ptr<render::ITexture>, AssetError> {
+        if (uri.empty()) {
+            return std::shared_ptr<render::ITexture>{};
+        }
+        const auto id = AssetId::parse(uri);
+        if (!id) {
             return std::unexpected(AssetError::Corrupt);
         }
-        auto texture = db.try_get<render::ITexture>(*albedo_id);
+        auto texture = db.try_get<render::ITexture>(*id);
         if (!texture) {
             return std::unexpected(texture.error());
         }
-        albedo = std::move(*texture);
+        return std::move(*texture);
+    };
+    auto albedo = load_texture(desc->albedo);
+    if (!albedo) {
+        return std::unexpected(albedo.error());
+    }
+    auto normal = load_texture(desc->normal);
+    if (!normal) {
+        return std::unexpected(normal.error());
     }
 
-    auto material = std::make_shared<render::Material>(std::move(*shader), std::move(albedo), desc->color, desc->state);
+    auto material = std::make_shared<render::Material>(
+            std::move(*shader), std::move(*albedo), desc->color, desc->state, desc->gloss, std::move(*normal));
     return std::static_pointer_cast<void>(std::move(material));
 }
 

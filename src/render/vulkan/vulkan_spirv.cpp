@@ -375,15 +375,27 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
         } else if (
             var.storage_class == kStorageClassUniformConstant &&
             pointee_it->second.kind == TypeRecord::Kind::SamplerOrImage) {
-            out.has_sampler = true;
             bool arrayed = pointee_it->second.arrayed;
             if (const auto image_it = types.find(pointee_it->second.elem_type); image_it != types.end()) {
                 arrayed = arrayed || image_it->second.arrayed;
             }
-            out.sampler_arrayed = out.sampler_arrayed || arrayed;
-            if (var.has_binding) {
-                out.sampler_set = var.set;
-                out.sampler_binding = var.binding;
+            const std::uint32_t binding = var.has_binding ? var.binding : 1u;
+            // The lowest binding is the albedo. The next one is the normal map. `sampler_arrayed` follows the albedo
+            // only, so a 2D normal map beside a texture array does not flip the albedo view.
+            if (!out.has_sampler || binding < out.sampler_binding) {
+                if (out.has_sampler) {
+                    out.has_normal_sampler = true;
+                    out.normal_binding = out.sampler_binding;
+                }
+                out.has_sampler = true;
+                out.sampler_binding = binding;
+                out.sampler_arrayed = arrayed;
+                if (var.has_binding) {
+                    out.sampler_set = var.set;
+                }
+            } else {
+                out.has_normal_sampler = true;
+                out.normal_binding = binding;
             }
         }
     }

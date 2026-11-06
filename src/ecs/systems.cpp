@@ -674,7 +674,8 @@ namespace engine {
                 }
             }
             const std::vector<DrawItem> items = collect_world_draws(world, view, deps.assets, deps.fatal, frustums);
-            const render::SceneLights lights = render::collect_scene_lights(world);
+            const render::SceneLights lights =
+                    render::collect_scene_lights(world, frustums, glm::vec3(camera_world[3]));
             std::optional<render::Fog> fog;
             if (const render::Fog *camera_fog = world.try_get<render::Fog>(active.entity)) {
                 fog = *camera_fog;
@@ -878,7 +879,8 @@ namespace engine {
                 .view = view,
                 .projection = projection_matrix(target.camera, viewport_size),
                 .camera_position = glm::vec3(target.camera_world[3]),
-                .lights = render::collect_scene_lights(scene),
+                .lights = render::collect_scene_lights(scene, std::span<const render::Frustum>(&frustum, 1),
+                        glm::vec3(target.camera_world[3])),
                 .viewport = target.viewport,
                 .clear_color = target.clear_color,
                 .time = scene.try_ctx<Time>() != nullptr ? scene.try_ctx<Time>()->total_time : 0.0f,

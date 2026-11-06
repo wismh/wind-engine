@@ -21,7 +21,7 @@ inline constexpr AssetId tree_chevron{"a0e1b2c3d4f5678901234567890abc07"};
 inline constexpr AssetId dock_css{"a0e1b2c3d4f5678901234567890abc08"};
 // Unit cube with per-face normals (docs/tech/modules/Render.md#primitives).
 inline constexpr AssetId mesh_cube{"a0e1b2c3d4f5678901234567890abc09"};
-// Lambert shader: directional lights plus ambient from CmdSetView, times vertex color, with cutout and fog
+// Forward lit shader: the view's light list, ambient, vertex color, cutout, fog, optional gloss and normal map
 // (docs/tech/modules/Render.md#lit-shader).
 inline constexpr AssetId shader_lit{"a0e1b2c3d4f5678901234567890abc0a"};
 // White opaque material on shader_lit: depth on, back faces culled, no texture.
@@ -42,8 +42,13 @@ inline constexpr AssetId shader_post_tonemap{"a0e1b2c3d4f5678901234567890abc11"}
 inline constexpr AssetId shader_post_bloom{"a0e1b2c3d4f5678901234567890abc12"};
 // Tints the scene by the depth texture. Resolving it sets PostEffect::sample_depth.
 inline constexpr AssetId shader_post_depth{"a0e1b2c3d4f5678901234567890abc13"};
+// shader_lit with Lambert off unless the material's normal map (slot 1) is set. Sprites opt in with
+// material_sprite_lit.
+inline constexpr AssetId shader_sprite_lit{"a0e1b2c3d4f5678901234567890abc14"};
+// Alpha-blended, no depth, no cull, on shader_sprite_lit. Sprites stay on material_unlit until a game sets this.
+inline constexpr AssetId material_sprite_lit{"a0e1b2c3d4f5678901234567890abc15"};
 
-inline constexpr std::array<AssetId, 19> ids{
+inline constexpr std::array<AssetId, 21> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -63,6 +68,8 @@ inline constexpr std::array<AssetId, 19> ids{
         shader_post_tonemap,
         shader_post_bloom,
         shader_post_depth,
+        shader_sprite_lit,
+        material_sprite_lit,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

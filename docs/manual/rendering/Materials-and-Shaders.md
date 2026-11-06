@@ -29,9 +29,14 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | `uUvScale`, `uUvOffset` | `vec2` | `Sprite::tiling` / `offset` (`1,1` / `0,0` for a `Renderable`) |
 | `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none. Declare it `sampler2DArray` and sample `texture(uTexture, vec3(uv, layer))` when the albedo is a texture array; a mismatched kind samples white |
 | `uCameraPosition` | `vec3` | camera position in world space |
-| `uLightCount` | `int` | number of directional lights used (0 to 4) |
-| `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
+| `uLightCount` | `int` | lights in the view list (0 to 16) |
+| `uLightColorKind[16]` | `vec4[16]` | rgb is color times intensity, w is the kind (0 directional, 1 point, 2 spot) |
+| `uLightDirRange[16]` | `vec4[16]` | xyz is the unit direction the light travels along, w is range |
+| `uLightPosSpot[16]` | `vec4[16]` | xyz is the world position, w is the spot cone scale |
+| `uLightSpotBias[16]` | `vec4[16]` | x is the spot cone bias |
 | `uAmbient` | `vec3` | ambient light (sum of every `AmbientLight`) |
+| `uGloss` | `float` | Blinn-Phong exponent, 0 for none |
+| `uHasNormalMap`, `uNormal` | `int`, `sampler2D` | 1 and texture unit 1 when the material has a normal map |
 | `uAlphaCutoff` | `float` | the material's `alpha_cutoff`, 0 when it has none: discard a fragment whose alpha is below it |
 | `uFogEnabled`, `uFogColor`, `uFogRange` | `int`, `vec3`, `vec2` | 1 when the camera has `Fog`, its color, and `(start, end)` ([Basic 3D](Basic-3D.md#4-cutout-and-fog)) |
 

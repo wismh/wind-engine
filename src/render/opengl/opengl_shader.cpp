@@ -161,6 +161,13 @@ void OpenGLShader::set_vec3_array(std::string_view name, std::span<const glm::ve
     }
 }
 
+void OpenGLShader::set_vec4_array(std::string_view name, std::span<const glm::vec4> values) const {
+    const int location = uniform_location(name);
+    if (location >= 0 && !values.empty()) {
+        glUniform4fv(location, static_cast<int>(values.size()), glm::value_ptr(values.front()));
+    }
+}
+
 glm::vec4 OpenGLShader::vec4_value(std::string_view name) const {
     glm::vec4 value{0.0f};
     const int location = uniform_location(name);

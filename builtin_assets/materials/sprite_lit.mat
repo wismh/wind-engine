@@ -1,0 +1,5 @@
+shader = "asset://a0e1b2c3d4f5678901234567890abc14"
+blend = "alpha"
+depth = false
+cull = "none"
+color = [1.0, 1.0, 1.0, 1.0]

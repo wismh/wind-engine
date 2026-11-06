@@ -213,7 +213,7 @@ TEST(CommandBuffer, SetViewDefaultsToIdentityWithoutLights) {
     EXPECT_EQ(view.view, glm::mat4(1.0f));
     EXPECT_EQ(view.projection, glm::mat4(1.0f));
     EXPECT_EQ(view.camera_position, glm::vec3(0.0f));
-    EXPECT_EQ(view.lights.directional_count, 0);
+    EXPECT_EQ(view.lights.count, 0);
     EXPECT_EQ(view.lights.ambient, glm::vec3(0.0f));
 }
 

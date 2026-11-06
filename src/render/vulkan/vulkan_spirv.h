@@ -33,6 +33,9 @@ struct SpirvReflection {
     bool has_sampler = false;
     std::uint32_t sampler_set = 0;
     std::uint32_t sampler_binding = 1;
+    // A second combined sampler (the lit normal map). Absent on shaders that sample only albedo.
+    bool has_normal_sampler = false;
+    std::uint32_t normal_binding = 2;
     // The sampler is a texture array (Sampler2DArray / sampler2DArray): its descriptor needs a 2D_ARRAY view.
     bool sampler_arrayed = false;
     std::unordered_map<std::string, SpirvUniformMember> uniforms;

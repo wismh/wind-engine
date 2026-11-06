@@ -151,10 +151,13 @@ void main() {
             shader.set_mat4("uView", view.view);
             shader.set_mat4("uProjection", view.projection);
             shader.set_vec3("uCameraPosition", view.camera_position);
-            shader.set_int("uLightCount", view.lights.directional_count);
-            shader.set_vec3_array("uLightDirections", view.lights.directions);
-            shader.set_vec3_array("uLightColors", view.lights.colors);
-            shader.set_vec3("uAmbient", view.lights.ambient);
+            const PackedForwardLights packed = pack_forward_lights(view.lights);
+            shader.set_int("uLightCount", packed.count);
+            shader.set_vec4_array("uLightColorKind", packed.color_kind);
+            shader.set_vec4_array("uLightDirRange", packed.direction_range);
+            shader.set_vec4_array("uLightPosSpot", packed.position_spot);
+            shader.set_vec4_array("uLightSpotBias", packed.spot_bias);
+            shader.set_vec3("uAmbient", packed.ambient);
             shader.set_float("uTime", view.time);
             // Zero is off for every fog uniform, so a draw before any CmdSetView (or a view without fog) is unfogged.
             shader.set_int("uFogEnabled", view.fog.has_value() ? 1 : 0);
@@ -357,6 +360,10 @@ void main() {
         shader->set_vec2("uUvScale", cmd.uv_scale);
         shader->set_vec2("uUvOffset", cmd.uv_offset);
         shader->set_int("uTexture", 0);
+        shader->set_float("uGloss", cmd.material->gloss());
+        const std::shared_ptr<ITexture> normal = cmd.material->texture(1);
+        shader->set_int("uHasNormalMap", normal ? 1 : 0);
+        shader->set_int("uNormal", 1);
         // No cutoff is 0: alpha is never below it, so nothing is discarded.
         shader->set_float("uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
         if (cmd.bone_count > 0 && cmd.bones != nullptr) {
@@ -370,6 +377,14 @@ void main() {
             }
         }
         bind_albedo(override_bound ? cmd.material_override->albedo : cmd.material->texture(0));
+        glActiveTexture(GL_TEXTURE1);
+        const auto normal_gl = std::dynamic_pointer_cast<OpenGLTexture>(normal);
+        if (normal_gl && normal_gl->valid() && normal_gl->layers() == 0) {
+            normal_gl->bind(1);
+        } else {
+            glBindTexture(GL_TEXTURE_2D, white_texture());
+        }
+        glActiveTexture(GL_TEXTURE0);
 
         std::vector<std::pair<std::string_view, glm::vec4>> previous;
         if (cmd.material_override) {

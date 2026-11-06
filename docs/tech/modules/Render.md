@@ -18,7 +18,7 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 There is no custom-draw callback on the variant.
 
-`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), `post` (`PostChain`, see [Post process](#post-process)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), `post` (`PostChain`, see [Post process](#post-process)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
@@ -183,36 +183,41 @@ Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor pa
 
 ## Lights
 
+Decision record: [Lighting Plan](../architecture/Lighting%20Plan.md). One forward list for meshes and for sprites that opt in.
+
 ECS data, public, one type per header:
 
 | Component | Header | Fields |
 | --- | --- | --- |
 | `DirectionalLight` | `include/engine/render/directional_light.h` | `color` (white), `intensity` (1) |
 | `AmbientLight` | `include/engine/render/ambient_light.h` | `color` (white), `intensity` (0.2) |
+| `PointLight` | `include/engine/render/point_light.h` | `color` (white), `intensity` (1), `range` (10) |
+| `SpotLight` | `include/engine/render/spot_light.h` | those, plus `inner_angle` (25°), `outer_angle` (35°), radians from the axis |
 
-`collect_scene_lights(world)` (`include/engine/render/lights.h`, `src/render/lights.cpp`) turns them into the `SceneLights` (`include/engine/render/scene_lights.h`) that `run_render` puts into every `CmdSetView` of the frame. All in world space:
+`collect_scene_lights` (`include/engine/render/lights.h`, `src/render/lights.cpp`) turns them into the `SceneLights` (`include/engine/render/scene_lights.h`) that `run_render` puts into every `CmdSetView` of the frame. The three-argument overload takes the frame's frustums and the camera position; `run_render` and `render_world_viewport` use it. The one-argument overload culls nothing and measures distance from the origin. All in world space:
 
-- A directional light shines along the entity's world forward: the normalized -Z column of `ecs::world_matrix`. So `Transform::rotation` aims it, a `Parent` carries it (after `Phase::Transform`), and position and scale do not matter. An entity without `Transform` shines along -Z, and so does a matrix whose -Z column is zero. `SceneLights::colors[i]` is `color * intensity`.
-- At most `kMaxDirectionalLights` (4) directional lights: the lowest entity indices (`Entity::operator<`), so the cut is the same every frame whatever the pool order. More than that logs one warning per process and the rest are ignored. The flag lives in `src/render/lights.cpp`, not in a header.
-- Ambient is the sum of `color * intensity` over every `AmbientLight`, so two ambient lights add up and their order does not matter.
-- A world with no `DirectionalLight` and no `AmbientLight` at all gets `default_scene_lights()`: one white light along `normalize(kDefaultLightDirection)` = `normalize(0.3, -1, -0.5)` (from above, in front, and to the left, so the visible faces of a cube seen from +Z all differ) and ambient `kDefaultAmbient` = 0.2. Without it a lit object in a scene that declares no lights would be black; with it a first 3D scene (camera, cube, `material_lit`) reads as a solid shape. The default is all or nothing: a world with any light entity gets exactly its lights, so a scene with only an `AmbientLight` has no directional light, and one with only directional lights has no ambient.
+- A directional light shines along the entity's world forward: the normalized -Z column of `ecs::world_matrix`. So `Transform::rotation` aims it, a `Parent` carries it (after `Phase::Transform`), and position and scale do not matter. An entity without `Transform` shines along -Z, and so does a matrix whose -Z column is zero. `SceneLight::color` is `color * intensity`. A spot aims the same way and also has a world position. A point uses only the position.
+- The view holds one array, `kMaxForwardLights` (16). Directional lights come first, at most `kMaxDirectionalLights` (4), lowest entity index. Point and spot fill the rest: the range sphere must meet a passed frustum (an empty span keeps them), nearest to the camera, entity index breaks a tie. Past either cap logs one warning per process. The flags live in `src/render/lights.cpp`.
+- Ambient is the sum of `color * intensity` over every `AmbientLight`. It is not an entry in the array.
+- A world with no light component at all gets `default_scene_lights()`: one white directional along `normalize(kDefaultLightDirection)` = `normalize(0.3, -1, -0.5)` and ambient `kDefaultAmbient` = 0.2. Any light component turns that rig off, including a point that the frustum then drops, so a scene with only an `AmbientLight` has no directional light.
+- `pack_forward_lights` is the GPU layout: `uLightColorKind` (rgb color, w kind), `uLightDirRange` (xyz travel direction, w range), `uLightPosSpot` (xyz position, w spot scale), `uLightSpotBias` (x is the cone bias). Kind is 0 directional, 1 point, 2 spot. The cone is `saturate(dot(-L, direction) * scale + bias)`, 1 at the inner angle and 0 at the outer. An inner angle that is not smaller than the outer angle is a hard edge at the outer angle. Point and spot attenuation is `saturate(1 - (d/range)^2)^2 / (d^2 + 1)`.
 
-Unlit shaders ignore all of it, so lights never change a 2D game.
+Unlit shaders do not declare the list, so a sprite on `material_unlit` is unchanged. `material_sprite_lit` (`shader_sprite_lit`) reads the same list with Lambert off, so a light in the sprite's plane still shades it. A normal map on slot 1 turns Lambert on for that sprite. Tilemaps, particles, and UI are not lit.
 
 ## Lit shader
 
-`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) is Lambert diffuse plus ambient in world space:
+`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) shades with `forward_shade` from `builtin_assets/shaders/.forward_light.glsl` (and the slang twin). `parse_shader` pastes that file when the stage says `#include ".forward_light.glsl"`, from the shader's own directory. The leading dot keeps the snippet out of the asset scan. `lit_array` and `skin_lit` include it too. `sprite_lit` includes it and passes Lambert off unless `uHasNormalMap` is set.
 
 ```
-albedo = texture(uTexture, vUV) * uColor * vColor        // vColor: vertex color, location 3
-if (albedo.a < uAlphaCutoff) discard                      // cutout
-light  = uAmbient + sum over i < uLightCount of uLightColors[i] * max(dot(N, -uLightDirections[i]), 0)
-color  = albedo.rgb * light
+albedo = texture(uTexture, vUV) * uColor * vColor
+if (albedo.a < uAlphaCutoff) discard
+N      = normalize(vNormal), perturbed by uNormal when uHasNormalMap != 0
+color  = forward_shade(albedo.rgb, N, vWorldPos, lambert)
 if (uFogEnabled != 0) color = mix(uFogColor, color, fog factor of length(vViewPos))
 FragColor = vec4(color, albedo.a)
 ```
 
-`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it. `vViewPos` is the view-space position (`uView * uModel * position`), so the fog distance needs no uniform in the fragment stage that the vertex stage also declares.
+`forward_shade` adds ambient, then each light. A directional has no falloff. A point and a spot use the windowed falloff above. A spot also multiplies by its cone. Lambert is `max(dot(N, L), 0)` when the caller asks for it, and 1 when it does not. `uGloss` above 0 adds a Blinn-Phong term on the Lambert path; 0 adds none. `vWorldPos` is `uModel * position` (skinned first when the shader skins). `vViewPos` stays the view-space position, so fog needs no uniform in both stages.
 
 `builtin::shader_lit_array` and `builtin::shader_unlit_array` are the same two shaders sampling a texture array at `MeshVertex::layer` ([Texture arrays](#texture-arrays)).
 
@@ -230,9 +235,11 @@ Uniforms the backend sets for each mesh draw (the view and light ones also for e
 | `uNormalMatrix` | `mat3` | `transpose(inverse(mat3(model)))`, computed on the CPU only when the program has the uniform; identity when the 3x3 is singular (a zero scale) |
 | `uView`, `uProjection` | `mat4` | current `CmdSetView` |
 | `uCameraPosition` | `vec3` | current `CmdSetView::camera_position` |
-| `uLightCount` | `int` | `lights.directional_count` |
-| `uLightDirections[4]`, `uLightColors[4]` | `vec3` arrays | `lights.directions`, `lights.colors` (always all four elements) |
+| `uLightCount` | `int` | `lights.count` |
+| `uLightColorKind[16]`, `uLightDirRange[16]`, `uLightPosSpot[16]`, `uLightSpotBias[16]` | `vec4` arrays | `pack_forward_lights` (always all 16 elements) |
 | `uAmbient` | `vec3` | `lights.ambient` |
+| `uGloss` | `float` | `IMaterial::gloss()`, 0 when the material does not override it |
+| `uHasNormalMap`, `uNormal` | `int`, `sampler2D` | 1 and slot 1 when the material has a normal map, else 0 and a white texture |
 | `uAlphaCutoff` | `float` | `material->render_state().alpha_cutoff`, 0 when unset (mesh draws only) |
 | `uFogEnabled` | `int` | 1 when `CmdSetView::fog` is set, else 0 |
 | `uFogColor`, `uFogRange` | `vec3`, `vec2` | `fog->color` and `(fog->start, fog->end)`; white and (0, 100) without fog |

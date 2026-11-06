@@ -31,6 +31,8 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `shader_post_tonemap` | `…abc11` | `shaders/post_tonemap.shader` |
 | `shader_post_bloom` | `…abc12` | `shaders/post_bloom.shader` |
 | `shader_post_depth` | `…abc13` | `shaders/post_depth.shader` |
+| `shader_sprite_lit` | `…abc14` | `shaders/sprite_lit.shader` |
+| `material_sprite_lit` | `…abc15` | `materials/sprite_lit.mat` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 

@@ -108,7 +108,8 @@ private:
         bool fullscreen = false);
     [[nodiscard]] VkDescriptorSet allocate_and_write_descriptor(
         const std::vector<std::uint8_t>& ubo_bytes,
-        VulkanTexture& texture);
+        VulkanTexture& texture,
+        VulkanTexture* normal = nullptr);
     void apply_viewport_and_scissor(bool clear_if_requested);
     void adopt_pass(VkRenderPass pass, VkExtent2D extent);
     void draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params, const glm::vec2& resolution,

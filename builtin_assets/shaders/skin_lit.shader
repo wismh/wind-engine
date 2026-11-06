@@ -1,8 +1,5 @@
 <shader lang="slang">
 <slang><![CDATA[
-// Same number as engine::render::kMaxDirectionalLights (include/engine/render/scene_lights.h).
-#define kMaxDirectionalLights 4
-// Same number as engine::render::kMaxSkinJoints.
 #define kMaxSkinJoints 128
 
 struct VertexInput {
@@ -20,6 +17,7 @@ struct VertexOutput {
     [[vk::location(1)]] float3 vNormal : NORMAL;
     [[vk::location(2)]] float4 vColor : COLOR0;
     [[vk::location(3)]] float3 vViewPos : TEXCOORD1;
+    [[vk::location(4)]] float3 vWorldPos : TEXCOORD2;
 };
 
 uniform float4x4 uModel;
@@ -32,14 +30,12 @@ uniform float4x4 uBones[kMaxSkinJoints];
 
 uniform Sampler2D uTexture;
 uniform float4 uColor;
-uniform int uLightCount;
-uniform float3 uLightDirections[kMaxDirectionalLights];
-uniform float3 uLightColors[kMaxDirectionalLights];
-uniform float3 uAmbient;
 uniform float uAlphaCutoff;
 uniform int uFogEnabled;
 uniform float3 uFogColor;
 uniform float2 uFogRange;
+
+#include ".forward_light.slang"
 
 float4x4 skin_matrix(VertexInput input) {
     float4x4 skin = input.aWeights[0] * uBones[input.aJoints[0]]
@@ -58,7 +54,9 @@ VertexOutput vertexMain(VertexInput input) {
     out.vUV = input.aUV * uUvScale + uUvOffset;
     out.vNormal = mul(uNormalMatrix, normal);
     out.vColor = input.aColor;
-    float4 viewPos = mul(uView, mul(uModel, float4(position, 1.0)));
+    float3 worldPos = mul(uModel, float4(position, 1.0)).xyz;
+    out.vWorldPos = worldPos;
+    float4 viewPos = mul(uView, float4(worldPos, 1.0));
     out.vViewPos = viewPos.xyz;
     out.position = mul(uProjection, viewPos);
     return out;
@@ -71,14 +69,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         discard;
     }
     float3 normal = normalize(input.vNormal);
-    float3 light = uAmbient;
-    for (int i = 0; i < 4; ++i) {
-        if (i >= uLightCount) {
-            break;
-        }
-        light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
+    if (uHasNormalMap != 0) {
+        normal = perturb_normal(normal, input.vWorldPos, input.vUV, uNormal.Sample(input.vUV).rgb);
     }
-    float3 color = albedo.rgb * light;
+    float3 color = forward_shade(albedo.rgb, normal, input.vWorldPos, true);
     if (uFogEnabled != 0) {
         float fog = clamp((uFogRange.y - length(input.vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
         color = lerp(uFogColor, color, fog);
@@ -101,6 +95,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         out vec3 vNormal;
         out vec4 vColor;
         out vec3 vViewPos;
+        out vec3 vWorldPos;
 
         uniform mat4 uModel;
         uniform mat4 uView;
@@ -123,7 +118,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
             vUV = aUV * uUvScale + uUvOffset;
             vNormal = uNormalMatrix * normal;
             vColor = aColor;
-            vec4 viewPos = uView * uModel * vec4(position, 1.0);
+            vec3 worldPos = (uModel * vec4(position, 1.0)).xyz;
+            vWorldPos = worldPos;
+            vec4 viewPos = uView * vec4(worldPos, 1.0);
             vViewPos = viewPos.xyz;
             gl_Position = uProjection * viewPos;
         }
@@ -132,25 +129,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     <fragment><![CDATA[
         #version 330 core
 
-        #define kMaxDirectionalLights 4
-
         out vec4 FragColor;
 
         in vec2 vUV;
         in vec3 vNormal;
         in vec4 vColor;
         in vec3 vViewPos;
+        in vec3 vWorldPos;
 
         uniform sampler2D uTexture;
         uniform vec4 uColor;
-        uniform int uLightCount;
-        uniform vec3 uLightDirections[4];
-        uniform vec3 uLightColors[4];
-        uniform vec3 uAmbient;
         uniform float uAlphaCutoff;
         uniform int uFogEnabled;
         uniform vec3 uFogColor;
         uniform vec2 uFogRange;
+
+        #include ".forward_light.glsl"
 
         void main() {
             vec4 albedo = texture(uTexture, vUV) * uColor * vColor;
@@ -158,14 +152,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                 discard;
             }
             vec3 normal = normalize(vNormal);
-            vec3 light = uAmbient;
-            for (int i = 0; i < 4; ++i) {
-                if (i >= uLightCount) {
-                    break;
-                }
-                light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
+            if (uHasNormalMap != 0) {
+                normal = perturb_normal(normal, vWorldPos, vUV, texture(uNormal, vUV).rgb);
             }
-            vec3 color = albedo.rgb * light;
+            vec3 color = forward_shade(albedo.rgb, normal, vWorldPos, true);
             if (uFogEnabled != 0) {
                 float fog = clamp((uFogRange.y - length(vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
                 color = mix(uFogColor, color, fog);
