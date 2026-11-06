@@ -46,11 +46,17 @@ public:
         return program_ != 0;
     }
 
+    [[nodiscard]] bool declares_particle_instance_inputs() const override {
+        return instance_inputs_;
+    }
+
     [[nodiscard]] int uniform_location(std::string_view name) const;
 
 private:
     unsigned int program_ = 0;
     mutable unsigned int bone_buffer_ = 0;
+    // From the vertex source, before the driver can strip an unused input.
+    bool instance_inputs_ = false;
 };
 
 }

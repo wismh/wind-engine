@@ -3,16 +3,20 @@
 // docs/tech/modules/Render.md
 
 #include <engine/ecs/entity.h>
+#include <engine/render/commands.h>
 #include <engine/render/curve.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 
+#include <glm/ext/vector_int3.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <vector>
@@ -36,12 +40,63 @@ struct ParticleCollider2D {
     uint32_t layer = 1;
 };
 
+// Box, sphere, and capsule copied from the non-trigger 3D colliders. A box is oriented: `rotation` is the world
+// quaternion (the Transform chain). Scale is not applied. Sphere ignores `rotation`.
+struct ParticleCollider3D {
+    enum class Shape {
+        Box,
+        Sphere,
+        Capsule,
+    };
+
+    Shape shape = Shape::Box;
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 box_size{1.0f};
+    float radius = 0.5f;
+    float height = 1.0f;
+    uint32_t layer = 1;
+};
+
+// World context the game fills. `data` stays alive through `run_particles`. `is_solid` runs on the caller after the
+// integrate job joins. A null function does nothing. This is not a `CellPredicate` and is not kept across frames
+// as one: the sweep builds that predicate on the stack.
+struct ParticleGrid {
+    bool (*is_solid)(const void* data, glm::ivec3 cell) = nullptr;
+    const void* data = nullptr;
+};
+
+// Sphere is the solid ellipsoid of `shape_scale` (semi-axes). Disc is the `shape_scale.xy` ellipse in the plane
+// of `direction`, or +Y when that vector is near zero. Circle stays an XY disc with z = 0.
 enum class EmitterShape {
     Point,
     Box,
     Circle,
     Cone,
+    Sphere,
+    Disc,
 };
+
+// How one particle is drawn. Plane is the 2D quad. 0 so a value-initialized mode stays Plane.
+enum class ParticleDraw : std::uint8_t {
+    Plane = 0,
+    Billboard = 1,
+    Stretched = 2,
+    Mesh = 3,
+};
+
+static_assert(static_cast<std::uint8_t>(ParticleDraw::Plane) == 0);
+static_assert(static_cast<std::uint8_t>(ParticleDraw::Mesh) == 3);
+
+// True only for Mesh. The card shader never sees that mode, and only Mesh sets uInstanced.
+[[nodiscard]] constexpr bool particle_draw_uses_instance_transform(ParticleDraw draw) noexcept {
+    return draw == ParticleDraw::Mesh;
+}
+
+// A camera row shorter than this is replaced, not normalized.
+inline constexpr float kParticleAxisEpsilon = 1e-8f;
+// In-plane speed at or below this uses Billboard. Straight at the camera counts as no in-plane speed.
+inline constexpr float kParticleStretchMinSpeed = 1e-4f;
 
 enum class SimulationSpace {
     World,
@@ -62,6 +117,8 @@ struct Particle {
     glm::vec2 end_size{0.0f, 0.0f};
     glm::vec4 start_color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 end_color{1.0f, 1.0f, 1.0f, 0.0f};
+    // Copied from the emitter at spawn. Array mesh shaders sample it. sampler2D ignores it.
+    float texture_layer = 0.0f;
 };
 
 struct ParticleEmitter {
@@ -109,6 +166,8 @@ struct ParticleEmitter {
 
     // Collision parameters
     bool collision_enabled = false;
+    // With a `ParticleGrid` context, sweep solid cells after integrate. No context does nothing.
+    bool collision_grid = false;
     uint32_t collision_mask = 0xFFFFFFFFu; // bitmask of layers to collide with
     float bounce = 0.5f;                  // coefficient of restitution [0, 1]
     float friction = 0.0f;                // tangential velocity damping [0, 1]
@@ -117,6 +176,16 @@ struct ParticleEmitter {
     float collision_radius = 0.0f;        // 0.0f treats particle as a point; >0 gives thickness
 
     // Rendering configuration
+    // Plane keeps the world-XY quad. Billboard and Stretched face the camera. Mesh instances `mesh`.
+    ParticleDraw draw = ParticleDraw::Plane;
+    // False draws the emitter even when its particles miss every window frustum. A card shader that
+    // moves vertices past the CPU box needs this. Not a `.world` key: the emitter is not serialized.
+    bool frustum_cull = true;
+    // Mesh only. `size_curve` multiplies it when that curve has keys. An empty curve leaves it unchanged.
+    // `size` and `size_curve_xy` do not. Cards ignore it.
+    glm::vec3 mesh_scale{1.0f};
+    // Copied onto each particle at spawn. Default 0.
+    float texture_layer = 0.0f;
     std::shared_ptr<ITexture> texture;
     std::shared_ptr<IMaterial> material;
     std::shared_ptr<IMesh> mesh;
@@ -160,13 +229,36 @@ struct ParticleEmitter {
     }
 };
 
+// World offset of one unit-quad corner (`corner` is ±0.5). Plane is world XY and ignores the camera.
+// Billboard and Stretched lie in the plane of camera right and up (the first two rows of the view).
+// Stretched points local +Y along the in-plane part of `velocity`.
+// 1 when `size_curve` has no keys. Otherwise `size_curve.evaluate` at `clamp(age / lifetime, 0, 1)`.
+// `lifetime <= 0` evaluates the curve at 0. Does not read `Particle::size` or `size_curve_xy`.
+[[nodiscard]] float particle_mesh_size_factor(const Curve<float>& size_curve, float age, float lifetime) noexcept;
+
+// Position, `mesh_scale * size_factor`, color, and layer. Orientation is identity.
+[[nodiscard]] MeshParticleInstance particle_mesh_instance(
+        glm::vec3 position, glm::vec3 mesh_scale, float size_factor, glm::vec4 color, float layer) noexcept;
+
+[[nodiscard]] glm::vec3 particle_card_offset(
+        ParticleDraw draw,
+        glm::vec3 camera_right,
+        glm::vec3 camera_up,
+        glm::vec2 corner,
+        glm::vec2 size,
+        float rotation,
+        glm::vec3 velocity) noexcept;
+
 // `jobs` null integrates on the caller. Spawn stays on the caller either way. Dead particles are dropped
-// after the integrate joins, and the survivors keep their order.
+// after the integrate joins, and the survivors keep their order. Both collider spans are read inside the job.
+// `grid` is swept on the caller after that join. A null grid, or a null `is_solid`, does nothing.
 void update_emitter(
         ParticleEmitter& emitter,
         float dt,
         const glm::mat4& transform = glm::mat4{1.0f},
         std::span<const ParticleCollider2D> colliders = {},
-        JobSystem* jobs = nullptr);
+        std::span<const ParticleCollider3D> colliders_3d = {},
+        JobSystem* jobs = nullptr,
+        const ParticleGrid* grid = nullptr);
 
 }

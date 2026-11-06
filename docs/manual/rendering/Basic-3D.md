@@ -78,7 +78,7 @@ Every frame the render system pushes one `CmdSetView` per window (camera view, t
 
 Opaque depth-tested draws go first, nearest first, so the depth buffer hides what is behind. See [Command Buffer & Sorting](Command-Buffer-and-Sort.md#2-draw-order).
 
-**Frustum culling.** A `Renderable` (or `Sprite`) whose mesh box is outside the camera's view in every window is not drawn at all. The box is `IMesh::bounds()`, taken from the mesh's vertices when it is created and kept current by `mesh->update(desc)`, so a voxel chunk you rebuild needs nothing extra. Particles are never culled. If your shader moves vertices outside the mesh's own box (a waving flag, a sky dome around the camera), set `renderable.frustum_cull = false` (`.world`: `frustum_cull = false`) so it is always drawn. For your own visibility checks (chunk streaming, AI), `engine::camera_frustum(camera, camera_world, window_size)` gives the same frustum and `engine::render::frustum_intersects(frustum, engine::render::transform_aabb(box, model))` the same test.
+**Frustum culling.** A `Renderable` (or `Sprite`) whose mesh box is outside the camera's view in every window is not drawn at all. The box is `IMesh::bounds()`, taken from the mesh's vertices when it is created and kept current by `mesh->update(desc)`, so a voxel chunk you rebuild needs nothing extra. A particle emitter is culled from its live particles the same way; `emitter.frustum_cull = false` always draws it, and that flag is not a `.world` key. If your shader moves vertices outside the mesh's own box (a waving flag, a sky dome around the camera), set `renderable.frustum_cull = false` (`.world`: `frustum_cull = false`) so it is always drawn. For your own visibility checks (chunk streaming, AI), `engine::camera_frustum(camera, camera_world, window_size)` gives the same frustum and `engine::render::frustum_intersects(frustum, engine::render::transform_aabb(box, model))` the same test.
 
 ---
 
@@ -100,7 +100,7 @@ world.emplace<engine::render::Fog>(cam, engine::render::Fog{
 });
 ```
 
-The builtin lit and unlit shaders (so sprites and tilemaps too) fade linearly to `color` between `start` and `end`, by distance from the camera. Particles, UI, and the editor's scene viewport are not fogged. Without a `Fog` component nothing is fogged. In a `.world` file it is `fog = { color = [0.7, 0.8, 0.9], start = 40.0, end = 120.0 }`.
+The builtin lit and unlit shaders (so sprites and tilemaps too) fade linearly to `color` between `start` and `end`, by distance from the camera. Card particles, UI, and the editor's scene viewport are not fogged. Mesh particles use those shaders, so a game view with `Fog` fogs them. Without a `Fog` component nothing is fogged. In a `.world` file it is `fog = { color = [0.7, 0.8, 0.9], start = 40.0, end = 120.0 }`.
 
 ---
 

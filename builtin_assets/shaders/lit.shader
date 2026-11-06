@@ -5,6 +5,9 @@ struct VertexInput {
     [[vk::location(1)]] float2 aUV : TEXCOORD0;
     [[vk::location(2)]] float3 aNormal : NORMAL;
     [[vk::location(3)]] float4 aColor : COLOR0;
+    [[vk::location(7)]] float3 aInstancePos : TEXCOORD3;
+    [[vk::location(8)]] float3 aInstanceScale : TEXCOORD4;
+    [[vk::location(9)]] float4 aInstanceColor : COLOR1;
 };
 
 struct VertexOutput {
@@ -22,6 +25,7 @@ uniform float4x4 uProjection;
 uniform float3x3 uNormalMatrix;
 uniform float2 uUvScale;
 uniform float2 uUvOffset;
+uniform int uInstanced;
 
 uniform Sampler2D uTexture;
 uniform float4 uColor;
@@ -37,8 +41,14 @@ VertexOutput vertexMain(VertexInput input) {
     VertexOutput out;
     out.vUV = input.aUV * uUvScale + uUvOffset;
     out.vNormal = mul(uNormalMatrix, input.aNormal);
-    out.vColor = input.aColor;
-    float3 worldPos = mul(uModel, float4(input.aPosition, 1.0)).xyz;
+    float3 worldPos;
+    if (uInstanced != 0) {
+        worldPos = input.aInstancePos + input.aPosition * input.aInstanceScale;
+        out.vColor = input.aColor * input.aInstanceColor;
+    } else {
+        worldPos = mul(uModel, float4(input.aPosition, 1.0)).xyz;
+        out.vColor = input.aColor;
+    }
     out.vWorldPos = worldPos;
     float4 viewPos = mul(uView, float4(worldPos, 1.0));
     out.vViewPos = viewPos.xyz;
@@ -72,6 +82,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         layout(location = 1) in vec2 aUV;
         layout(location = 2) in vec3 aNormal;
         layout(location = 3) in vec4 aColor;
+        layout(location = 7) in vec3 aInstancePos;
+        layout(location = 8) in vec3 aInstanceScale;
+        layout(location = 9) in vec4 aInstanceColor;
 
         out vec2 vUV;
         out vec3 vNormal;
@@ -85,12 +98,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         uniform mat3 uNormalMatrix;
         uniform vec2 uUvScale;
         uniform vec2 uUvOffset;
+        uniform int uInstanced;
 
         void main() {
             vUV = aUV * uUvScale + uUvOffset;
             vNormal = uNormalMatrix * aNormal;
-            vColor = aColor;
-            vec3 worldPos = (uModel * vec4(aPosition, 1.0)).xyz;
+            vec3 worldPos;
+            if (uInstanced != 0) {
+                worldPos = aInstancePos + aPosition * aInstanceScale;
+                vColor = aColor * aInstanceColor;
+            } else {
+                worldPos = (uModel * vec4(aPosition, 1.0)).xyz;
+                vColor = aColor;
+            }
             vWorldPos = worldPos;
             vec4 viewPos = uView * vec4(worldPos, 1.0);
             vViewPos = viewPos.xyz;

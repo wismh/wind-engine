@@ -12,7 +12,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 4. A module page is the reference for that area. A feature page is a walkthrough of one subsystem. A build page is how a binary and its assets get onto disk.
 5. [File index](files/INDEX.md) lists every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and `editor/`.
 
-[UI Performance Plan](architecture/UI%20Performance%20Plan.md), [Editor Plan](architecture/Editor%20Plan.md), [Voxel 3D Plan](architecture/Voxel%203D%20Plan.md), and [Lighting Plan](architecture/Lighting%20Plan.md) are plans, not descriptions of the current engine. [Post Process Plan](architecture/Post%20Process%20Plan.md) is the decision record; the running stack is [Render](modules/Render.md#post-process).
+[UI Performance Plan](architecture/UI%20Performance%20Plan.md), [Editor Plan](architecture/Editor%20Plan.md), [Voxel 3D Plan](architecture/Voxel%203D%20Plan.md), [Lighting Plan](architecture/Lighting%20Plan.md), and [Particle Plan](architecture/Particle%20Plan.md) are plans, not descriptions of the current engine. [Post Process Plan](architecture/Post%20Process%20Plan.md) is the decision record; the running stack is [Render](modules/Render.md#post-process).
 
 ## Architecture
 
@@ -29,6 +29,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Voxel 3D Plan](architecture/Voxel%203D%20Plan.md) | Planned engine work for a block-world 3D multiplayer game, labeled as a plan |
 | [Post Process Plan](architecture/Post%20Process%20Plan.md) | Decision record for the scene-color stack. As built: [Render](modules/Render.md#post-process) |
 | [Lighting Plan](architecture/Lighting%20Plan.md) | Decision record for forward point and spot lights. As built: [Render](modules/Render.md#lights) |
+| [Particle Plan](architecture/Particle%20Plan.md) | Billboards, mesh instances, 3D collision, and emitter culling are in. As built: [Render](modules/Render.md#sprites-animation-particles-curves) |
 
 ## Modules
 

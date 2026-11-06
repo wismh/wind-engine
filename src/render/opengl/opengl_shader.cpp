@@ -1,5 +1,7 @@
 #include "opengl_shader.h"
 
+#include "render/shader_instance_inputs.h"
+
 #include <engine/log.h>
 #include <engine/render/model.h>
 
@@ -58,7 +60,8 @@ unsigned int compile_shader(unsigned int type, std::string_view src) {
 
 }
 
-OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragment_src) {
+OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragment_src)
+    : instance_inputs_(shader_declares_particle_instance_inputs(vertex_src)) {
     if (vertex_src.empty() || fragment_src.empty()) {
         return;
     }

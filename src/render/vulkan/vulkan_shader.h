@@ -28,6 +28,10 @@ public:
     [[nodiscard]] VkShaderModule fragment_module() const noexcept { return fragment_module_; }
     [[nodiscard]] const SpirvReflection& reflection() const noexcept { return reflection_; }
 
+    [[nodiscard]] bool declares_particle_instance_inputs() const override {
+        return reflection_.declares_particle_instance_inputs();
+    }
+
 private:
     void destroy_modules();
 

@@ -5,6 +5,7 @@
 #include "render/mesh_check.h"
 
 #include <engine/log.h>
+#include <engine/render/commands.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -118,44 +119,46 @@ void OpenGLMesh::upload(const MeshDesc& desc) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+void OpenGLMesh::configure_vertex_array() const {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            reinterpret_cast<const void*>(offsetof(MeshVertex, position)));
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            reinterpret_cast<const void*>(offsetof(MeshVertex, uv)));
+
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            reinterpret_cast<const void*>(offsetof(MeshVertex, normal)));
+
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            reinterpret_cast<const void*>(offsetof(MeshVertex, color)));
+
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            reinterpret_cast<const void*>(offsetof(MeshVertex, layer)));
+
+    if (has_skin_ && skin_vbo_ != 0) {
+        glBindBuffer(GL_ARRAY_BUFFER, skin_vbo_);
+        glEnableVertexAttribArray(5);
+        glVertexAttribIPointer(5, 4, GL_UNSIGNED_BYTE, sizeof(SkinInfluence), nullptr);
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SkinInfluence),
+                reinterpret_cast<const void*>(offsetof(SkinInfluence, weights)));
+    }
+
+    if (ebo_ != 0) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
+    }
+}
+
 void OpenGLMesh::draw() {
     // The buffers are shared by every window's context; the VAO is made in each context that draws the mesh.
-    const GLuint vao = vao_.current([this] {
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                reinterpret_cast<const void*>(offsetof(MeshVertex, position)));
-
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                reinterpret_cast<const void*>(offsetof(MeshVertex, uv)));
-
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                reinterpret_cast<const void*>(offsetof(MeshVertex, normal)));
-
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                reinterpret_cast<const void*>(offsetof(MeshVertex, color)));
-
-        glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                reinterpret_cast<const void*>(offsetof(MeshVertex, layer)));
-
-        if (has_skin_ && skin_vbo_ != 0) {
-            glBindBuffer(GL_ARRAY_BUFFER, skin_vbo_);
-            glEnableVertexAttribArray(5);
-            glVertexAttribIPointer(5, 4, GL_UNSIGNED_BYTE, sizeof(SkinInfluence), nullptr);
-            glEnableVertexAttribArray(6);
-            glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SkinInfluence),
-                    reinterpret_cast<const void*>(offsetof(SkinInfluence, weights)));
-        }
-
-        if (ebo_ != 0) {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-        }
-    });
+    const GLuint vao = vao_.current([this] { configure_vertex_array(); });
     if (vao == 0) {
         return;
     }
@@ -166,6 +169,53 @@ void OpenGLMesh::draw() {
         glDrawArrays(GL_TRIANGLES, 0, draw_count_);
     }
     glBindVertexArray(0);
+}
+
+void OpenGLMesh::draw_instanced(unsigned int instance_buffer, int instance_count) {
+    if (instance_count <= 0 || instance_buffer == 0) {
+        return;
+    }
+    const GLuint vao = vao_.current([this] { configure_vertex_array(); });
+    if (vao == 0) {
+        return;
+    }
+    glBindVertexArray(vao);
+    // Any return after the enables still clears them and divisor 0 before the VAO is unbound.
+    struct ResetInstanceAttribs {
+        ~ResetInstanceAttribs() {
+            for (GLuint location = 7; location <= 10; ++location) {
+                glDisableVertexAttribArray(location);
+                glVertexAttribDivisor(location, 0);
+            }
+            glBindVertexArray(0);
+        }
+    } reset;
+
+    glBindBuffer(GL_ARRAY_BUFFER, instance_buffer);
+    const auto stride = static_cast<GLsizei>(sizeof(MeshParticleInstance));
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE, stride,
+            reinterpret_cast<const void*>(offsetof(MeshParticleInstance, position)));
+    glVertexAttribDivisor(7, 1);
+    glEnableVertexAttribArray(8);
+    glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, stride,
+            reinterpret_cast<const void*>(offsetof(MeshParticleInstance, scale)));
+    glVertexAttribDivisor(8, 1);
+    glEnableVertexAttribArray(9);
+    glVertexAttribPointer(9, 4, GL_FLOAT, GL_FALSE, stride,
+            reinterpret_cast<const void*>(offsetof(MeshParticleInstance, color)));
+    glVertexAttribDivisor(9, 1);
+    glEnableVertexAttribArray(10);
+    glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, stride,
+            reinterpret_cast<const void*>(offsetof(MeshParticleInstance, layer)));
+    glVertexAttribDivisor(10, 1);
+
+    if (indexed_) {
+        glDrawElementsInstanced(GL_TRIANGLES, draw_count_, GL_UNSIGNED_INT, nullptr, instance_count);
+    } else {
+        glDrawArraysInstanced(GL_TRIANGLES, 0, draw_count_, instance_count);
+    }
+    (void)reset;
 }
 
 }

@@ -48,6 +48,7 @@
 #include "ui/svg_attach.h"
 #include "ui/ui_refs.h"
 
+#include <glm/common.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -386,9 +387,69 @@ namespace engine {
             return !frustum_cull || render::visible_in_any(frustums, render::transform_aabb(mesh.bounds(), model));
         }
 
-        // `frustums`: world space, one per window the draws go to. A renderable, sprite, or tilemap chunk outside all
-        // of them is skipped (union: what any window sees is drawn to every window). Empty: no culling. Particles are
-        // never culled.
+        // Plane is the unrotated XY quad: half |size| on XY, nothing on Z. A spun quad can stick out.
+        // Billboard and Stretched use a radius of half the longer side on every axis. That sphere does not
+        // cover the quad corner. Mesh is the local box under translate(position) * scale(instance scale),
+        // so an off-center box and a negative scale stay correct (`transform_aabb` takes the absolute 3x3).
+        render::Aabb particle_world_bounds(const render::ParticleEmitter &emitter, const render::Particle &particle,
+                                            const glm::vec3 &position, const render::IMesh &mesh) {
+            if (emitter.draw == render::ParticleDraw::Mesh) {
+                const float factor =
+                        render::particle_mesh_size_factor(emitter.size_curve, particle.age, particle.lifetime);
+                const glm::mat4 placed = glm::translate(glm::mat4{1.0f}, position) *
+                                         glm::scale(glm::mat4{1.0f}, emitter.mesh_scale * factor);
+                return render::transform_aabb(mesh.bounds(), placed);
+            }
+            const float half_x = std::abs(particle.size.x) * 0.5f;
+            const float half_y = std::abs(particle.size.y) * 0.5f;
+            if (emitter.draw == render::ParticleDraw::Plane) {
+                const glm::vec3 half{half_x, half_y, 0.0f};
+                return render::Aabb{.min = position - half, .max = position + half};
+            }
+            const glm::vec3 extent{std::max(half_x, half_y)};
+            return render::Aabb{.min = position - extent, .max = position + extent};
+        }
+
+        glm::vec3 particle_draw_position(const render::ParticleEmitter &emitter, const render::Particle &particle,
+                                         const glm::mat4 &model) {
+            if (emitter.simulation_space == render::SimulationSpace::Local) {
+                return glm::vec3(model * glm::vec4(particle.position, 1.0f));
+            }
+            return particle.position;
+        }
+
+        // `frustum_cull` false keeps the emitter. An empty frustum span does too (`visible_in_any`).
+        bool emitter_in_view(const render::ParticleEmitter &emitter, const glm::mat4 &model, const render::IMesh &mesh,
+                             std::span<const render::Frustum> frustums) {
+            if (!emitter.frustum_cull) {
+                return true;
+            }
+            const render::Particle &first = emitter.particles.front();
+            const glm::vec3 first_position = particle_draw_position(emitter, first, model);
+            render::Aabb box = particle_world_bounds(emitter, first, first_position, mesh);
+            for (std::size_t i = 1; i < emitter.particles.size(); ++i) {
+                const render::Particle &particle = emitter.particles[i];
+                const glm::vec3 position = particle_draw_position(emitter, particle, model);
+                const render::Aabb next = particle_world_bounds(emitter, particle, position, mesh);
+                box.min = glm::min(box.min, next.min);
+                box.max = glm::max(box.max, next.max);
+            }
+            return render::visible_in_any(frustums, box);
+        }
+
+        // One line per process. A null shader is not this case: headless materials still collect.
+        void warn_particle_mesh_shader_once() {
+            static bool warned = false;
+            if (warned) {
+                return;
+            }
+            warned = true;
+            log::warn("Particle mesh material shader does not declare instance inputs; skipping the emitter");
+        }
+
+        // `frustums`: world space, one per window the draws go to. A renderable, sprite, tilemap chunk, or particle
+        // emitter outside all of them is skipped (union: what any window sees is drawn to every window). Empty: no
+        // culling. `ParticleEmitter::frustum_cull` false keeps the emitter.
         std::vector<DrawItem> collect_world_draws(ecs::World &world, const glm::mat4 &view, AssetsDb *assets,
                                                   IFatalError *fatal, std::span<const render::Frustum> frustums) {
             auto renderables = world.view<render::Renderable, Transform>();
@@ -553,7 +614,9 @@ namespace engine {
                 if (em.particles.empty()) {
                     continue;
                 }
-                std::shared_ptr<render::IMesh> mesh = em.mesh ? em.mesh : default_quad;
+                // Cards fall back to the builtin quad. Mesh draws that mesh or nothing.
+                std::shared_ptr<render::IMesh> mesh =
+                        em.draw == render::ParticleDraw::Mesh ? em.mesh : (em.mesh ? em.mesh : default_quad);
                 std::shared_ptr<render::IMaterial> material;
                 render::BlendMode blend = em.blend;
                 if (em.material != nullptr) {
@@ -579,36 +642,102 @@ namespace engine {
                     }
                     continue;
                 }
+                if (em.draw == render::ParticleDraw::Mesh) {
+                    if (const std::shared_ptr<render::IShader> shader = material->shader();
+                            shader != nullptr && !shader->declares_particle_instance_inputs()) {
+                        warn_particle_mesh_shader_once();
+                        continue;
+                    }
+                }
 
                 glm::mat4 model{1.0f};
                 if (em.simulation_space == render::SimulationSpace::Local) {
                     model = ecs::world_matrix(world, entity);
+                }
+                if (!emitter_in_view(em, model, *mesh, frustums)) {
+                    continue;
                 }
 
                 render::CmdDrawParticles cmd;
                 cmd.mesh = std::move(mesh);
                 cmd.material = material;
                 cmd.blend = blend;
-                cmd.instances.reserve(em.particles.size());
+                cmd.draw = em.draw;
 
-                for (const auto &p: em.particles) {
-                    glm::vec3 pos = p.position;
-                    if (em.simulation_space == render::SimulationSpace::Local) {
-                        pos = glm::vec3(model * glm::vec4(p.position, 1.0f));
+                // Plane is drawn with depth forced off, so it never depth-sorts. Billboard, Stretched, and Mesh
+                // follow the material: a transparent depth-sorting batch sorts its own instances back to front.
+                const auto view_depth_of = [&view](const glm::vec3 &position) {
+                    return -(view * glm::vec4(position, 1.0f)).z;
+                };
+                const render::RenderState state = material->render_state();
+                const bool depth_tested = em.draw != render::ParticleDraw::Plane;
+                const bool depth_sorts = depth_tested && state.depth_test;
+                const bool sort_instances =
+                        depth_sorts && render::draw_queue(state) == render::DrawQueue::Transparent;
+
+                glm::vec3 key_position = glm::vec3(model[3]);
+                if (em.draw == render::ParticleDraw::Mesh) {
+                    cmd.mesh_instances.reserve(em.particles.size());
+                    for (const auto &p: em.particles) {
+                        glm::vec3 pos = p.position;
+                        if (em.simulation_space == render::SimulationSpace::Local) {
+                            pos = glm::vec3(model * glm::vec4(p.position, 1.0f));
+                        }
+                        const float factor = render::particle_mesh_size_factor(em.size_curve, p.age, p.lifetime);
+                        cmd.mesh_instances.push_back(render::particle_mesh_instance(
+                                pos, em.mesh_scale, factor, p.color, p.texture_layer));
                     }
-                    cmd.instances.push_back(render::ParticleInstance{
-                            .position = pos,
-                            .rotation = p.rotation,
-                            .size = p.size,
-                            .color = p.color,
-                            .uv_scale = em.uv_scale,
-                            .uv_offset = em.uv_offset,
-                    });
+                    if (sort_instances) {
+                        std::stable_sort(cmd.mesh_instances.begin(), cmd.mesh_instances.end(),
+                                [&view_depth_of](const render::MeshParticleInstance &a,
+                                        const render::MeshParticleInstance &b) {
+                                    return view_depth_of(a.position) > view_depth_of(b.position);
+                                });
+                    }
+                    if (depth_sorts) {
+                        const auto farthest = std::max_element(cmd.mesh_instances.begin(), cmd.mesh_instances.end(),
+                                [&view_depth_of](const render::MeshParticleInstance &a,
+                                        const render::MeshParticleInstance &b) {
+                                    return view_depth_of(a.position) < view_depth_of(b.position);
+                                });
+                        key_position = farthest->position;
+                    }
+                } else {
+                    cmd.instances.reserve(em.particles.size());
+                    for (const auto &p: em.particles) {
+                        glm::vec3 pos = p.position;
+                        glm::vec3 velocity = p.velocity;
+                        if (em.simulation_space == render::SimulationSpace::Local) {
+                            pos = glm::vec3(model * glm::vec4(p.position, 1.0f));
+                            // World-space velocity is already world at spawn. Local velocity is emitter space.
+                            velocity = glm::mat3(model) * p.velocity;
+                        }
+                        cmd.instances.push_back(render::ParticleInstance{
+                                .position = pos,
+                                .rotation = p.rotation,
+                                .size = p.size,
+                                .color = p.color,
+                                .uv_scale = em.uv_scale,
+                                .uv_offset = em.uv_offset,
+                                .velocity = velocity,
+                        });
+                    }
+                    if (sort_instances) {
+                        std::stable_sort(cmd.instances.begin(), cmd.instances.end(),
+                                [&view_depth_of](const render::ParticleInstance &a, const render::ParticleInstance &b) {
+                                    return view_depth_of(a.position) > view_depth_of(b.position);
+                                });
+                    }
+                    if (depth_sorts) {
+                        const auto farthest = std::max_element(cmd.instances.begin(), cmd.instances.end(),
+                                [&view_depth_of](const render::ParticleInstance &a, const render::ParticleInstance &b) {
+                                    return view_depth_of(a.position) < view_depth_of(b.position);
+                                });
+                        key_position = farthest->position;
+                    }
                 }
-
-                // Particles draw without depth test (opengl_backend.cpp), so they never depth-sort.
                 const render::DrawSortKey key = render::make_draw_sort_key(material.get(), em.layer, em.order_in_layer,
-                                                                           glm::vec3(model[3]), view, entity, false);
+                                                                           key_position, view, entity, depth_tested);
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
@@ -950,6 +1079,31 @@ namespace engine {
         }
     }
 
+    namespace {
+
+    // World quaternion from Transform::rotation, parent then child. Scale is not part of it.
+    [[nodiscard]] glm::quat particle_collider_rotation(const ecs::World &world, ecs::Entity entity) {
+        glm::quat chain[ecs::kMaxHierarchyDepth];
+        int count = 0;
+        ecs::Entity current = entity;
+        for (int step = 0; step < ecs::kMaxHierarchyDepth && world.valid(current); ++step) {
+            const Transform *transform = world.try_get<Transform>(current);
+            chain[count++] = transform != nullptr ? transform->rotation : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+            const Parent *parent = world.try_get<Parent>(current);
+            if (parent == nullptr || !world.valid(parent->entity)) {
+                break;
+            }
+            current = parent->entity;
+        }
+        glm::quat world_rotation{1.0f, 0.0f, 0.0f, 0.0f};
+        for (int i = count - 1; i >= 0; --i) {
+            world_rotation = world_rotation * chain[i];
+        }
+        return world_rotation;
+    }
+
+    } // namespace
+
     void run_particles(ecs::World &world, JobSystem *jobs) {
         const float dt = world.ctx<Time>().delta_time;
         // Runs before Phase::Transform, so refresh the matrices that emitters and colliders read (idempotent).
@@ -957,14 +1111,20 @@ namespace engine {
         auto view = world.view<render::ParticleEmitter>();
 
         bool any_collisions = false;
+        bool any_grid = false;
         for (ecs::Entity entity: view) {
-            if (view.get<render::ParticleEmitter>(entity).collision_enabled) {
-                any_collisions = true;
-                break;
+            const render::ParticleEmitter &emitter = view.get<render::ParticleEmitter>(entity);
+            if (!emitter.collision_enabled) {
+                continue;
+            }
+            any_collisions = true;
+            if (emitter.collision_grid) {
+                any_grid = true;
             }
         }
 
         std::vector<render::ParticleCollider2D> colliders;
+        std::vector<render::ParticleCollider3D> colliders_3d;
         if (any_collisions) {
             world.view<Transform, BoxCollider2D>().each(
                     [&](ecs::Entity entity, const Transform &, const BoxCollider2D &box) {
@@ -990,11 +1150,64 @@ namespace engine {
                     });
                 }
             });
+            world.view<Transform, BoxCollider3D>().each(
+                    [&](ecs::Entity entity, const Transform &, const BoxCollider3D &box) {
+                if (!box.is_trigger) {
+                    colliders_3d.push_back(render::ParticleCollider3D{
+                            .shape = render::ParticleCollider3D::Shape::Box,
+                            .position = ecs::world_position(world, entity),
+                            .rotation = particle_collider_rotation(world, entity),
+                            .box_size = box.size,
+                            .radius = 0.0f,
+                            .height = 0.0f,
+                            .layer = box.layer,
+                    });
+                }
+            });
+            world.view<Transform, SphereCollider3D>().each(
+                    [&](ecs::Entity entity, const Transform &, const SphereCollider3D &sphere) {
+                if (!sphere.is_trigger) {
+                    colliders_3d.push_back(render::ParticleCollider3D{
+                            .shape = render::ParticleCollider3D::Shape::Sphere,
+                            .position = ecs::world_position(world, entity),
+                            .rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f},
+                            .box_size = glm::vec3{0.0f},
+                            .radius = sphere.radius,
+                            .height = 0.0f,
+                            .layer = sphere.layer,
+                    });
+                }
+            });
+            world.view<Transform, CapsuleCollider3D>().each(
+                    [&](ecs::Entity entity, const Transform &, const CapsuleCollider3D &capsule) {
+                if (!capsule.is_trigger) {
+                    colliders_3d.push_back(render::ParticleCollider3D{
+                            .shape = render::ParticleCollider3D::Shape::Capsule,
+                            .position = ecs::world_position(world, entity),
+                            .rotation = particle_collider_rotation(world, entity),
+                            .box_size = glm::vec3{0.0f},
+                            .radius = capsule.radius,
+                            .height = capsule.height,
+                            .layer = capsule.layer,
+                    });
+                }
+            });
+        }
+
+        const render::ParticleGrid *grid = nullptr;
+        if (any_grid) {
+            grid = world.try_ctx<render::ParticleGrid>();
+            if (grid != nullptr && grid->is_solid == nullptr) {
+                grid = nullptr;
+            }
         }
 
         for (ecs::Entity entity: view) {
             auto &emitter = view.get<render::ParticleEmitter>(entity);
-            render::update_emitter(emitter, dt, ecs::world_matrix(world, entity), colliders, jobs);
+            const render::ParticleGrid *emitter_grid =
+                    (emitter.collision_enabled && emitter.collision_grid) ? grid : nullptr;
+            render::update_emitter(
+                    emitter, dt, ecs::world_matrix(world, entity), colliders, colliders_3d, jobs, emitter_grid);
         }
     }
 

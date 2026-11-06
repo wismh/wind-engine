@@ -8,7 +8,7 @@ World draws are data on entities. `run_render` turns them into commands, sorts t
 | --- | --- |
 | `Renderable` + `Transform` | one `CmdDrawMesh` |
 | `Sprite` + `Transform` | one `CmdDrawMesh` (quad unless `mesh` is set) |
-| `ParticleEmitter` | one `CmdDrawParticles` after `run_particles`, when `particles` is not empty |
+| `ParticleEmitter` | one `CmdDrawParticles` after `run_particles`, when `particles` is not empty and the emitter bounds meet a frustum (`frustum_cull` default true; false always draws) |
 | `SpriteAnimator` + `Sprite` | the animator copies the current frame onto the sprite first (`Sprite::apply_frame`) |
 
 An entity with both `Renderable` and `Sprite` skips the sprite. `run_render` emits only the `Renderable` command (and nothing from that entity when the `Renderable` itself is skipped).
@@ -35,7 +35,7 @@ An empty `particles` list pushes nothing and does not report. When the list is n
 
 `alpha_cutoff` is cutout (alpha test): the builtin lit and unlit shaders discard a fragment whose albedo alpha is below it ([Render](../modules/Render.md#cutout)). It is not part of the queue rule, so a cutout material that is opaque with depth write (leaves, fences) stays in the opaque queue (`Sort.CutoutMaterialStaysInOpaqueQueue`). `Material(shader, albedo, color, state)` takes it whole; the cached sprite and particle materials pass `RenderState{.blend = ...}` and so keep the 2D state. A 3D opaque material is `{.blend = Opaque, .depth_test = true, .depth_write = true, .cull = Back}`; `builtin::material_lit` is one, on the Lambert `builtin::shader_lit` ([Render](../modules/Render.md#lit-shader)).
 
-The backend reads the state from `CmdDrawMesh::material` at execute time; the command carries no copy. Particles ignore everything but the blend: `CmdDrawParticles` draws with `cmd.blend`, no depth test or write, and no culling ([Render](../modules/Render.md#opengl-engine_with_window)).
+The backend reads the state from `CmdDrawMesh::material` at execute time; the command carries no copy. Card `CmdDrawParticles` draws with `cmd.blend`. `Plane` forces depth test off, depth write off, and no cull. `Billboard` and `Stretched` copy `depth_test`, `depth_write`, and `cull` from the material and ignore `alpha_cutoff`. `Mesh` applies the material `RenderState` in full, including `alpha_cutoff` ([Render](../modules/Render.md#opengl-engine_with_window)).
 
 ## Color
 
@@ -67,9 +67,9 @@ Sprite world size is `pixel_size / pixels_per_unit` (default 100). `pivot` is th
 
 Stable sort, once per frame, on a `DrawSortKey` per draw (`include/engine/render/draw_sort.h`, `draw_sort_less`). `run_render` builds the keys with `make_draw_sort_key` (`draw_item_less` in `src/ecs/systems.cpp` only forwards). Every window shares the camera view, so one sort serves them all.
 
-Queue first. `draw_queue(state)` is **Opaque** when the material's blend is `Opaque` and `depth_write` is on, **Transparent** otherwise. Every opaque draw goes before every transparent one, whatever its layer. A particle batch is always transparent.
+Queue first. `draw_queue(state)` is **Opaque** when the material's blend is `Opaque` and `depth_write` is on, **Transparent** otherwise. Every opaque draw goes before every transparent one, whatever its layer. A `Plane` particle batch is always transparent, because it passes `depth_tested` false. A `Billboard` or `Stretched` batch follows `draw_queue`.
 
-View depth is the distance in front of the camera: minus the view-space z of the draw's world position (the translation of its model matrix, after the sprite pivot; the emitter's world position for a local-space emitter, the origin for a world-space one). It is computed once per draw.
+View depth is the distance in front of the camera: minus the view-space z of the draw's world position (the translation of its model matrix, after the sprite pivot). A particle batch that does not depth-sort uses `model[3]` (the origin for world space, the emitter translation for local space). A `Billboard` or `Stretched` batch whose material depth-tests uses its farthest particle. It is computed once per draw.
 
 Opaque queue, first difference wins:
 
@@ -86,7 +86,7 @@ Transparent queue:
 5. `IMaterial*` address
 6. `entity.index` ascending
 
-**The 2D rule.** A draw is depth-sorted only when its material has `depth_test` on (and it is not a particle batch, which never depth-tests). No 2D material does: `RenderState{}`, `.mat` defaults, the sprite and particle caches, and `builtin::material_unlit` all leave depth test off. So in a 2D scene every draw is transparent and not depth-sorted, and the key is exactly layer, order, material, entity, as before wind-237: sprites at different z with the same layer and order still draw in material, then entity order, under an orthographic or a perspective camera (`RenderSystem.TwoDimensionalSpritesAtDifferentZKeepMaterialThenEntityOrder`). The rule does not look at the camera's projection. Within one layer and order, a sprite that is not depth-tested draws after the depth-tested transparent draws, so it lands on top of them.
+**The 2D rule.** A draw is depth-sorted only when its material has `depth_test` on and the backend runs that test. `Plane` passes `depth_tested` false, so that batch never depth-sorts. `Billboard` and `Stretched` pass true. No 2D material does: `RenderState{}`, `.mat` defaults, the sprite and particle caches, and `builtin::material_unlit` all leave depth test off. So in a 2D scene every draw is transparent and not depth-sorted, and the key is exactly layer, order, material, entity, as before wind-237: sprites at different z with the same layer and order still draw in material, then entity order, under an orthographic or a perspective camera (`RenderSystem.TwoDimensionalSpritesAtDifferentZKeepMaterialThenEntityOrder`). The rule does not look at the camera's projection. Within one layer and order, a sprite that is not depth-tested draws after the depth-tested transparent draws, so it lands on top of them.
 
 `include/engine/render/renderable.h` keeps `sort_renderables(items, view)` for a `RenderableItem` (a `Renderable`, its entity, and its `world_position`), a stable sort with the same key (`draw_sort_key(item, view)`).
 

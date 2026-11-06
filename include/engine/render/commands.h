@@ -15,6 +15,7 @@
 #include <glm/vec4.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -112,15 +113,48 @@ namespace engine::render {
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
         glm::vec2 uv_scale{1.0f, 1.0f};
         glm::vec2 uv_offset{0.0f, 0.0f};
+        glm::vec3 velocity{0.0f};
 
         constexpr bool operator==(const ParticleInstance &) const noexcept = default;
     };
+
+    static_assert(offsetof(ParticleInstance, position) == 0);
+    static_assert(offsetof(ParticleInstance, rotation) == 12);
+    static_assert(offsetof(ParticleInstance, size) == 16);
+    static_assert(offsetof(ParticleInstance, color) == 24);
+    static_assert(offsetof(ParticleInstance, uv_scale) == 40);
+    static_assert(offsetof(ParticleInstance, uv_offset) == 48);
+    static_assert(offsetof(ParticleInstance, velocity) == 56);
+    static_assert(sizeof(ParticleInstance) == 68);
+
+    // One mesh particle. Locations 7-10, instance rate, on a binding that is not the mesh (0) or the skin (1).
+    // Cards keep ParticleInstance at locations 2-8 and do not fill this.
+    struct MeshParticleInstance {
+        glm::vec3 position{0.0f};
+        glm::vec3 scale{1.0f};
+        glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+        float layer = 0.0f;
+
+        constexpr bool operator==(const MeshParticleInstance &) const noexcept = default;
+    };
+
+    static_assert(offsetof(MeshParticleInstance, position) == 0);
+    static_assert(offsetof(MeshParticleInstance, scale) == 12);
+    static_assert(offsetof(MeshParticleInstance, color) == 24);
+    static_assert(offsetof(MeshParticleInstance, layer) == 40);
+    static_assert(sizeof(MeshParticleInstance) == 44);
+
+    // Defined in particles.h. 0 is Plane. Forward-declared so this header does not include the emitter.
+    enum class ParticleDraw : std::uint8_t;
 
     struct CmdDrawParticles {
         std::shared_ptr<IMesh> mesh;
         std::shared_ptr<IMaterial> material;
         std::vector<ParticleInstance> instances;
+        // Filled only for ParticleDraw::Mesh. Cards leave it empty.
+        std::vector<MeshParticleInstance> mesh_instances;
         BlendMode blend = BlendMode::Alpha;
+        ParticleDraw draw{};
     };
 
     using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdSetView, CmdPostProcess>;

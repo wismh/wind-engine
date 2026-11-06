@@ -189,6 +189,35 @@ TEST(VulkanBackendTest, WrappedMatrixKeepsTheInnerRowMajorDecoration) {
     EXPECT_EQ(proj->columns, 4u);
 }
 
+TEST(VulkanBackendTest, SpirvReflectionReadsMeshParticleInputLocations) {
+    constexpr std::uint32_t kWith[] = {
+            0x07230203u, 0x00010000u, 0u, 20u, 0u,
+            (3u << 16) | 22u, 1u, 32u,
+            (4u << 16) | 23u, 2u, 1u, 3u,
+            (4u << 16) | 23u, 3u, 1u, 4u,
+            (4u << 16) | 32u, 4u, 1u, 2u,
+            (4u << 16) | 32u, 5u, 1u, 3u,
+            (4u << 16) | 59u, 4u, 6u, 1u,
+            (4u << 16) | 59u, 4u, 7u, 1u,
+            (4u << 16) | 59u, 5u, 8u, 1u,
+            (4u << 16) | 71u, 6u, 30u, 7u,
+            (4u << 16) | 71u, 7u, 30u, 8u,
+            (4u << 16) | 71u, 8u, 30u, 9u,
+    };
+    const SpirvReflection with_locations = reflect_spirv_program(kWith, kWith);
+    EXPECT_TRUE(with_locations.has_input_location(7));
+    EXPECT_TRUE(with_locations.has_input_location(8));
+    EXPECT_TRUE(with_locations.has_input_location(9));
+    EXPECT_FALSE(with_locations.declares_particle_instance_inputs());
+
+    constexpr std::uint32_t kWithout[] = {
+            0x07230203u, 0x00010000u, 0u, 8u, 0u, (3u << 16) | 22u, 1u, 32u,
+    };
+    const SpirvReflection without = reflect_spirv_program(kWithout, kWithout);
+    EXPECT_FALSE(without.has_input_location(7));
+    EXPECT_FALSE(without.declares_particle_instance_inputs());
+}
+
 TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
 #if !defined(ENGINE_WITH_SLANG)
     GTEST_SKIP() << "the shaders have SPIR-V only where Slang compiled them";
@@ -200,6 +229,12 @@ TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
         const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
         EXPECT_TRUE(refl.has_sampler) << file;
         EXPECT_TRUE(refl.sampler_arrayed) << file;
+        EXPECT_NE(refl.find_uniform("uInstanced"), nullptr) << file;
+        EXPECT_TRUE(refl.has_input_location(7)) << file;
+        EXPECT_TRUE(refl.has_input_location(8)) << file;
+        EXPECT_TRUE(refl.has_input_location(9)) << file;
+        EXPECT_TRUE(refl.has_input_location(10)) << file;
+        EXPECT_TRUE(refl.declares_particle_instance_inputs()) << file;
         for (const std::string_view name : {"uAlphaCutoff", "uFogEnabled", "uColor", "uModel"}) {
             EXPECT_NE(refl.find_uniform(name), nullptr) << file << " " << name;
         }
@@ -210,6 +245,12 @@ TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
         const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
         EXPECT_TRUE(refl.has_sampler) << file;
         EXPECT_FALSE(refl.sampler_arrayed) << file;
+        EXPECT_NE(refl.find_uniform("uInstanced"), nullptr) << file;
+        EXPECT_TRUE(refl.has_input_location(7)) << file;
+        EXPECT_TRUE(refl.has_input_location(8)) << file;
+        EXPECT_TRUE(refl.has_input_location(9)) << file;
+        EXPECT_FALSE(refl.has_input_location(10)) << file;
+        EXPECT_TRUE(refl.declares_particle_instance_inputs()) << file;
     }
 }
 

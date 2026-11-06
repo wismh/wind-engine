@@ -12,6 +12,7 @@
 
 #include <engine/render/commands.h>
 #include <engine/render/material.h>
+#include <engine/render/particles.h>
 #include <engine/render/shader_adapt.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
@@ -41,6 +42,7 @@ layout(location = 4) in vec2 aInstanceSize;
 layout(location = 5) in vec4 aInstanceColor;
 layout(location = 6) in vec2 aInstanceUvScale;
 layout(location = 7) in vec2 aInstanceUvOffset;
+layout(location = 8) in vec3 aInstanceVelocity;
 
 out vec2 vUV;
 out vec4 vColor;
@@ -48,6 +50,7 @@ out vec4 vColor;
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform vec4 uColor;
+uniform int uParticleMode;
 
 void main() {
     vUV = aUV * aInstanceUvScale + aInstanceUvOffset;
@@ -61,7 +64,36 @@ void main() {
         scaled.x * sin_r + scaled.y * cos_r
     );
 
-    vec3 world_pos = aInstancePos + vec3(rotated, aPosition.z);
+    // Offset matches particle_card_offset. Column-major rows: right is (uView[0][0], uView[1][0], uView[2][0]).
+    vec3 offset;
+    if (uParticleMode == 0) {
+        offset = vec3(rotated, 0.0);
+    } else {
+        vec3 camera_right = vec3(uView[0][0], uView[1][0], uView[2][0]);
+        vec3 camera_up = vec3(uView[0][1], uView[1][1], uView[2][1]);
+        float right_len = length(camera_right);
+        float up_len = length(camera_up);
+        camera_right = right_len > 1e-8 ? camera_right / right_len : vec3(1.0, 0.0, 0.0);
+        camera_up = up_len > 1e-8 ? camera_up / up_len : vec3(0.0, 1.0, 0.0);
+        vec3 axis_x = camera_right;
+        vec3 axis_y = camera_up;
+        if (uParticleMode == 2) {
+            vec3 normal = cross(camera_right, camera_up);
+            float nlen = length(normal);
+            if (nlen > 1e-8) {
+                normal /= nlen;
+                vec3 planar = camera_right * dot(aInstanceVelocity, camera_right)
+                        + camera_up * dot(aInstanceVelocity, camera_up);
+                float plen = length(planar);
+                if (plen > 1e-4) {
+                    axis_y = planar / plen;
+                    axis_x = cross(axis_y, normal);
+                }
+            }
+        }
+        offset = axis_x * rotated.x + axis_y * rotated.y;
+    }
+    vec3 world_pos = aInstancePos + offset;
     gl_Position = uProjection * uView * vec4(world_pos, 1.0);
 }
 )";
@@ -352,6 +384,9 @@ void main() {
 
         shader->use();
         shader->set_mat4("uModel", cmd.model);
+        // 0 keeps a builtin that learned instance inputs on the ordinary mesh path. A shader without the uniform
+        // ignores the set.
+        shader->set_int("uInstanced", 0);
         if (shader->uniform_location("uNormalMatrix") >= 0) {
             shader->set_mat3("uNormalMatrix", normal_matrix(cmd.model));
         }
@@ -479,15 +514,84 @@ void main() {
         glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(ParticleInstance),
                               reinterpret_cast<const void *>(offsetof(ParticleInstance, uv_offset)));
         glVertexAttribDivisor(7, 1);
+
+        glEnableVertexAttribArray(8);
+        glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, sizeof(ParticleInstance),
+                              reinterpret_cast<const void *>(offsetof(ParticleInstance, velocity)));
+        glVertexAttribDivisor(8, 1);
+    }
+
+    void OpenGLRenderBackend::execute_draw_mesh_particles(const CmdDrawParticles &cmd) {
+        if (cmd.mesh_instances.empty() || !cmd.mesh || !cmd.material) {
+            return;
+        }
+        const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
+        const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
+        if (!shader || !mesh || !shader->valid() || !mesh->valid() || !shader->declares_particle_instance_inputs()) {
+            return;
+        }
+
+        const RenderState state = cmd.material->render_state();
+        apply_render_state(state);
+
+        init_particle_buffers();
+        if (particle_instance_vbo_ == 0) {
+            return;
+        }
+
+        shader->use();
+        const glm::mat4 identity{1.0f};
+        shader->set_mat4("uModel", identity);
+        if (shader->uniform_location("uNormalMatrix") >= 0) {
+            shader->set_mat3("uNormalMatrix", normal_matrix(identity));
+        }
+        apply_view(*shader, view_);
+        shader->set_vec4("uColor", cmd.material->color());
+        shader->set_vec2("uUvScale", glm::vec2{1.0f, 1.0f});
+        shader->set_vec2("uUvOffset", glm::vec2{0.0f, 0.0f});
+        shader->set_int("uTexture", 0);
+        shader->set_float("uGloss", cmd.material->gloss());
+        const std::shared_ptr<ITexture> normal = cmd.material->texture(1);
+        shader->set_int("uHasNormalMap", normal ? 1 : 0);
+        shader->set_int("uNormal", 1);
+        shader->set_float("uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
+        shader->set_int("uInstanced", 1);
+
+        bind_albedo(cmd.material->texture(0));
+        glActiveTexture(GL_TEXTURE1);
+        const auto normal_gl = std::dynamic_pointer_cast<OpenGLTexture>(normal);
+        if (normal_gl && normal_gl->valid() && normal_gl->layers() == 0) {
+            normal_gl->bind(1);
+        } else {
+            glBindTexture(GL_TEXTURE_2D, white_texture());
+        }
+        glActiveTexture(GL_TEXTURE0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, particle_instance_vbo_);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(cmd.mesh_instances.size() * sizeof(MeshParticleInstance)),
+                cmd.mesh_instances.data(), GL_STREAM_DRAW);
+        mesh->draw_instanced(particle_instance_vbo_, static_cast<int>(cmd.mesh_instances.size()));
     }
 
     void OpenGLRenderBackend::execute_draw_particles(const CmdDrawParticles &cmd) {
+        // Mesh never reaches the card shader. uParticleMode is set only on the path below.
+        if (cmd.draw == ParticleDraw::Mesh) {
+            execute_draw_mesh_particles(cmd);
+            return;
+        }
         if (cmd.instances.empty()) {
             return;
         }
 
-        // Particles keep the 2D state whatever their material says: no depth test or write, no culling.
-        apply_render_state(RenderState{.blend = cmd.blend});
+        // Plane keeps the 2D depth state. Billboard and Stretched take depth and cull from the material.
+        RenderState state{.blend = cmd.blend};
+        if (cmd.draw != ParticleDraw::Plane && cmd.material != nullptr) {
+            const RenderState material_state = cmd.material->render_state();
+            state.depth_test = material_state.depth_test;
+            state.depth_write = material_state.depth_write;
+            state.cull = material_state.cull;
+        }
+        apply_render_state(state);
 
         init_particle_buffers();
         if (!particle_shader_ || !particle_shader_->valid()) {
@@ -513,6 +617,7 @@ void main() {
 
         const glm::vec4 material_color = cmd.material ? cmd.material->color() : glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
         active_shader->set_vec4("uColor", material_color);
+        active_shader->set_int("uParticleMode", static_cast<int>(cmd.draw));
         active_shader->set_int("uTexture", 0);
 
         bind_albedo(cmd.material ? cmd.material->texture(0) : nullptr);

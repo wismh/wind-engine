@@ -4,27 +4,47 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/physics_2d.h>
+#include <engine/ecs/physics_3d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/particles.h>
+
+#include "render/particle_shape.h"
+#include "render/shader_instance_inputs.h"
 #include <engine/render/primitives.h>
 #include <engine/render/sprite.h>
 #include <engine/ui/canvas.h>
 #include <engine/core/bound_windows.h>
 #include <engine/ui/presentation.h>
 
+#include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/trigonometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <cmath>
+#include <cstddef>
 #include <memory>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace {
+
+struct OneCell {
+    glm::ivec3 cell{0};
+};
+
+bool one_cell_solid(const void* data, glm::ivec3 cell) {
+    const auto* solid = static_cast<const OneCell*>(data);
+    return cell == solid->cell;
+}
 
 class FakeMesh final : public engine::render::IMesh {
 public:
@@ -82,6 +102,14 @@ TEST(ParticleEmitter, DefaultsMatchExpected) {
     EXPECT_EQ(emitter.max_particles, 1000u);
     EXPECT_EQ(emitter.emission_rate, 10.0f);
     EXPECT_EQ(emitter.simulation_space, engine::render::SimulationSpace::World);
+    EXPECT_EQ(emitter.draw, engine::render::ParticleDraw::Plane);
+    EXPECT_TRUE(emitter.frustum_cull);
+    EXPECT_EQ(emitter.mesh_scale, (glm::vec3{1.0f, 1.0f, 1.0f}));
+    EXPECT_FLOAT_EQ(emitter.texture_layer, 0.0f);
+    EXPECT_FALSE(engine::render::particle_draw_uses_instance_transform(engine::render::ParticleDraw::Plane));
+    EXPECT_FALSE(engine::render::particle_draw_uses_instance_transform(engine::render::ParticleDraw::Billboard));
+    EXPECT_FALSE(engine::render::particle_draw_uses_instance_transform(engine::render::ParticleDraw::Stretched));
+    EXPECT_TRUE(engine::render::particle_draw_uses_instance_transform(engine::render::ParticleDraw::Mesh));
 }
 
 TEST(ParticleEmitter, ContinuousEmissionSpawnsAtRate) {
@@ -278,6 +306,7 @@ TEST(ParticleSystemRender, RunRenderPushesCmdDrawParticles) {
     EXPECT_EQ(cmd.mesh, em.mesh);
     EXPECT_EQ(cmd.material, em.material);
     EXPECT_EQ(cmd.blend, engine::render::BlendMode::Additive);
+    EXPECT_EQ(cmd.draw, engine::render::ParticleDraw::Plane);
     EXPECT_EQ(cmd.instances.size(), 3u);
 }
 
@@ -642,6 +671,122 @@ TEST(ParticleCollision, CollisionMaskFiltersLayers) {
     EXPECT_LT(emitter.particles[0].position.y, -1.5f);
 }
 
+engine::render::ParticleEmitter collision_emitter(float bounce) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 0.0f;
+    emitter.speed_max = 0.0f;
+    emitter.gravity = {0.0f, 0.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.bounce = bounce;
+    emitter.friction = 0.0f;
+    emitter.burst(1);
+    return emitter;
+}
+
+void spawn_at(
+        engine::render::ParticleEmitter& emitter, glm::vec3 position, glm::vec3 velocity,
+        std::span<const engine::render::ParticleCollider2D> colliders = {},
+        std::span<const engine::render::ParticleCollider3D> colliders_3d = {}) {
+    engine::render::update_emitter(emitter, 0.0001f, glm::mat4{1.0f}, colliders, colliders_3d);
+    emitter.particles[0].position = position;
+    emitter.particles[0].velocity = velocity;
+}
+
+TEST(ParticleCollision, Box3DHitsOnZAndBox2DIgnoresZ) {
+    const std::vector<engine::render::ParticleCollider3D> boxes_3d{
+            engine::render::ParticleCollider3D{
+                    .shape = engine::render::ParticleCollider3D::Shape::Box,
+                    .position = {0.0f, 0.0f, 0.0f},
+                    .rotation = {1.0f, 0.0f, 0.0f, 0.0f},
+                    .box_size = {2.0f, 2.0f, 2.0f},
+                    .layer = 1,
+            },
+    };
+    engine::render::ParticleEmitter box3d = collision_emitter(1.0f);
+    spawn_at(box3d, {0.0f, 0.0f, 3.0f}, {0.0f, 0.0f, -4.0f});
+    ASSERT_EQ(box3d.active_count(), 1u);
+    engine::render::update_emitter(box3d, 1.0f, glm::mat4{1.0f}, {}, boxes_3d);
+    ASSERT_EQ(box3d.active_count(), 1u);
+    // t = 0.5 on +Z, then skin 0.001 and velocity * remaining dt.
+    EXPECT_NEAR(box3d.particles[0].velocity.z, 4.0f, 0.01f);
+    EXPECT_NEAR(box3d.particles[0].position.z, 3.001f, 0.01f);
+
+    const std::vector<engine::render::ParticleCollider2D> boxes_2d{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
+                    .position = {0.0f, 0.0f, 0.0f},
+                    .box_size = {2.0f, 2.0f, 2.0f},
+                    .circle_radius = 0.0f,
+                    .layer = 1,
+            },
+    };
+    engine::render::ParticleEmitter box2d = collision_emitter(1.0f);
+    spawn_at(box2d, {0.0f, 0.0f, 3.0f}, {0.0f, 0.0f, -4.0f}, boxes_2d);
+    ASSERT_EQ(box2d.active_count(), 1u);
+    engine::render::update_emitter(box2d, 1.0f, glm::mat4{1.0f}, boxes_2d);
+    ASSERT_EQ(box2d.active_count(), 1u);
+    // XY is inside, so the 2D wall hits, and Z is not a face: the particle keeps going.
+    EXPECT_NEAR(box2d.particles[0].velocity.z, -4.0f, 0.01f);
+    EXPECT_NEAR(box2d.particles[0].position.z, -1.0f, 0.02f);
+}
+
+TEST(ParticleCollision, SphereBounce) {
+    const std::vector<engine::render::ParticleCollider3D> spheres{
+            engine::render::ParticleCollider3D{
+                    .shape = engine::render::ParticleCollider3D::Shape::Sphere,
+                    .position = {0.0f, 0.0f, 5.0f},
+                    .radius = 2.0f,
+                    .layer = 1,
+            },
+    };
+    engine::render::ParticleEmitter emitter = collision_emitter(0.8f);
+    spawn_at(emitter, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 10.0f});
+    ASSERT_EQ(emitter.active_count(), 1u);
+    engine::render::update_emitter(emitter, 0.5f, glm::mat4{1.0f}, {}, spheres);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].velocity.z, -8.0f, 0.05f);
+    EXPECT_NEAR(emitter.particles[0].position.z, 1.399f, 0.02f);
+}
+
+TEST(ParticleCollision, CapsuleCapBounce) {
+    const std::vector<engine::render::ParticleCollider3D> capsules{
+            engine::render::ParticleCollider3D{
+                    .shape = engine::render::ParticleCollider3D::Shape::Capsule,
+                    .position = {0.0f, 0.0f, 0.0f},
+                    .rotation = {1.0f, 0.0f, 0.0f, 0.0f},
+                    .radius = 0.5f,
+                    .height = 2.0f,
+                    .layer = 1,
+            },
+    };
+    engine::render::ParticleEmitter emitter = collision_emitter(1.0f);
+    spawn_at(emitter, {0.0f, 4.0f, 0.0f}, {0.0f, -10.0f, 0.0f});
+    ASSERT_EQ(emitter.active_count(), 1u);
+    engine::render::update_emitter(emitter, 0.5f, glm::mat4{1.0f}, {}, capsules);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].velocity.y, 10.0f, 0.05f);
+    EXPECT_NEAR(emitter.particles[0].position.y, 4.001f, 0.02f);
+    EXPECT_GT(emitter.particles[0].position.y, 3.0f);
+}
+
+TEST(ParticleCollision, GridSweepStopsOnSolidCell) {
+    OneCell solid{{0, 0, 0}};
+    const engine::render::ParticleGrid grid{&one_cell_solid, &solid};
+    engine::render::ParticleEmitter emitter = collision_emitter(0.0f);
+    emitter.collision_grid = true;
+    spawn_at(emitter, {0.5f, 2.0f, 0.5f}, {0.0f, -4.0f, 0.0f});
+    ASSERT_EQ(emitter.active_count(), 1u);
+    engine::render::update_emitter(emitter, 0.5f, glm::mat4{1.0f}, {}, {}, nullptr, &grid);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].position.x, 0.5f, 1e-4f);
+    EXPECT_NEAR(emitter.particles[0].position.y, 1.0f, 1e-3f);
+    EXPECT_NEAR(emitter.particles[0].position.z, 0.5f, 1e-4f);
+    EXPECT_NEAR(emitter.particles[0].velocity.y, 0.0f, 1e-4f);
+}
+
 TEST(ParticleSystemECS, RunParticlesCollidesWithWorldEntities) {
     engine::ecs::World world;
     world.ctx<engine::Time>().delta_time = 0.5f;
@@ -688,6 +833,94 @@ TEST(ParticleSystemECS, RunParticlesCollidesWithWorldEntities) {
     // Must have hit the ECS floor collider and bounced upward!
     EXPECT_GE(em.particles[0].position.y, 1.0f);
     EXPECT_GT(em.particles[0].velocity.y, 0.0f);
+}
+
+TEST(ParticleSystemECS, OrientedBox3DUsesTransformQuaternion) {
+    engine::ecs::World world;
+    const engine::ecs::Entity wall = world.create();
+    world.emplace<engine::Transform>(
+            wall, engine::Transform{
+                          .position = {0.0f, 0.0f, 0.0f},
+                          .rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3{0.0f, 1.0f, 0.0f}),
+                  });
+    world.emplace<engine::BoxCollider3D>(wall, engine::BoxCollider3D{
+                                                       .size = {4.0f, 4.0f, 0.2f},
+                                                       .layer = 1,
+                                                       .is_trigger = false,
+                                               });
+
+    const engine::ecs::Entity emitter_entity = world.create();
+    world.emplace<engine::Transform>(emitter_entity, engine::Transform{});
+    engine::render::ParticleEmitter emitter = collision_emitter(1.0f);
+    world.emplace<engine::render::ParticleEmitter>(emitter_entity, std::move(emitter));
+
+    world.ctx<engine::Time>().delta_time = 0.001f;
+    engine::run_particles(world);
+    auto& em = world.get<engine::render::ParticleEmitter>(emitter_entity);
+    ASSERT_EQ(em.active_count(), 1u);
+    em.particles[0].position = {3.0f, 0.0f, 0.0f};
+    em.particles[0].velocity = {-4.0f, 0.0f, 0.0f};
+
+    world.ctx<engine::Time>().delta_time = 1.0f;
+    engine::run_particles(world);
+    ASSERT_EQ(em.active_count(), 1u);
+    // +90° about Y maps the thin local Z onto world X, so the face is x = 0.1, not the unrotated x = 2.
+    EXPECT_NEAR(em.particles[0].velocity.x, 4.0f, 0.05f);
+    EXPECT_NEAR(em.particles[0].position.x, 1.201f, 0.02f);
+}
+
+TEST(ParticleSystemECS, TriggerBox3DIsNotCopied) {
+    engine::ecs::World world;
+    const engine::ecs::Entity wall = world.create();
+    world.emplace<engine::Transform>(
+            wall, engine::Transform{
+                          .rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3{0.0f, 1.0f, 0.0f}),
+                  });
+    world.emplace<engine::BoxCollider3D>(wall, engine::BoxCollider3D{
+                                                       .size = {4.0f, 4.0f, 0.2f},
+                                                       .layer = 1,
+                                                       .is_trigger = true,
+                                               });
+
+    const engine::ecs::Entity emitter_entity = world.create();
+    world.emplace<engine::Transform>(emitter_entity, engine::Transform{});
+    engine::render::ParticleEmitter emitter = collision_emitter(1.0f);
+    emitter.kill_on_collision = true;
+    world.emplace<engine::render::ParticleEmitter>(emitter_entity, std::move(emitter));
+
+    world.ctx<engine::Time>().delta_time = 0.001f;
+    engine::run_particles(world);
+    auto& em = world.get<engine::render::ParticleEmitter>(emitter_entity);
+    ASSERT_EQ(em.active_count(), 1u);
+    em.particles[0].position = {3.0f, 0.0f, 0.0f};
+    em.particles[0].velocity = {-4.0f, 0.0f, 0.0f};
+
+    world.ctx<engine::Time>().delta_time = 1.0f;
+    engine::run_particles(world);
+    ASSERT_EQ(em.active_count(), 1u);
+    EXPECT_LT(em.particles[0].position.x, 0.0f);
+}
+
+TEST(ParticleSystemECS, MissingParticleGridDoesNothing) {
+    engine::ecs::World world;
+    const engine::ecs::Entity emitter_entity = world.create();
+    world.emplace<engine::Transform>(emitter_entity, engine::Transform{.position = {0.0f, 0.0f, 2.0f}});
+    engine::render::ParticleEmitter emitter = collision_emitter(0.0f);
+    emitter.collision_grid = true;
+    world.emplace<engine::render::ParticleEmitter>(emitter_entity, std::move(emitter));
+
+    world.ctx<engine::Time>().delta_time = 0.001f;
+    engine::run_particles(world);
+    auto& em = world.get<engine::render::ParticleEmitter>(emitter_entity);
+    ASSERT_EQ(em.active_count(), 1u);
+    em.particles[0].position = {0.0f, 0.0f, 2.0f};
+    em.particles[0].velocity = {0.0f, 0.0f, -4.0f};
+
+    world.ctx<engine::Time>().delta_time = 0.5f;
+    engine::run_particles(world);
+    ASSERT_EQ(em.active_count(), 1u);
+    EXPECT_NEAR(em.particles[0].position.z, 0.0f, 0.01f);
+    EXPECT_EQ(world.try_ctx<engine::render::ParticleGrid>(), nullptr);
 }
 
 void expect_same_particles(
@@ -754,6 +987,14 @@ TEST(ParticleEmitter, ParallelIntegrationMatchesTheCaller) {
                     .layer = 1,
             },
     };
+    const std::vector<engine::render::ParticleCollider3D> colliders_3d{
+            engine::render::ParticleCollider3D{
+                    .shape = engine::render::ParticleCollider3D::Shape::Box,
+                    .position = {0.0f, 0.0f, -2.0f},
+                    .box_size = {40.0f, 1.0f, 1.0f},
+                    .layer = 1,
+            },
+    };
     const engine::render::ParticleEmitter seeded = seeded_emitter();
     engine::render::ParticleEmitter serial = seeded;
     engine::render::ParticleEmitter inline_jobs = seeded;
@@ -761,12 +1002,317 @@ TEST(ParticleEmitter, ParallelIntegrationMatchesTheCaller) {
     engine::JobSystem none(0);
     engine::JobSystem jobs(2);
 
-    engine::render::update_emitter(serial, 0.05f, glm::mat4{1.0f}, colliders);
-    engine::render::update_emitter(inline_jobs, 0.05f, glm::mat4{1.0f}, colliders, &none);
-    engine::render::update_emitter(pooled, 0.05f, glm::mat4{1.0f}, colliders, &jobs);
+    engine::render::update_emitter(serial, 0.05f, glm::mat4{1.0f}, colliders, colliders_3d);
+    engine::render::update_emitter(inline_jobs, 0.05f, glm::mat4{1.0f}, colliders, colliders_3d, &none);
+    engine::render::update_emitter(pooled, 0.05f, glm::mat4{1.0f}, colliders, colliders_3d, &jobs);
 
     expect_same_particles(serial, inline_jobs);
     expect_same_particles(serial, pooled);
     EXPECT_LT(serial.active_count(), seeded.active_count());
+}
+
+void expect_card(glm::vec3 actual, glm::vec3 expected) {
+    EXPECT_NEAR(actual.x, expected.x, 1e-5f);
+    EXPECT_NEAR(actual.y, expected.y, 1e-5f);
+    EXPECT_NEAR(actual.z, expected.z, 1e-5f);
+}
+
+glm::vec3 card_offset(
+        engine::render::ParticleDraw draw, glm::vec3 right, glm::vec3 up, glm::vec2 corner, glm::vec2 size,
+        float rotation, glm::vec3 velocity) {
+    return engine::render::particle_card_offset(draw, right, up, corner, size, rotation, velocity);
+}
+
+TEST(ParticleCard, OffsetMatchesCameraPlaneAndPlaneStaysXY) {
+    using engine::render::ParticleDraw;
+    const glm::vec3 side_right{0.0f, 0.0f, 1.0f};
+    const glm::vec3 side_up{0.0f, 1.0f, 0.0f};
+    const glm::vec3 identity_right{1.0f, 0.0f, 0.0f};
+    const glm::vec3 identity_up{0.0f, 1.0f, 0.0f};
+    const float right_angle = glm::radians(90.0f);
+
+    expect_card(card_offset(ParticleDraw::Billboard, side_right, side_up, {0.5f, 0.5f}, {2.0f, 2.0f}, 0.0f, {}),
+            {0.0f, 1.0f, 1.0f});
+    expect_card(
+            card_offset(ParticleDraw::Billboard, side_right, side_up, {0.5f, 0.5f}, {2.0f, 2.0f}, right_angle, {}),
+            {0.0f, 1.0f, -1.0f});
+    expect_card(card_offset(ParticleDraw::Plane, side_right, side_up, {0.5f, 0.5f}, {2.0f, 2.0f}, 0.0f, {}),
+            {1.0f, 1.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Plane, side_right, side_up, {0.5f, 0.5f}, {2.0f, 2.0f}, right_angle, {}),
+            {-1.0f, 1.0f, 0.0f});
+    expect_card(
+            card_offset(ParticleDraw::Billboard, identity_right, identity_up, {0.5f, -0.5f}, {2.0f, 4.0f}, 0.0f, {}),
+            {1.0f, -2.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.5f, 0.5f}, {2.0f, 2.0f}, 0.0f,
+                        {0.0f, 4.0f, 0.0f}),
+            {1.0f, 1.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.0f, 0.5f}, {2.0f, 6.0f}, 0.0f,
+                        {0.0f, -4.0f, 0.0f}),
+            {0.0f, -3.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.5f, 0.0f}, {2.0f, 6.0f}, 0.0f,
+                        {0.0f, -4.0f, 0.0f}),
+            {-1.0f, 0.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.0f, 0.5f}, {2.0f, 6.0f}, 0.0f, {}),
+            {0.0f, 3.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.0f, 0.5f}, {2.0f, 6.0f}, 0.0f,
+                        {1e-4f, 0.0f, 0.0f}),
+            {0.0f, 3.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.0f, 0.5f}, {2.0f, 6.0f}, 0.0f,
+                        {2e-4f, 0.0f, 0.0f}),
+            {3.0f, 0.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Stretched, identity_right, identity_up, {0.0f, 0.5f}, {2.0f, 6.0f}, 0.0f,
+                        {0.0f, 0.0f, 9.0f}),
+            {0.0f, 3.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Billboard, {2.0f, 0.0f, 0.0f}, {0.0f, 4.0f, 0.0f}, {0.5f, 0.5f},
+                        {2.0f, 2.0f}, 0.0f, {}),
+            {1.0f, 1.0f, 0.0f});
+    expect_card(card_offset(ParticleDraw::Billboard, {}, {0.0f, 1.0f, 0.0f}, {0.5f, 0.0f}, {2.0f, 2.0f}, 0.0f, {}),
+            {1.0f, 0.0f, 0.0f});
+}
+
+TEST(ParticleInstance, LayoutKeepsPlaneAttributesAndAppendsVelocity) {
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, position), 0u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, rotation), 12u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, size), 16u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, color), 24u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, uv_scale), 40u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, uv_offset), 48u);
+    EXPECT_EQ(offsetof(engine::render::ParticleInstance, velocity), 56u);
+    EXPECT_EQ(sizeof(engine::render::ParticleInstance), 68u);
+}
+
+TEST(ParticleSystemRender, StretchedVelocityStaysWorldAndFollowsLocal) {
+    engine::ecs::World world;
+    spawn_camera(world);
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto add = [&](engine::render::SimulationSpace space) {
+        const engine::ecs::Entity entity = world.create();
+        engine::Transform transform;
+        transform.rotation = engine::rotation_z(glm::radians(90.0f));
+        world.emplace<engine::Transform>(entity, transform);
+        auto& emitter = world.emplace<engine::render::ParticleEmitter>(entity);
+        emitter.draw = engine::render::ParticleDraw::Stretched;
+        emitter.simulation_space = space;
+        emitter.mesh = std::make_shared<FakeMesh>();
+        emitter.material = material;
+        emitter.emission_rate = 0.0f;
+        engine::render::Particle particle;
+        particle.velocity = {4.0f, 0.0f, 0.0f};
+        particle.lifetime = 1.0f;
+        emitter.particles.push_back(particle);
+    };
+    add(engine::render::SimulationSpace::World);
+    add(engine::render::SimulationSpace::Local);
+
+    world.ctx<engine::Time>().delta_time = 0.0f;
+    world.run(engine::ecs::Schedule::Frame);
+
+    glm::vec3 world_velocity{0.0f};
+    glm::vec3 local_velocity{0.0f};
+    int draws = 0;
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        if (!std::holds_alternative<engine::render::CmdDrawParticles>(commands[i])) {
+            continue;
+        }
+        const auto& cmd = std::get<engine::render::CmdDrawParticles>(commands[i]);
+        EXPECT_EQ(cmd.draw, engine::render::ParticleDraw::Stretched);
+        ASSERT_EQ(cmd.instances.size(), 1u);
+        ++draws;
+        if (cmd.instances[0].velocity.x > 1.0f) {
+            world_velocity = cmd.instances[0].velocity;
+        } else {
+            local_velocity = cmd.instances[0].velocity;
+        }
+    }
+    EXPECT_EQ(draws, 2);
+    EXPECT_FLOAT_EQ(world_velocity.x, 4.0f);
+    EXPECT_FLOAT_EQ(world_velocity.y, 0.0f);
+    EXPECT_FLOAT_EQ(world_velocity.z, 0.0f);
+    EXPECT_NEAR(local_velocity.x, 0.0f, 1e-5f);
+    EXPECT_NEAR(local_velocity.y, 4.0f, 1e-5f);
+    EXPECT_NEAR(local_velocity.z, 0.0f, 1e-5f);
+}
+
+TEST(ParticleMesh, InstanceTransformScalesByTheFactorAndIgnoresCardSize) {
+    const engine::render::MeshParticleInstance formed = engine::render::particle_mesh_instance(
+            {1.0f, 2.0f, 3.0f}, {2.0f, 4.0f, 8.0f}, 0.5f, {0.25f, 0.5f, 0.75f, 1.0f}, 3.0f);
+    EXPECT_EQ(formed.position, (glm::vec3{1.0f, 2.0f, 3.0f}));
+    EXPECT_EQ(formed.scale, (glm::vec3{1.0f, 2.0f, 4.0f}));
+    EXPECT_EQ(formed.color, (glm::vec4{0.25f, 0.5f, 0.75f, 1.0f}));
+    EXPECT_FLOAT_EQ(formed.layer, 3.0f);
+
+    EXPECT_FLOAT_EQ(engine::render::particle_mesh_size_factor({}, 0.4f, 1.0f), 1.0f);
+    const engine::render::Curve<float> swell = engine::render::Curve<float>::linear(4.0f, 0.0f);
+    EXPECT_FLOAT_EQ(engine::render::particle_mesh_size_factor(swell, 0.25f, 1.0f), 3.0f);
+    const engine::render::Curve<float> held = engine::render::Curve<float>::constant(2.0f);
+    EXPECT_FLOAT_EQ(engine::render::particle_mesh_size_factor(held, 0.5f, 0.0f), 2.0f);
+}
+
+TEST(ParticleMesh, SpawnCopiesTextureLayerAndLeavesItOnTheLiveParticle) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.texture_layer = 6.0f;
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.1f);
+    ASSERT_EQ(emitter.particles.size(), 1u);
+    EXPECT_FLOAT_EQ(emitter.particles[0].texture_layer, 6.0f);
+
+    emitter.texture_layer = 0.0f;
+    engine::render::update_emitter(emitter, 0.1f);
+    ASSERT_EQ(emitter.particles.size(), 1u);
+    EXPECT_FLOAT_EQ(emitter.particles[0].texture_layer, 6.0f);
+}
+
+namespace {
+
+constexpr int kShapeSamples = 128;
+constexpr float kShapeEpsilon = 1e-4f;
+constexpr float kFixtureEpsilon = 1e-5f;
+
+void expect_offset(glm::vec3 actual, glm::vec3 expected) {
+    EXPECT_NEAR(actual.x, expected.x, kFixtureEpsilon);
+    EXPECT_NEAR(actual.y, expected.y, kFixtureEpsilon);
+    EXPECT_NEAR(actual.z, expected.z, kFixtureEpsilon);
+}
+
+engine::render::ParticleEmitter spawn_shape(
+        engine::render::EmitterShape shape, glm::vec3 scale, glm::vec3 direction) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.max_particles = static_cast<std::size_t>(kShapeSamples);
+    emitter.lifetime_min = 10.0f;
+    emitter.lifetime_max = 10.0f;
+    emitter.speed_min = 0.0f;
+    emitter.speed_max = 0.0f;
+    emitter.gravity = {0.0f, 0.0f, 0.0f};
+    emitter.collision_enabled = false;
+    emitter.spread_angle = 0.0f;
+    emitter.shape = shape;
+    emitter.shape_scale = scale;
+    emitter.direction = direction;
+    emitter.burst(kShapeSamples);
+    engine::render::update_emitter(emitter, 0.016f);
+    return emitter;
+}
+
+}
+
+TEST(ParticleShape, SphereFixturesAreVolumePoints) {
+    const glm::vec3 scale{3.0f, 1.0f, 2.0f};
+    const glm::vec3 unused_direction{0.0f, 1.0f, 0.0f};
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Sphere, scale, unused_direction, 1.0f, 0.5f, 0.0f),
+            {3.0f, 0.0f, 0.0f});
+    // r = cbrt(0.125) = 0.5, so this is inside the ball. A surface sample would be (0, 1, 0).
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Sphere, scale, unused_direction, 0.125f, 0.5f, 0.25f),
+            {0.0f, 0.5f, 0.0f});
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Sphere, scale, unused_direction, 1.0f, 1.0f, 0.0f),
+            {0.0f, 0.0f, 2.0f});
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Sphere, {-3.0f, 1.0f, 2.0f}, unused_direction, 1.0f, 0.5f, 0.0f),
+            {-3.0f, 0.0f, 0.0f});
+}
+
+TEST(ParticleShape, DiscFixturesLieOnTheDirectionPlane) {
+    const glm::vec3 scale{4.0f, 1.0f, 9.0f};
+    // Normal +Z, angle 0: tangent is +X, so the point is (scale.x, 0, 0). scale.z is unused.
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {0.0f, 0.0f, 1.0f}, 1.0f, 0.0f, 0.0f),
+            {4.0f, 0.0f, 0.0f});
+    // Normal +Y (and the zero fallback): helper is +X, tangent is +Z.
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {0.0f, 1.0f, 0.0f}, 1.0f, 0.0f, 0.0f),
+            {0.0f, 0.0f, 4.0f});
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {0.0f, 0.0f, 0.0f}, 1.0f, 0.0f, 0.0f),
+            {0.0f, 0.0f, 4.0f});
+    // length^2 = 1e-8, under 1e-6, so the direction is replaced with +Y.
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {1.0e-4f, 0.0f, 0.0f}, 1.0f, 0.0f, 0.0f),
+            {0.0f, 0.0f, 4.0f});
+    // Normal +X. helper is +Y, tangent is (0, 0, -1), angle 0 lands on (0, 0, -scale.x).
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {1.0f, 0.0f, 0.0f}, 1.0f, 0.0f, 0.0f),
+            {0.0f, 0.0f, -4.0f});
+    // length^2 = 1e-4, above 1e-6, so this stays +X and hits the same point.
+    expect_offset(
+            engine::render::particle_shape_offset(
+                    engine::render::EmitterShape::Disc, scale, {1.0e-2f, 0.0f, 0.0f}, 1.0f, 0.0f, 0.0f),
+            {0.0f, 0.0f, -4.0f});
+}
+
+TEST(ParticleShape, SphereSamplesStayInsideTheEllipsoid) {
+    const engine::render::ParticleEmitter emitter =
+            spawn_shape(engine::render::EmitterShape::Sphere, {3.0f, 1.0f, 2.0f}, {0.0f, 1.0f, 0.0f});
+    ASSERT_EQ(emitter.particles.size(), static_cast<std::size_t>(kShapeSamples));
+    for (const engine::render::Particle& particle : emitter.particles) {
+        const glm::vec3 p = particle.position;
+        EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+        const float nx = p.x / 3.0f;
+        const float ny = p.y / 1.0f;
+        const float nz = p.z / 2.0f;
+        EXPECT_LE(nx * nx + ny * ny + nz * nz, 1.0f + kShapeEpsilon);
+    }
+}
+
+TEST(ParticleShape, DiscSamplesStayOnThePlane) {
+    const glm::vec3 direction{1.0f, 2.0f, 2.0f};
+    const glm::vec3 normal = glm::normalize(direction);
+    const engine::render::ParticleEmitter emitter =
+            spawn_shape(engine::render::EmitterShape::Disc, {4.0f, 1.0f, 9.0f}, direction);
+    ASSERT_EQ(emitter.particles.size(), static_cast<std::size_t>(kShapeSamples));
+    for (const engine::render::Particle& particle : emitter.particles) {
+        const glm::vec3 p = particle.position;
+        EXPECT_LE(std::abs(glm::dot(p, normal)), kShapeEpsilon);
+        EXPECT_LE(glm::length(p), 4.0f + kShapeEpsilon);
+    }
+}
+
+TEST(ParticleShape, DiscZeroDirectionUsesUp) {
+    const engine::render::ParticleEmitter emitter =
+            spawn_shape(engine::render::EmitterShape::Disc, {4.0f, 1.0f, 9.0f}, {0.0f, 0.0f, 0.0f});
+    ASSERT_EQ(emitter.particles.size(), static_cast<std::size_t>(kShapeSamples));
+    for (const engine::render::Particle& particle : emitter.particles) {
+        const glm::vec3 p = particle.position;
+        EXPECT_LE(std::abs(p.y), kShapeEpsilon);
+        EXPECT_LE(glm::length(p), 4.0f + kShapeEpsilon);
+    }
+}
+
+TEST(ParticleShape, CircleSamplesStayOnXy) {
+    const engine::render::ParticleEmitter emitter =
+            spawn_shape(engine::render::EmitterShape::Circle, {2.5f, 0.5f, 8.0f}, {0.0f, 1.0f, 0.0f});
+    ASSERT_EQ(emitter.particles.size(), static_cast<std::size_t>(kShapeSamples));
+    for (const engine::render::Particle& particle : emitter.particles) {
+        const glm::vec3 p = particle.position;
+        EXPECT_FLOAT_EQ(p.z, 0.0f);
+        const float nx = p.x / 2.5f;
+        const float ny = p.y / 0.5f;
+        EXPECT_LE(nx * nx + ny * ny, 1.0f + kShapeEpsilon);
+    }
+}
+
+TEST(ParticleMesh, VertexSourceDeclaresInstanceInputsByName) {
+    const std::string_view present = "uniform int uInstanced; layout(location = 7) in vec3 aInstancePos; "
+                                      "layout(location = 8) in vec3 aInstanceScale; "
+                                      "layout(location = 9) in vec4 aInstanceColor;";
+    EXPECT_TRUE(engine::render::shader_declares_particle_instance_inputs(present));
+    const std::string_view absent = "layout(location = 0) in vec3 aPosition; uniform mat4 uModel;";
+    EXPECT_FALSE(engine::render::shader_declares_particle_instance_inputs(absent));
+    EXPECT_FALSE(engine::render::shader_declares_particle_instance_inputs("aInstancePosition uInstancedExtra"));
 }
 

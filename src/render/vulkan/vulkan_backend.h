@@ -56,6 +56,7 @@ public:
     void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
+    void execute_draw_mesh_particles(const CmdDrawParticles& cmd);
     void execute(const CommandBuffer& commands) override;
 
     void shutdown_gpu_resources();
@@ -95,6 +96,9 @@ private:
     [[nodiscard]] bool ensure_shared_objects();
     [[nodiscard]] bool ensure_frame_slot(std::uint32_t slot);
     [[nodiscard]] bool ensure_particle_resources();
+    // One MeshParticleInstance (position 0, scale 1, color white, layer 0) for ordinary draws of a shader that
+    // declares locations 7-9.
+    [[nodiscard]] bool ensure_mesh_instance_dummy();
     // The override's or material's albedo when its kind matches the shader's sampler (`arrayed`: a texture array),
     // otherwise a white 2D texture or a white one-layer array, so the descriptor's view type always matches.
     [[nodiscard]] VulkanTexture* resolve_albedo(
@@ -137,6 +141,8 @@ private:
     std::shared_ptr<VulkanShader> particle_shader_;
     VkBuffer particle_quad_buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory particle_quad_memory_ = VK_NULL_HANDLE;
+    VkBuffer mesh_instance_dummy_ = VK_NULL_HANDLE;
+    VkDeviceMemory mesh_instance_dummy_memory_ = VK_NULL_HANDLE;
 };
 
 } // namespace engine::render

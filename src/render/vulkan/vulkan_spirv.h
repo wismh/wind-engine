@@ -39,8 +39,13 @@ struct SpirvReflection {
     // The sampler is a texture array (Sampler2DArray / sampler2DArray): its descriptor needs a 2D_ARRAY view.
     bool sampler_arrayed = false;
     std::unordered_map<std::string, SpirvUniformMember> uniforms;
+    // Vertex-stage input locations. Fragment inputs are not recorded.
+    std::vector<std::uint32_t> input_locations;
 
     [[nodiscard]] const SpirvUniformMember* find_uniform(std::string_view name) const noexcept;
+    [[nodiscard]] bool has_input_location(std::uint32_t location) const noexcept;
+    // uInstanced plus vertex locations 7, 8, and 9. Location 10 is optional.
+    [[nodiscard]] bool declares_particle_instance_inputs() const noexcept;
 };
 
 [[nodiscard]] std::string parse_spirv_entry_point(std::span<const std::uint32_t> spirv);

@@ -135,7 +135,12 @@ bool VulkanMesh::ensure_gpu_buffers() {
 }
 
 void VulkanMesh::draw(VkCommandBuffer cmd) {
-    if (cmd == VK_NULL_HANDLE || !ensure_gpu_buffers()) {
+    draw_instanced(cmd, VK_NULL_HANDLE, 0, 1);
+}
+
+void VulkanMesh::draw_instanced(VkCommandBuffer cmd, VkBuffer instances, VkDeviceSize instance_offset,
+        std::uint32_t instance_count) {
+    if (cmd == VK_NULL_HANDLE || instance_count == 0 || !ensure_gpu_buffers()) {
         return;
     }
     const VulkanFunctions& fn = context_->fn();
@@ -144,11 +149,14 @@ void VulkanMesh::draw(VkCommandBuffer cmd) {
     if (skin_buffer_ != VK_NULL_HANDLE) {
         fn.vkCmdBindVertexBuffers(cmd, 1, 1, &skin_buffer_, &offset);
     }
+    if (instances != VK_NULL_HANDLE) {
+        fn.vkCmdBindVertexBuffers(cmd, 2, 1, &instances, &instance_offset);
+    }
     if (index_buffer_ != VK_NULL_HANDLE) {
         fn.vkCmdBindIndexBuffer(cmd, index_buffer_, 0, VK_INDEX_TYPE_UINT32);
-        fn.vkCmdDrawIndexed(cmd, static_cast<std::uint32_t>(indices_.size()), 1, 0, 0, 0);
+        fn.vkCmdDrawIndexed(cmd, static_cast<std::uint32_t>(indices_.size()), instance_count, 0, 0, 0);
     } else {
-        fn.vkCmdDraw(cmd, static_cast<std::uint32_t>(vertices_.size()), 1, 0, 0);
+        fn.vkCmdDraw(cmd, static_cast<std::uint32_t>(vertices_.size()), instance_count, 0, 0);
     }
 }
 
