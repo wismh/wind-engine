@@ -153,6 +153,8 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     EXPECT_EQ(box->layer, 2u);
     EXPECT_EQ(box->mask, 6u);
     EXPECT_TRUE(box->is_trigger);
+    EXPECT_FLOAT_EQ(box->friction, 0.f);
+    EXPECT_FLOAT_EQ(box->restitution, 0.f);
 
     const auto* pt = world.try_get<engine::PointerTarget>(player_entity);
     ASSERT_NE(pt, nullptr);
@@ -170,6 +172,42 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     const auto* circle = world.try_get<engine::CircleCollider2D>(shield_entity);
     ASSERT_NE(circle, nullptr);
     EXPECT_FLOAT_EQ(circle->radius, 0.75f);
+    EXPECT_FLOAT_EQ(circle->friction, 0.f);
+    EXPECT_FLOAT_EQ(circle->restitution, 0.f);
+}
+
+TEST(WorldSerializer, ColliderFrictionAndRestitutionRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "floor"
+box_collider_2d = { size = [8.0, 2.0, 1.0], friction = 0.25, restitution = 0.5 }
+
+[[entities]]
+id = "ball"
+circle_collider_2d = { radius = 0.5, friction = 1.5, restitution = 1.0 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+
+    const engine::ecs::Entity floor = loaded->by_id.at("floor");
+    const engine::ecs::Entity ball = loaded->by_id.at("ball");
+    EXPECT_FLOAT_EQ(world.get<engine::BoxCollider2D>(floor).friction, 0.25f);
+    EXPECT_FLOAT_EQ(world.get<engine::BoxCollider2D>(floor).restitution, 0.5f);
+    EXPECT_FLOAT_EQ(world.get<engine::CircleCollider2D>(ball).friction, 1.5f);
+    EXPECT_FLOAT_EQ(world.get<engine::CircleCollider2D>(ball).restitution, 1.f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World reloaded_world;
+    auto reloaded = engine::ecs::load_world_from_toml(reloaded_world, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::BoxCollider2D>(reloaded->by_id.at("floor")).friction, 0.25f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::BoxCollider2D>(reloaded->by_id.at("floor")).restitution, 0.5f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::CircleCollider2D>(reloaded->by_id.at("ball")).friction, 1.5f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::CircleCollider2D>(reloaded->by_id.at("ball")).restitution, 1.f);
 }
 
 TEST(WorldSerializer, GameSpecificComponentRoundTripsAndPreservesCppDefaults) {

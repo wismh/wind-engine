@@ -32,6 +32,8 @@ struct Physics2DConfig {
 
 inline constexpr float kMinDynamicMass = 1.0e-4f;
 inline constexpr float kContactSlop2D = 1.0e-3f;
+// Restitution is 0 when the approach is this slow or slower (v_rel_n >= -kBounceThreshold2D).
+inline constexpr float kBounceThreshold2D = 1.f;
 inline constexpr int kPositionIterations2D = 8;
 
 struct BoxCollider2D {
@@ -39,6 +41,8 @@ struct BoxCollider2D {
     uint32_t layer{1};              // bitmask: what this collider is
     uint32_t mask{0xFFFFFFFFu};     // bitmask: what this collider detects
     bool is_trigger{false};
+    float friction{0.f};     // >= 0; negative or non-finite is 0 when solved
+    float restitution{0.f};  // clamped to [0, 1] when solved; non-finite is 0
 };
 
 struct CircleCollider2D {
@@ -46,6 +50,8 @@ struct CircleCollider2D {
     uint32_t layer{1};
     uint32_t mask{0xFFFFFFFFu};
     bool is_trigger{false};
+    float friction{0.f};     // >= 0; negative or non-finite is 0 when solved
+    float restitution{0.f};  // clamped to [0, 1] when solved; non-finite is 0
 };
 
 enum class CollisionPhase {

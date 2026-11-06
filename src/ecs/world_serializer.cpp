@@ -609,12 +609,16 @@ void register_builtin_components(
                 out.field("layer", c.layer);
                 out.field("mask", c.mask);
                 out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
             },
             [](ComponentReader& in, BoxCollider2D& c) {
                 (void)in.field("size", c.size);
                 (void)in.field("layer", c.layer);
                 (void)in.field("mask", c.mask);
                 (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
             });
 
     serializer.register_component<CircleCollider2D>(
@@ -624,12 +628,16 @@ void register_builtin_components(
                 out.field("layer", c.layer);
                 out.field("mask", c.mask);
                 out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
             },
             [](ComponentReader& in, CircleCollider2D& c) {
                 (void)in.field("radius", c.radius);
                 (void)in.field("layer", c.layer);
                 (void)in.field("mask", c.mask);
                 (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
             });
 
     serializer.register_component<PointerTarget>(

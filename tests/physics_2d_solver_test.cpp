@@ -301,3 +301,75 @@ TEST(Physics2D, DynamicChildUnderTranslatedParentSeparatesInWorld) {
     EXPECT_NEAR(engine::ecs::world_position(world, child).x, 9.001f, 1e-4f);
     EXPECT_NEAR(world.get<engine::Transform>(child).position.x, -0.999f, 1e-4f);
 }
+
+TEST(Physics2D, RestitutionBounceAboveThreshold) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(floor).restitution = 1.f;
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, 1.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(crate).restitution = 1.f;
+    make_dynamic(world, crate, glm::vec3{0.f, -3.f, 0.f}, 1.f);
+
+    step_physics(world);
+
+    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, 1.f - engine::kContactSlop2D, 1e-4f);
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.y, 4.f, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.x, 0.f, 1e-4f);
+}
+
+TEST(Physics2D, RestitutionZeroDoesNotReverse) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, 1.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    make_dynamic(world, crate, glm::vec3{0.f, -3.f, 0.f}, 1.f);
+
+    step_physics(world);
+
+    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, 1.f - engine::kContactSlop2D, 1e-4f);
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.x, 0.f, 1e-4f);
+}
+
+TEST(Physics2D, FrictionRemovesOneUnitPerRestingStep) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(floor).friction = 1.f;
+    const float rest_y = 1.f - engine::kContactSlop2D;
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, rest_y, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(crate).friction = 1.f;
+    make_dynamic(world, crate, glm::vec3{10.f, 0.f, 0.f}, 1.f);
+
+    step_physics(world);
+
+    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.x, 9.f, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+
+    step_physics(world);
+
+    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.x, 8.f, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+}
+
+TEST(Physics2D, FrictionZeroKeepsHorizontalSpeed) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+    const float rest_y = 1.f - engine::kContactSlop2D;
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, rest_y, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    make_dynamic(world, crate, glm::vec3{10.f, 0.f, 0.f}, 1.f);
+
+    step_physics(world);
+
+    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.x, 10.f, 1e-4f);
+    EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+}
