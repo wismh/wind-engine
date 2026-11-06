@@ -54,6 +54,7 @@ Rotation is full 3D (`Transform::rotation` is a quaternion): a parent turned 90 
 - `BoxCollider2D`, `CircleCollider2D`, and `PolygonCollider2D` are tested at the world position. Size, radius, and polygon vertices are not scaled. A box or polygon turns with the world Z angle. A circle ignores rotation.
 - The active camera may be a child; the view is the inverse of its world matrix.
 - A kinematic `RigidBody2D.velocity` moves the local position, so a kinematic child's velocity is in the parent's space. A dynamic child's velocity is world XY; the solver writes that body with `set_world_position`.
+- A kinematic `RigidBody3D.velocity` is also parent space. A dynamic 3D child's velocity is world space and is written with `set_world_position`. Do not put `RigidBody2D` and `RigidBody3D` on the same entity.
 
 ---
 

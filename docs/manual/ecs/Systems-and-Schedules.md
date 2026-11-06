@@ -21,7 +21,7 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 ```
 1. Phase::NetReceive --> Server (after install_net_server): poll the network, advance the tick, step controlled entities
                          Client (after install_net_client): reconcile, collect input, step predicted entities
-2. Phase::Physics    --> Engine: run_physics_2d (kinematic and dynamic integration, collision events, dynamic solver)
+2. Phase::Physics    --> Engine: run_physics_2d, then run_physics_3d (each integrates, publishes events, and solves)
 3. Phase::Game       --> Fixed gameplay logic, enemy AI, simulation steps
 4. Phase::NetSend    --> Server (after install_net_server): send snapshots, then queued payloads
                          Client (after install_net_client): send inputs
