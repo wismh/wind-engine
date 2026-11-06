@@ -230,6 +230,8 @@ void main() {
 
             void operator()(const CmdDrawParticles &cmd) const { backend->execute_draw_particles(cmd); }
 
+            void operator()(const CmdDrawDecal &cmd) const { backend->execute_draw_decal(cmd); }
+
             void operator()(const CmdSetView &cmd) const { backend->set_view(cmd); }
 
             void operator()(const CmdPostProcess &) const { backend->finish_post(); }
@@ -238,6 +240,7 @@ void main() {
         constexpr std::string_view command_name(const CmdDrawMesh &) { return "CmdDrawMesh"; }
         constexpr std::string_view command_name(const CmdDrawUI &) { return "CmdDrawUI"; }
         constexpr std::string_view command_name(const CmdDrawParticles &) { return "CmdDrawParticles"; }
+        constexpr std::string_view command_name(const CmdDrawDecal &) { return "CmdDrawDecal"; }
         constexpr std::string_view command_name(const CmdSetView &) { return "CmdSetView"; }
         constexpr std::string_view command_name(const CmdPostProcess &) { return "CmdPostProcess"; }
 
@@ -368,7 +371,74 @@ void main() {
         }
     }
 
-    void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
+    void OpenGLRenderBackend::execute_draw_decal(const CmdDrawDecal &cmd) {
+        if (!cmd.mesh || !cmd.material) {
+            return;
+        }
+
+        const RenderState state = cmd.material->render_state();
+        apply_render_state(state);
+
+        const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
+        const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
+        if (!shader || !mesh || !shader->valid() || !mesh->valid()) {
+            return;
+        }
+
+        shader->use();
+        shader->set_mat4("uModel", cmd.model);
+        shader->set_mat4("uInvModel", cmd.inv_model);
+        const glm::mat4 inv_view_proj = glm::inverse(view_.projection * view_.view);
+        shader->set_mat4("uInvViewProj", inv_view_proj);
+
+        GLint vp[4]{};
+        glGetIntegerv(GL_VIEWPORT, vp);
+        shader->set_vec2("uResolution", glm::vec2{static_cast<float>(vp[2]), static_cast<float>(vp[3])});
+
+        apply_view(*shader, view_);
+        shader->set_vec4("uColor", cmd.material->color() * cmd.color);
+        shader->set_vec2("uUvScale", cmd.uv_scale);
+        shader->set_vec2("uUvOffset", cmd.uv_offset);
+        shader->set_float("uAngleCutoff", cmd.angle_cutoff);
+        shader->set_float("uNormalFade", cmd.normal_fade);
+
+        bool override_bound = false;
+        if (cmd.material_override) {
+            if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
+                override_bound = override_tex->valid();
+            }
+        }
+        bind_albedo(override_bound ? cmd.material_override->albedo : cmd.material->texture(0));
+
+        glActiveTexture(GL_TEXTURE1);
+        const GLuint depth_tex = post_.current_depth_texture();
+        glBindTexture(GL_TEXTURE_2D, depth_tex != 0 ? depth_tex : white_texture());
+        shader->set_int("uTexture", 0);
+        shader->set_int("uDepth", 1);
+        glActiveTexture(GL_TEXTURE0);
+
+        std::vector<std::pair<std::string_view, glm::vec4>> previous;
+        if (cmd.material_override) {
+            previous.reserve(cmd.material_override->vec4_params.size());
+            for (const auto &[name, value]: cmd.material_override->vec4_params) {
+                previous.emplace_back(name, shader->vec4_value(name));
+                shader->set_vec4(name, value);
+            }
+        }
+
+        mesh->draw();
+
+        for (auto it = previous.rbegin(); it != previous.rend(); ++it) {
+            shader->set_vec4(it->first, it->second);
+        }
+        if (override_bound) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        }
+    }
+
+void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
         if (!cmd.mesh || !cmd.material) {
             return;
         }

@@ -157,6 +157,19 @@ namespace engine::render {
         ParticleDraw draw{};
     };
 
-    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdSetView, CmdPostProcess>;
+    struct CmdDrawDecal {
+        std::shared_ptr<IMesh> mesh;
+        std::shared_ptr<IMaterial> material;
+        glm::mat4 model{1.0f};
+        glm::mat4 inv_model{1.0f};
+        glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+        glm::vec2 uv_scale{1.0f, 1.0f};
+        glm::vec2 uv_offset{0.0f, 0.0f};
+        float angle_cutoff = 0.0f;
+        float normal_fade = 0.2f;
+        std::optional<MaterialOverride> material_override;
+    };
+
+    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdDrawDecal, CmdSetView, CmdPostProcess>;
 
 } // namespace engine::render

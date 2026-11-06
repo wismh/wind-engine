@@ -28,6 +28,10 @@ public:
         commands_.emplace_back(std::move(command));
     }
 
+    void push(CmdDrawDecal command) {
+        commands_.emplace_back(std::move(command));
+    }
+
     void push(CmdSetView command) {
         commands_.emplace_back(std::move(command));
     }
@@ -75,4 +79,4 @@ private:
     std::vector<Command> commands_;
 };
 
-}
+} // namespace engine::render

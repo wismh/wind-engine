@@ -29,6 +29,7 @@ public:
     void bind_window();
 
     [[nodiscard]] bool scene_bound() const noexcept { return scene_bound_; }
+    [[nodiscard]] GLuint current_depth_texture() const;
 
 private:
     struct Targets {
