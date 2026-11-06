@@ -383,3 +383,20 @@ TEST(Physics2D, OverlapDoesNotChangeMotion) {
     ASSERT_EQ(events.size(), 1u);
     expect_contact(events[0], glm::vec2{1.f, 0.f}, 1.5f, glm::vec2{1.25f, 0.f});
 }
+
+TEST(Physics2D, TwoCollidersOnOneBodyPublishOneEvent) {
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity body = world.create();
+    world.emplace<engine::Transform>(body, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(body, engine::BoxCollider2D{.size = {2.f, 2.f, 1.f}});
+    world.emplace<engine::CircleCollider2D>(body, engine::CircleCollider2D{.radius = 1.f});
+    const engine::ecs::Entity other = add_box(world, glm::vec3{1.5f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].a, body);
+    EXPECT_EQ(events[0].b, other);
+    EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
+}

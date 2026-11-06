@@ -35,10 +35,8 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
     for (const auto& [index_a, index_b] : candidate_pairs(colliders)) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
-        if (claimed_by_physics_3d(world, a.entity) || claimed_by_physics_3d(world, b.entity)) {
-            continue;
-        }
-        if (!layers_match_2d(a, b)) {
+        if (a.entity == b.entity || claimed_by_physics_3d(world, a.entity) ||
+            claimed_by_physics_3d(world, b.entity) || !layers_match_2d(a, b)) {
             continue;
         }
         const auto pair = ordered_pair(a.entity, b.entity);
@@ -49,7 +47,10 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
             continue;
         }
         const bool is_trigger = a.is_trigger || b.is_trigger;
-        current.emplace(pair, is_trigger);
+        const bool inserted = current.emplace(pair, is_trigger).second;
+        if (!inserted) {
+            continue;
+        }
         const CollisionPhase phase = state.last.contains(pair) ? CollisionPhase::Stay : CollisionPhase::Enter;
         writer.send(CollisionEvent2D{
                 .a = pair.first,
