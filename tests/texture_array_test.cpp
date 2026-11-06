@@ -9,6 +9,7 @@
 #include <engine/resources/image_io.h>
 #include <engine/resources/meta.h>
 
+#include "fixtures/cooked_shaders.h"
 #include "fixtures/fatal_fakes.h"
 #include "render/texture_check.h"
 #include "resources/importers.h"
@@ -382,6 +383,7 @@ rect = [3, 0, 2, 2]
 TEST(TextureArrayAssets, MaterialAlbedoCanBeATextureArray) {
     ArrayAssets assets;
     write_text(assets.tree.path / "shaders" / "a.shader", "<shader><vertex>v</vertex><fragment>f</fragment></shader>");
+    ASSERT_TRUE(cook_shader_in_place(assets.tree.path / "shaders" / "a.shader"));
     write_text(assets.tree.path / "materials" / "blocks.mat",
             std::string("shader = \"asset://") + std::string(kShaderGuid) + "\"\n[textures]\nalbedo = \"asset://" +
                     std::string(kArrayGuid) + "\"\n");

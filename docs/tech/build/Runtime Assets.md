@@ -26,7 +26,7 @@ assets/
     textures/splash.png
 ```
 
-The `engine/` directory is a copy of `builtin_assets/` with the cooked `catalog.toml` copied over it. The game catalog and the reachable game assets come from the target `<game>_stage` (`asset_codegen --stage`). A game with no `assets/` directory skips game codegen. Only the engine tree is staged.
+The `engine/` directory is the cooked builtin tree (`engine_builtin_stage`: shader files are `WSHD` blobs) with the cooked `catalog.toml` copied over it. The game catalog and the reachable game assets come from the target `<game>_stage` (`asset_codegen --stage`). A game with no `assets/` directory skips game codegen. Only the engine tree is staged.
 
 `init` loads:
 
@@ -45,7 +45,7 @@ Game code includes the generated `asset_ids.h` from the build tree. It does not 
 
 | Source | Virtual path |
 | --- | --- |
-| `builtin_assets/` | `/assets/engine` |
+| cooked builtin tree | `/assets/engine` |
 | cooked engine catalog | `/assets/engine/catalog.toml` |
 | game `assets/` | `/assets` |
 | cooked game catalog | `/assets/catalog.toml` |

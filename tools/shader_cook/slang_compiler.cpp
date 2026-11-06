@@ -1,4 +1,4 @@
-#include "render/slang_compiler.h"
+#include "shader_cook/slang_compiler.h"
 
 #ifdef ENGINE_WITH_SLANG
 #include <slang-com-ptr.h>

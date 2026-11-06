@@ -39,7 +39,10 @@ function(engine_target_web_preload target)
         message(FATAL_ERROR "engine_target_web_preload: target '${target}' does not exist")
     endif()
 
-    if(ENGINE_BUILTIN_ASSETS_DIR)
+    if(ENGINE_STAGED_BUILTIN_ASSETS AND NOT ENGINE_FROM_SDK)
+        target_link_options(${target} PRIVATE
+            "SHELL:--preload-file=${ENGINE_STAGED_BUILTIN_ASSETS}@/assets/engine")
+    elseif(ENGINE_BUILTIN_ASSETS_DIR)
         target_link_options(${target} PRIVATE
             "SHELL:--preload-file=${ENGINE_BUILTIN_ASSETS_DIR}@/assets/engine")
     endif()
