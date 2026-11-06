@@ -255,6 +255,8 @@ TEST(HierarchySystems, LocalSpaceEmitterOnChildFollowsParent) {
     emitter.mesh = std::make_shared<FakeMesh>();
     emitter.material = std::make_shared<FakeMaterial>();
     emitter.simulation_space = engine::render::SimulationSpace::Local;
+    // Parent sits at x = 10, then 20. The ortho view is about ±6.7, so culling would drop the draw this test reads.
+    emitter.frustum_cull = false;
     emitter.emission_rate = 0.f;
     emitter.lifetime_min = 5.f;
     emitter.lifetime_max = 5.f;
