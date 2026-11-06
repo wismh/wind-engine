@@ -9,6 +9,8 @@
 
 #include <glm/gtc/constants.hpp>
 
+#include "ecs/inertia_2d.h"
+
 #include <cmath>
 #include <vector>
 
@@ -238,4 +240,16 @@ TEST(Physics2D, StaticPolygonContactsABox) {
     EXPECT_NEAR(events[0].normal.x, -inv_root, 1e-4f);
     EXPECT_NEAR(events[0].normal.y, 2.f * inv_root, 1e-4f);
     EXPECT_NEAR(events[0].penetration, 0.014907f, 1e-4f);
+}
+
+TEST(Physics2D, PolygonInertiaMatchesTheRingFormula) {
+    const glm::vec2 square[4] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
+    EXPECT_NEAR(engine::inertia_2d_polygon(1.f, square, 4), 2.f / 3.f, 1e-6f);
+    EXPECT_NEAR(engine::inertia_2d_polygon(1.f, square, 4), engine::inertia_2d_box(1.f, 2.f, 2.f), 1e-6f);
+
+    const glm::vec2 right_triangle[3] = {{0.f, 0.f}, {1.f, 0.f}, {0.f, 1.f}};
+    EXPECT_NEAR(engine::inertia_2d_polygon(1.f, right_triangle, 3), 1.f / 3.f, 1e-6f);
+
+    const glm::vec2 clockwise[3] = {{0.f, 0.f}, {0.f, 1.f}, {1.f, 0.f}};
+    EXPECT_EQ(engine::inertia_2d_polygon(1.f, clockwise, 3), 0.f);
 }

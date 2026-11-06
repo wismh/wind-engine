@@ -372,3 +372,48 @@ TEST(Physics2D, FrictionZeroKeepsHorizontalSpeed) {
     EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
     EXPECT_NEAR(rigid.angular_velocity, 0.f, 1e-5f);
 }
+
+TEST(Physics2D, FrictionRemovesAboutOneUnitOnLaterSteps) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{40.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(floor).friction = 1.f;
+    // Wide and flat so the slide stays on the face. A square yaws, a corner digs in, and the
+    // contact stops being a resting one.
+    const float rest_y = 1.f - engine::kContactSlop;
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, rest_y, 0.f}, glm::vec3{16.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(crate).friction = 1.f;
+    make_dynamic(world, crate, glm::vec3{10.f, 0.f, 0.f}, 1.f);
+
+    // The cached tangent is applied as a delta, so each later step still removes about one unit.
+    float previous = 10.f;
+    for (int step = 0; step < 4; ++step) {
+        step_physics(world);
+        const float vx = world.get<engine::RigidBody2D>(crate).velocity.x;
+        EXPECT_NEAR(previous - vx, 1.f, 0.15f);
+        previous = vx;
+    }
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.y, 0.f, 0.25f);
+    EXPECT_FALSE(rigid.sleeping);
+}
+
+TEST(Physics2D, FirstSolidColliderSuppliesInertia) {
+    engine::ecs::World world = physics_world();
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+    const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(floor).friction = 1.f;
+    const float rest_y = 1.f - engine::kContactSlop;
+    const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, rest_y, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    world.get<engine::BoxCollider2D>(crate).friction = 1.f;
+    // Inside the box, so it misses the floor. A circle of this radius would dominate I if it were counted.
+    world.emplace<engine::CircleCollider2D>(crate, engine::CircleCollider2D{.radius = 0.5f, .friction = 1.f});
+    make_dynamic(world, crate, glm::vec3{10.f, 0.f, 0.f}, 1.f);
+
+    step_physics(world);
+
+    const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+    EXPECT_NEAR(rigid.velocity.x, 9.f, 1e-4f);
+    EXPECT_NEAR(rigid.angular_velocity, -1.4867501f, 1e-4f);
+    ASSERT_EQ(read_collisions(world).size(), 1u);
+}

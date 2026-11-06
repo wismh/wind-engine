@@ -400,3 +400,21 @@ TEST(Physics2D, TwoCollidersOnOneBodyPublishOneEvent) {
     EXPECT_EQ(events[0].b, other);
     EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
 }
+
+TEST(Physics2D, FirstShapePairKeepsItsManifold) {
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity body = world.create();
+    world.emplace<engine::Transform>(body, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(body, engine::BoxCollider2D{.size = {2.f, 4.f, 1.f}});
+    world.emplace<engine::CircleCollider2D>(body, engine::CircleCollider2D{.radius = 1.5f});
+    const engine::ecs::Entity other = add_box(world, glm::vec3{1.2f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].a, body);
+    EXPECT_EQ(events[0].b, other);
+    // The circle overlap is 0.8 deep. The box, gathered first, is the 0.3 face.
+    expect_contact(events[0], glm::vec2{1.f, 0.f}, 0.3f, glm::vec2{0.85f, 0.f});
+}

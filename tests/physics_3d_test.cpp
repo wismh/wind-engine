@@ -402,3 +402,27 @@ TEST(Physics3D, SerializerRoundTripAndMissingTypeIsKinematic) {
     EXPECT_FLOAT_EQ(again.get<engine::CapsuleCollider3D>(reloaded->by_id.at("ball")).height, 1.5f);
     EXPECT_EQ(again.get<engine::RigidBody3D>(reloaded->by_id.at("plain")).type, engine::BodyType::Kinematic);
 }
+
+TEST(Physics3D, FirstShapePairKeepsItsManifold) {
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity body = world.create();
+    world.emplace<engine::Transform>(body, engine::Transform{});
+    world.emplace<engine::BoxCollider3D>(body, engine::BoxCollider3D{.size = {2.f, 2.f, 2.f}});
+    world.emplace<engine::SphereCollider3D>(body, engine::SphereCollider3D{.radius = 1.5f});
+    const engine::ecs::Entity other = add_box(world, glm::vec3{1.2f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent3D> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].a, body);
+    EXPECT_EQ(events[0].b, other);
+    // The sphere overlap is 0.8 deep. The box, gathered first, is the 0.3 face.
+    EXPECT_NEAR(events[0].normal.x, 1.f, 1e-5f);
+    EXPECT_NEAR(events[0].normal.y, 0.f, 1e-5f);
+    EXPECT_NEAR(events[0].normal.z, 0.f, 1e-5f);
+    EXPECT_NEAR(events[0].penetration, 0.3f, 1e-5f);
+    EXPECT_NEAR(events[0].point.x, 0.85f, 1e-5f);
+    EXPECT_NEAR(events[0].point.y, 0.f, 1e-5f);
+    EXPECT_NEAR(events[0].point.z, 0.f, 1e-5f);
+}
