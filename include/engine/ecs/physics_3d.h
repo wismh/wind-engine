@@ -2,7 +2,9 @@
 
 // docs/tech/modules/ECS.md
 
+#include <engine/ecs/entity.h>
 #include <engine/ecs/physics.h>
+#include <engine/ecs/world.h>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/vec3.hpp>
