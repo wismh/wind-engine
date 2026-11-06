@@ -3,7 +3,6 @@
 
 #include <engine/ecs/events.h>
 
-#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -23,12 +22,7 @@ namespace {
     for (const ColliderItem2D& item : colliders) {
         boxes.push_back(aabb_of_2d(item));
     }
-    Broadphase tree;
-    tree.rebuild(boxes);
-    std::vector<std::pair<int, int>> pairs;
-    tree.query_pairs(pairs);
-    std::sort(pairs.begin(), pairs.end());
-    return pairs;
+    return query_sorted_pairs(boxes);
 }
 
 }

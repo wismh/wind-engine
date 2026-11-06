@@ -30,7 +30,7 @@ struct Aabb {
 }
 
 // Indices match the span passed to rebuild. An inverted or non-finite box overlaps nothing.
-// The same span produces the same pair list. Callers sort.
+// The same span produces the same pair list. `query_sorted_pairs` sorts it by index.
 class Broadphase {
 public:
     void rebuild(std::span<const Aabb> boxes);
@@ -55,5 +55,8 @@ private:
     int root_{-1};
     int free_{-1};
 };
+
+// Rebuilds the tree, queries pairs, and sorts them by collider index. An inverted box overlaps nothing.
+[[nodiscard]] std::vector<std::pair<int, int>> query_sorted_pairs(std::span<const Aabb> boxes);
 
 }

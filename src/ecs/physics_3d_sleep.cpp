@@ -40,12 +40,7 @@ void clear_sleep(ecs::World& world, ecs::Entity entity) {
     for (const ColliderItem3D& item : colliders) {
         boxes.push_back(aabb_of_3d(item));
     }
-    Broadphase tree;
-    tree.rebuild(boxes);
-    std::vector<std::pair<int, int>> pairs;
-    tree.query_pairs(pairs);
-    std::sort(pairs.begin(), pairs.end());
-    return pairs;
+    return query_sorted_pairs(boxes);
 }
 
 }

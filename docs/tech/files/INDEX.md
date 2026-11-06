@@ -252,7 +252,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/contact_2d_polygon.cpp` | Convex polygon and rotated-box contact, up to two points | [ECS](../modules/ECS.md) |
 | `src/ecs/inertia_2d.h`, `src/ecs/inertia_2d.cpp` | Box, circle, and convex-polygon inertia about the body origin | [ECS](../modules/ECS.md) |
 | `src/ecs/solver_2d.h`, `src/ecs/solver_2d.cpp` | One positional iteration with per-point normal and friction impulses; no `World` | [ECS](../modules/ECS.md) |
-| `src/ecs/broadphase.h`, `src/ecs/broadphase.cpp` | Deterministic dynamic AABB tree. Closed bounds, no `World` | [ECS](../modules/ECS.md) |
+| `src/ecs/broadphase.h`, `src/ecs/broadphase.cpp` | Deterministic dynamic AABB tree and `query_sorted_pairs`. Closed bounds, no `World` | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_islands.h`, `src/ecs/contact_islands.cpp` | Union-find contact islands ordered by the lowest entity. No `World` | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d.cpp` | Fixed-step entry: wake, integrate, events, then the 2D solver | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_owner.h`, `src/ecs/physics_owner.cpp` | `claimed_by_physics_3d`: the only 2D check for a `RigidBody3D` | [ECS](../modules/ECS.md) |

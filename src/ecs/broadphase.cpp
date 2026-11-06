@@ -162,4 +162,13 @@ void Broadphase::query_pairs(std::vector<std::pair<int, int>>& out) const {
     }
 }
 
+std::vector<std::pair<int, int>> query_sorted_pairs(std::span<const Aabb> boxes) {
+    Broadphase tree;
+    tree.rebuild(boxes);
+    std::vector<std::pair<int, int>> pairs;
+    tree.query_pairs(pairs);
+    std::sort(pairs.begin(), pairs.end());
+    return pairs;
+}
+
 }
