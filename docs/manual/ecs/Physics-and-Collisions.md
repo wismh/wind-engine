@@ -1,8 +1,10 @@
 # Physics & Collisions
 
-Wind provides 2D box, circle, and convex polygon collisions: velocity integration, yaw about world Z, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, tumble when friction has a lever arm, and be pushed by a moving kinematic platform. There is no Z test. Friction and restitution default to 0. Overlaps are tested on the XY plane only.
+Wind has two solvers. The 2D solver covers boxes, circles, and convex polygons: velocity integration, yaw about world Z, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, tumble when friction has a lever arm, and be pushed by a moving kinematic platform. There is no Z test. Friction and restitution default to 0. Overlaps are tested on the XY plane only.
 
-The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
+The 3D solver is separate. It does not lock Z on the 2D shapes, and it does not read 2D colliders. Spheres, boxes, and capsules live in `<engine/ecs/physics_3d.h>` and report `CollisionEvent3D`. Characters and tiles stay on `sweep_aabb`. Do not mark a predicted entity `Dynamic` in either solver.
+
+The 2D names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because both solvers use it.
 
 ---
 
@@ -169,7 +171,7 @@ Colliders are tested at the entity's **world position**. A collider on a child e
 
 ## 2. Physics Runs by Itself
 
-The engine registers `run_physics_2d` as a system on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call it. Registering it again would integrate velocities twice. Put your own fixed logic on `Phase::Game`, which runs after it:
+The engine registers `run_physics_2d` and, immediately after it, `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
 
 ```cpp
 void MyGame::on_start() {
@@ -235,7 +237,41 @@ void collision_system(engine::ecs::World& world, engine::ecs::Entity player) {
 
 ---
 
-## 4. Grid Collision and Block Picking
+## 4. 3D physics
+
+`run_physics_3d` is a second solver, registered once by `register_simulation_systems`, immediately after `run_physics_2d`. Do not register it from game code. Types are not aliases of the 2D ones: `RigidBody3D`, `BoxCollider3D`, `SphereCollider3D`, `CapsuleCollider3D`, `Physics3DConfig`, and `CollisionEvent3D` in `<engine/ecs/physics_3d.h>`. `CollisionPhase` is the 2D enum.
+
+`Physics3DConfig.gravity` starts at zero (`world.ctx<Physics3DConfig>()`). It is not serialized. The default `RigidBody3D` is kinematic, so a default component does not fall and contacts do not move it. Kinematic velocity is parent space and integrates `local.position += velocity * dt`. Dynamic velocity is world space: gravity, then `set_world_position`. Only a dynamic body integrates `angular_velocity` (radians per second about world axes), and only a dynamic body is written by the solver. A zero spin is skipped, so an identity quaternion stays identity. A root does `rotation = angleAxis(|ω| dt, ω/|ω|) * rotation`. A child writes that same world turn back into its local rotation.
+
+Do not put `RigidBody2D` and `RigidBody3D` on one entity. An entity that has `RigidBody3D` is skipped by the 2D integrator, and a 2D pair is skipped when either side has `RigidBody3D`. 3D colliders are not visible to the 2D solver, and 2D colliders are not visible to the 3D solver.
+
+Shapes ignore `Transform.scale` and use the world quaternion (the parent chain, not the scaled matrix axes). A capsule's `height` is the distance between its sphere centers along local Y. The total length is `height + 2 * radius`. `height == 0` is a sphere. Negative radius, negative height, or a negative box size produces no contact. Coincident centers use a `+X` normal.
+
+Contacts are one point, the deepest. Two identity boxes use the center of the overlap box (X wins a tie, then Y, then Z), so a centered stack resting on a face has no torque. Any other box rotation uses SAT and one witness; a rotated face can rock. The solver runs 8 iterations (`kPositionIterations3D`) with slop `kContactSlop3D` (`1e-3`). Friction is `sqrt(fa * fb)` and restitution is `max(ra, rb)`. An approach of `kBounceThreshold3D` (1) or slower does not bounce, so gravity `(0, -60, 0)` does not bounce a body that is already at rest. The contact cache seeds the next step and is not added to velocity first. There is no broadphase and no sleep.
+
+Inertia is one local diagonal per dynamic body, from the first non-trigger collider (boxes, then spheres, then capsules), rotated into a world inverse tensor. A box is `m/12 * (y²+z², z²+x², x²+y²)` with the full size. A sphere is `0.4 * m * r²` on every axis. A capsule is a uniform cylinder of length `height` plus two hemispheres; `height == 0` matches the sphere. Do not put `BodyType3D::Dynamic` on a predicted or controlled entity.
+
+```cpp
+world.ctx<engine::Physics3DConfig>().gravity = {0.f, -30.f, 0.f};
+
+auto floor = world.create();
+world.emplace<engine::Transform>(floor, engine::Transform{.position = {0.f, -1.f, 0.f}});
+world.emplace<engine::BoxCollider3D>(floor, engine::BoxCollider3D{.size = {8.f, 2.f, 8.f}});
+
+auto ball = world.create();
+world.emplace<engine::Transform>(ball, engine::Transform{.position = {0.f, 2.f, 0.f}});
+world.emplace<engine::RigidBody3D>(ball, engine::RigidBody3D{
+    .type = engine::BodyType3D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::SphereCollider3D>(ball, engine::SphereCollider3D{.radius = 0.5f});
+```
+
+Read `CollisionEvent3D` the same way as `CollisionEvent2D`. `normal` points from `a` toward `b`. `Exit` zeros the normal, the penetration, and the point. A trigger still reports and is not solved.
+
+---
+
+## 5. Grid Collision and Block Picking
 
 For a world made of cells (voxel blocks, or a tile layer) use the grid queries in `<engine/ecs/grid_query.h>` instead of colliders. They are plain functions, not components or systems: you call them from your own movement system with a callable that says whether a cell is solid.
 

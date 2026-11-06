@@ -88,7 +88,7 @@ flowchart TD
 
 | Schedule | Phases that run | Engine systems |
 | --- | --- | --- |
-| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d` on `Physics` |
+| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d` then `run_physics_3d` on `Physics` |
 | `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
 
 The engine registers nothing on `NetReceive` or `NetSend`. `install_net_server` puts `run_net_server_receive` (poll, buffer inputs, advance the tick, step the controlled entities) on `Fixed`/`NetReceive` and `run_net_server_send` (snapshots, then queued payloads, per peer within its budget) on `Fixed`/`NetSend`; `install_net_client` puts `run_net_client_receive` and `run_net_client_interpolate` on `Frame`/`NetReceive`, `run_net_client_predict` (reconcile, advance the predicted tick, collect and step) on `Fixed`/`NetReceive`, and `run_net_client_send_input` on `Fixed`/`NetSend` ([Net](../modules/Net.md#schedule)). A world whose `Fixed` schedule does not run (paused, not stepping) neither polls its server transport nor sends snapshots, and a client world that does not step neither predicts nor sends input.
@@ -112,7 +112,7 @@ Frame systems, in phase order:
 | `Render` | `run_render`. An empty `ctx<BoundWindows>()` returns before a command-buffer clear. A non-empty list clears those buffers, then returns without scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted draws are pushed only after a live camera with both components, each with `window_size_for` |
 | `UiRender` | `run_ui_render` (`CmdDrawUI` per canvas, per window; `inspector_retarget` first while the inspector is attached) |
 
-`Phase::Physics` is not a frame phase. `kFixedPhases` is NetReceive, Physics, Game, NetSend. `kFramePhases` starts with NetReceive and omits Physics and NetSend. `Phase::Transform` is a frame phase only. The fixed schedule calls `update_world_transforms` inside `run_physics_2d` three times: after kinematic integration, after dynamic integration (before contacts are collected), and after the positional solver.
+`Phase::Physics` is not a frame phase. `kFixedPhases` is NetReceive, Physics, Game, NetSend. `kFramePhases` starts with NetReceive and omits Physics and NetSend. `Phase::Transform` is a frame phase only. The fixed schedule calls `update_world_transforms` inside `run_physics_2d` and again inside `run_physics_3d`, three times in each: after kinematic integration, after dynamic integration (before contacts are collected), and after the positional solver.
 
 After simulate, `sync_frame` applies click-through from `Worlds::presentation().mouse` (the set the hit-test filled) and syncs text-input activation. `draw_all` executes each window's command buffer and is where the tick waits: one window's swap waits for vblank, or, with no window that can, a sleep to the display's refresh rate. The loop has no other limit. See [Frame pacing](../features/Windowing.md#frame-pacing). `draw_all` also reads back the windows `cli::capture_requests` named, between drawing and swap. `cli::drain` answers queries from the painted frame, answers a `screenshot` from those pixels, and arms a `click` for the next `begin_frame` ([CLI](../features/CLI.md#screenshot)).
 

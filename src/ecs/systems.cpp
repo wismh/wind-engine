@@ -13,6 +13,7 @@
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
+#include <engine/ecs/physics_3d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/loc/catalog.h>
@@ -1002,6 +1003,7 @@ namespace engine {
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_3d(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game,

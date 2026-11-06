@@ -2,6 +2,7 @@
 
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/physics_3d.h>
 #include <engine/ecs/transform.h>
 
 #include "inertia_2d.h"
@@ -229,6 +230,9 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
         for (std::size_t j = i + 1; j < colliders.size(); ++j) {
             const ColliderItem2D& a = colliders[i];
             const ColliderItem2D& b = colliders[j];
+            if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
+                continue;
+            }
             if (!layers_match(a, b)) {
                 continue;
             }
@@ -268,6 +272,9 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         for (std::size_t j = i + 1; j < colliders.size(); ++j) {
             const ColliderItem2D& a = colliders[i];
             const ColliderItem2D& b = colliders[j];
+            if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
+                continue;
+            }
             if (a.is_trigger || b.is_trigger || !layers_match(a, b) || a.entity == b.entity) {
                 continue;
             }
