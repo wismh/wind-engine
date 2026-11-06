@@ -8,9 +8,11 @@
 #include "contact_2d.h"
 #include "solver_2d.h"
 
+#include <glm/geometric.hpp>
 #include <glm/vec4.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <numeric>
 #include <unordered_map>
@@ -22,6 +24,36 @@ namespace {
 
 struct PhysicsOverlapState {
     std::map<std::pair<ecs::Entity, ecs::Entity>, bool> last{};  // value: was_trigger
+};
+
+// Pair key matches the solver order: lower entity, then shape kind. Not serialized.
+struct ContactCacheKey {
+    ecs::Entity a{};
+    ecs::Entity b{};
+    std::uint8_t shape_a{0};
+    std::uint8_t shape_b{0};
+
+    bool operator<(const ContactCacheKey& other) const {
+        if (a != other.a) {
+            return a < other.a;
+        }
+        if (b != other.b) {
+            return b < other.b;
+        }
+        if (shape_a != other.shape_a) {
+            return shape_a < other.shape_a;
+        }
+        return shape_b < other.shape_b;
+    }
+};
+
+struct PhysicsContactCache2D {
+    struct Impulse {
+        float normal{0.f};
+        float tangent{0.f};
+        glm::vec2 normal_axis{0.f};
+    };
+    std::map<ContactCacheKey, Impulse> impulses{};
 };
 
 enum class ColliderShape {
@@ -38,6 +70,8 @@ struct ColliderItem {
     uint32_t layer{1};
     uint32_t mask{0xFFFFFFFFu};
     bool is_trigger{false};
+    float friction{0.f};
+    float restitution{0.f};
 };
 
 struct DynamicTarget {
@@ -151,6 +185,8 @@ std::vector<ColliderItem> gather_colliders(ecs::World& world) {
                         .layer = collider.layer,
                         .mask = collider.mask,
                         .is_trigger = collider.is_trigger,
+                        .friction = collider.friction,
+                        .restitution = collider.restitution,
                 });
             });
     world.view<Transform, CircleCollider2D>().each(
@@ -163,6 +199,8 @@ std::vector<ColliderItem> gather_colliders(ecs::World& world) {
                         .layer = collider.layer,
                         .mask = collider.mask,
                         .is_trigger = collider.is_trigger,
+                        .friction = collider.friction,
+                        .restitution = collider.restitution,
                 });
             });
     return colliders;
@@ -238,6 +276,7 @@ void solve_contacts(ecs::World& world, const std::vector<ColliderItem>& collider
         }
     }
     if (item_pairs.empty()) {
+        world.ctx<PhysicsContactCache2D>().impulses.clear();
         return;
     }
 
@@ -305,6 +344,8 @@ void solve_contacts(ecs::World& world, const std::vector<ColliderItem>& collider
             shape.kind = ContactShapeKind::Circle;
             shape.radius = collider.radius;
         }
+        shape.friction = collider.friction;
+        shape.restitution = collider.restitution;
         shape_of[index] = static_cast<int>(shapes.size());
         shapes.push_back(shape);
         return shape_of[index];
@@ -329,14 +370,62 @@ void solve_contacts(ecs::World& world, const std::vector<ColliderItem>& collider
     });
 
     std::vector<float> world_z(slots.size(), 0.f);
-    for (int iteration = 0; iteration < kPositionIterations2D; ++iteration) {
+    auto refresh_bodies = [&] {
         ecs::update_world_transforms(world);
         for (std::size_t i = 0; i < slots.size(); ++i) {
             const glm::vec3 position = ecs::world_position(world, slots[i].entity);
             bodies[i].position = {position.x, position.y};
             world_z[i] = position.z;
         }
-        solve_position_iteration_2d(bodies, shapes, pairs);
+    };
+    auto cache_key_for = [&](const SolverPair2D& pair) {
+        const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pair.shape_a)];
+        const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pair.shape_b)];
+        ContactCacheKey key;
+        key.a = slots[static_cast<std::size_t>(shape_a.body)].entity;
+        key.b = slots[static_cast<std::size_t>(shape_b.body)].entity;
+        key.shape_a = static_cast<std::uint8_t>(shape_a.kind);
+        key.shape_b = static_cast<std::uint8_t>(shape_b.kind);
+        return key;
+    };
+    auto solver_contact = [](const SolverShape2D& shape, glm::vec2 center) {
+        ContactShape2D out;
+        out.center = center;
+        out.kind = shape.kind;
+        out.half_extents = shape.half_extents;
+        out.radius = shape.radius;
+        return out;
+    };
+
+    // Seed the accumulator only. Do not apply the cached impulse to velocity.
+    PhysicsContactCache2D& cache = world.ctx<PhysicsContactCache2D>();
+    std::vector<ContactImpulse2D> impulses(pairs.size());
+    refresh_bodies();
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        const SolverPair2D& pair = pairs[i];
+        const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pair.shape_a)];
+        const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pair.shape_b)];
+        if (shape_a.body == shape_b.body) {
+            continue;
+        }
+        const auto found = cache.impulses.find(cache_key_for(pair));
+        if (found == cache.impulses.end()) {
+            continue;
+        }
+        const std::size_t body_a = static_cast<std::size_t>(shape_a.body);
+        const std::size_t body_b = static_cast<std::size_t>(shape_b.body);
+        const ContactManifold2D manifold = make_contact_2d(solver_contact(shape_a, bodies[body_a].position),
+                                                           solver_contact(shape_b, bodies[body_b].position));
+        if (manifold.count == 0 || glm::dot(found->second.normal_axis, manifold.normal) <= 0.f) {
+            continue;
+        }
+        impulses[i].normal = found->second.normal;
+        impulses[i].tangent = found->second.tangent;
+    }
+
+    for (int iteration = 0; iteration < kPositionIterations2D; ++iteration) {
+        refresh_bodies();
+        solve_position_iteration_2d(bodies, shapes, pairs, impulses);
         for (int index : write_order) {
             const std::size_t slot = static_cast<std::size_t>(index);
             if (!bodies[slot].dynamic) {
@@ -355,6 +444,19 @@ void solve_contacts(ecs::World& world, const std::vector<ColliderItem>& collider
         rigid.velocity.x = bodies[i].velocity.x;
         rigid.velocity.y = bodies[i].velocity.y;
     }
+
+    PhysicsContactCache2D rebuilt;
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        if (!impulses[i].touched) {
+            continue;
+        }
+        PhysicsContactCache2D::Impulse stored;
+        stored.normal = impulses[i].normal;
+        stored.tangent = impulses[i].tangent;
+        stored.normal_axis = impulses[i].normal_axis;
+        rebuilt.impulses.emplace(cache_key_for(pairs[i]), stored);
+    }
+    cache = std::move(rebuilt);
 }
 
 }

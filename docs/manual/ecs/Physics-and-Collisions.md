@@ -1,6 +1,6 @@
 # Physics & Collisions
 
-Wind provides 2D box and circle collisions: velocity integration, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, and be pushed by a moving kinematic platform. There is no Z test, no friction, and no bounce. Overlaps are tested on the XY plane only.
+Wind provides 2D box and circle collisions: velocity integration, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, and be pushed by a moving kinematic platform. There is no Z test. Rotation is ignored, so nothing spins. Friction and restitution default to 0. Overlaps are tested on the XY plane only.
 
 The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
 
@@ -61,9 +61,50 @@ world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{
 world.emplace<engine::BoxCollider2D>(crate, engine::BoxCollider2D{.size = {2.f, 2.f, 1.f}});
 ```
 
-The crate falls, then rests with its bottom within `kContactSlop2D` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations2D`) and does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
+The crate falls, then rests with its bottom within `kContactSlop2D` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations2D`). With the default restitution of 0 it does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
 
-A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. There is no friction, so a floor that slides sideways under a crate does not drag it.
+A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. Friction defaults to 0, so a floor that slides sideways under a crate does not drag it. Set friction on both colliders and that floor's tangential velocity pulls the crate.
+
+Friction and restitution live on the collider, and the solver reads them without writing a clamped value back. A negative or non-finite friction is 0 for that step. Restitution is clamped to `[0, 1]` for that step. A pair uses `sqrt(fa * fb)` and `max(ra, rb)`. Set friction on **both** colliders: a zero on either side is a frictionless pair. `kBounceThreshold2D` is 1. An approach at that speed or slower (`v_rel_n >= -1`) is solved with restitution 0. Gravity `(0, -60)` adds exactly -1 to `velocity.y` each fixed step, so a body sitting on a floor does not bounce. A faster impact does. Rotation is still ignored. Particle `bounce` and `friction` are emitter fields. They do not read these collider fields.
+
+```cpp
+world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+
+auto ground = world.create();
+world.emplace<engine::Transform>(ground, engine::Transform{.position = {0.f, -1.f, 0.f}});
+world.emplace<engine::BoxCollider2D>(ground, engine::BoxCollider2D{
+    .size = {8.f, 2.f, 1.f},
+    .friction = 0.8f,
+    .restitution = 1.f,
+});
+
+auto ball = world.create();
+world.emplace<engine::Transform>(ball, engine::Transform{.position = {0.f, 3.f, 0.f}});
+world.emplace<engine::RigidBody2D>(ball, engine::RigidBody2D{
+    .type = engine::BodyType2D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::CircleCollider2D>(ball, engine::CircleCollider2D{
+    .radius = 0.5f,
+    .restitution = 1.f,  // pair restitution is max(ground, ball) = 1
+});
+```
+
+The ball bounces. A crate on that same ground slides only when the crate has friction too. The pair's `mu` is `sqrt(0.8 * 0.5)`:
+
+```cpp
+auto sled = world.create();
+world.emplace<engine::Transform>(sled, engine::Transform{.position = {0.f, 1.f, 0.f}});
+world.emplace<engine::RigidBody2D>(sled, engine::RigidBody2D{
+    .velocity = {10.f, 0.f, 0.f},
+    .type = engine::BodyType2D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::BoxCollider2D>(sled, engine::BoxCollider2D{
+    .size = {2.f, 2.f, 1.f},
+    .friction = 0.5f,
+});
+```
 
 Do not put `BodyType2D::Dynamic` on a predicted or controlled entity. Prediction replays `step`, and `run_physics_2d` is a second simulation of that entity.
 
