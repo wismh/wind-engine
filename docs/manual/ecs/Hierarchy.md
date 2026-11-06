@@ -53,7 +53,7 @@ Rotation is full 3D (`Transform::rotation` is a quaternion): a parent turned 90 
 - Sprites, `Renderable` and `Local`-space particle emitters are drawn at the world matrix.
 - `BoxCollider2D` and `CircleCollider2D` are tested at the world position (their size is not scaled by the parent).
 - The active camera may be a child; the view is the inverse of its world matrix.
-- `RigidBody2D.velocity` moves the local position, so a child's velocity is in the parent's space.
+- A kinematic `RigidBody2D.velocity` moves the local position, so a kinematic child's velocity is in the parent's space. A dynamic child's velocity is world XY; the solver writes that body with `set_world_position`.
 
 ---
 
