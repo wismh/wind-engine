@@ -58,7 +58,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/grid_query.h` | `CellPredicate`, `raycast_grid` (DDA through solid cells), `sweep_aabb` (axis-separated box move), 3D and 2D | [ECS](../modules/ECS.md#grid-queries) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D`, `Physics2DConfig`, colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D` (with `angular_velocity`), `Physics2DConfig`, box, circle, and polygon colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
@@ -246,9 +246,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/hierarchy.cpp` | `set_parent`, `clear_parent`, `world_matrix`, `update_world_transforms` | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
-| `src/ecs/contact_2d.h`, `src/ecs/contact_2d.cpp` | XY contact for an AABB pair, a circle pair, and a mixed pair | [ECS](../modules/ECS.md) |
-| `src/ecs/solver_2d.h`, `src/ecs/solver_2d.cpp` | One positional iteration for dynamic bodies; no `World` | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d.cpp` | Kinematic and dynamic integration, contact events, and the 2D solver | [ECS](../modules/ECS.md) |
+| `src/ecs/contact_2d.h`, `src/ecs/contact_2d.cpp` | XY contact dispatch: angle-0 boxes and circles stay on the legacy manifold; anything else goes to the convex clipper | [ECS](../modules/ECS.md) |
+| `src/ecs/contact_2d_polygon.cpp` | Convex polygon and rotated-box contact, up to two points | [ECS](../modules/ECS.md) |
+| `src/ecs/inertia_2d.h`, `src/ecs/inertia_2d.cpp` | Box, circle, and convex-polygon inertia about the body origin | [ECS](../modules/ECS.md) |
+| `src/ecs/solver_2d.h`, `src/ecs/solver_2d.cpp` | One positional iteration with per-point normal and friction impulses; no `World` | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d.cpp` | Fixed-step entry: integrate, events, then the 2D solver | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and yaw | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_solve.cpp` | Collider gather, collision events, and the warm-started solve | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_internal.h` | Shared gather types and the contact-impulse cache | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/transform.cpp` | Transform model matrix calculations and Euler conversions | [ECS](../modules/ECS.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
@@ -627,6 +632,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/frustum_test.cpp` | Frustum planes (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate), `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
+| `tests/physics_2d_rotation_test.cpp` | Yaw, oriented boxes, circles ignoring spin, and a static polygon slope | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/ray_test.cpp` | Plane, sphere, AABB, triangle, quad, and segment hits | [ECS](../modules/ECS.md) |
 | `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
