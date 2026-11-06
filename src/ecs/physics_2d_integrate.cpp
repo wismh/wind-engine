@@ -98,7 +98,7 @@ void integrate_dynamic_2d(ecs::World& world, float dt) {
         if (world.try_get<RigidBody3D>(entity) != nullptr) {
             return;
         }
-        if (body.type == BodyType2D::Dynamic) {
+        if (body.type == BodyType2D::Dynamic && !body.sleeping) {
             dynamics.push_back(entity);
         }
     });

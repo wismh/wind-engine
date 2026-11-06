@@ -6,6 +6,7 @@
 #include <engine/ecs/physics_3d.h>
 #include <engine/ecs/world.h>
 
+#include "broadphase.h"
 #include "contact_3d.h"
 
 #include <glm/gtc/quaternion.hpp>
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 #include <map>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -68,6 +70,18 @@ struct PhysicsContactCache3D {
     };
     std::map<ContactCacheKey3D, Impulse> impulses{};
 };
+
+struct PhysicsSleepState3D {
+    std::map<ecs::Entity, int> quiet{};
+};
+
+[[nodiscard]] bool layers_match_3d(const ColliderItem3D& a, const ColliderItem3D& b);
+[[nodiscard]] ContactShape3D contact_shape_of_3d(const ColliderItem3D& item);
+[[nodiscard]] Aabb aabb_of_3d(const ColliderItem3D& item);
+
+void wake_sleepers_by_velocity_3d(ecs::World& world);
+void wake_sleepers_by_overlap_3d(ecs::World& world);
+void update_sleep_3d(ecs::World& world, std::span<const ecs::Entity> contacting);
 
 [[nodiscard]] int hierarchy_depth_3d(const ecs::World& world, ecs::Entity entity);
 [[nodiscard]] glm::quat world_rotation_quat_3d(const ecs::World& world, ecs::Entity entity);

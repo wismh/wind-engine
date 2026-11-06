@@ -10,9 +10,12 @@ namespace engine {
 void run_physics_2d(ecs::World& world) {
     const float dt = world.ctx<Time>().fixed_delta_time;
 
+    wake_sleepers_by_velocity_2d(world);
     integrate_kinematic_2d(world, dt);
     ecs::update_world_transforms(world);
 
+    // The platform has already moved. Wake before the sleeper integrates so it is not frozen this step.
+    wake_sleepers_by_overlap_2d(world);
     integrate_dynamic_2d(world, dt);
     ecs::update_world_transforms(world);
 

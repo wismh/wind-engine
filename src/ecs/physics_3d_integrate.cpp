@@ -96,7 +96,7 @@ void integrate_dynamic_3d(ecs::World& world, float dt) {
     const glm::vec3 gravity = world.ctx<Physics3DConfig>().gravity;
     std::vector<ecs::Entity> dynamics;
     world.view<Transform, RigidBody3D>().each([&](ecs::Entity entity, const Transform&, const RigidBody3D& body) {
-        if (body.type == BodyType3D::Dynamic) {
+        if (body.type == BodyType3D::Dynamic && !body.sleeping) {
             dynamics.push_back(entity);
         }
     });

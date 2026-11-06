@@ -613,6 +613,7 @@ void register_builtin_components(
                 out.field("mass", c.mass);
                 out.field("gravity_scale", c.gravity_scale);
                 out.field("angular_velocity", c.angular_velocity);
+                out.field("sleeping", c.sleeping);
             },
             [](ComponentReader& in, RigidBody2D& c) {
                 (void)in.field("velocity", c.velocity);
@@ -646,6 +647,7 @@ void register_builtin_components(
                 (void)in.field("mass", c.mass);
                 (void)in.field("gravity_scale", c.gravity_scale);
                 (void)in.field("angular_velocity", c.angular_velocity);
+                (void)in.field("sleeping", c.sleeping);
             });
 
     serializer.register_component<BoxCollider2D>(
@@ -730,6 +732,7 @@ void register_builtin_components(
                 out.field("type", rigid_body_3d_type_name(c.type));
                 out.field("mass", c.mass);
                 out.field("gravity_scale", c.gravity_scale);
+                out.field("sleeping", c.sleeping);
             },
             [](ComponentReader& in, RigidBody3D& c) {
                 (void)in.field("velocity", c.velocity);
@@ -737,6 +740,7 @@ void register_builtin_components(
                 read_body_type_3d(in, c.type);
                 (void)in.field("mass", c.mass);
                 (void)in.field("gravity_scale", c.gravity_scale);
+                (void)in.field("sleeping", c.sleeping);
             });
 
     serializer.register_component<BoxCollider3D>(

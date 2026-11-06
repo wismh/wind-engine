@@ -1,10 +1,11 @@
 #include "physics_2d_internal.h"
 
-#include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_3d.h>
 #include <engine/ecs/transform.h>
 
+#include "broadphase.h"
+#include "contact_islands.h"
 #include "inertia_2d.h"
 #include "solver_2d.h"
 
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <numeric>
+#include <span>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -26,23 +28,13 @@ struct SolverSlot {
     ecs::Entity entity{};
     SolverBody2D body{};
     int depth{0};
+    bool frozen{false};
 };
 
 struct ItemPair {
     int item_a{0};
     int item_b{0};
 };
-
-[[nodiscard]] std::pair<ecs::Entity, ecs::Entity> make_pair(ecs::Entity a, ecs::Entity b) {
-    if (b < a) {
-        return {b, a};
-    }
-    return {a, b};
-}
-
-[[nodiscard]] bool layers_match(const ColliderItem2D& a, const ColliderItem2D& b) {
-    return (a.layer & b.mask) != 0 && (b.layer & a.mask) != 0;
-}
 
 [[nodiscard]] int hierarchy_depth(const ecs::World& world, ecs::Entity entity) {
     int depth = 0;
@@ -116,35 +108,6 @@ struct ItemPair {
         return inertia > 0.f ? 1.f / inertia : 0.f;
     }
     return 0.f;
-}
-
-void rotate_polygon(const ColliderItem2D& item, ContactShape2D& shape) {
-    const float c = std::cos(item.angle);
-    const float s = std::sin(item.angle);
-    const glm::vec2 center{item.position.x, item.position.y};
-    const int count = std::min(item.polygon_count, kPolygonCollider2DCapacity);
-    shape.vertex_count = count;
-    for (int i = 0; i < count; ++i) {
-        const glm::vec2 local = item.polygon[i];
-        shape.vertices[i] = center + glm::vec2{c * local.x - s * local.y, s * local.x + c * local.y};
-    }
-}
-
-[[nodiscard]] ContactShape2D to_shape(const ColliderItem2D& item) {
-    ContactShape2D shape;
-    shape.center = glm::vec2{item.position.x, item.position.y};
-    shape.angle = item.angle;
-    if (item.shape == ColliderShape2D::Box) {
-        shape.kind = ContactShapeKind::Aabb;
-        shape.half_extents = glm::vec2{item.box_size.x * 0.5f, item.box_size.y * 0.5f};
-    } else if (item.shape == ColliderShape2D::Circle) {
-        shape.kind = ContactShapeKind::Circle;
-        shape.radius = item.radius;
-    } else {
-        shape.kind = ContactShapeKind::Polygon;
-        rotate_polygon(item, shape);
-    }
-    return shape;
 }
 
 void fill_solver_shape(SolverShape2D& shape, const ColliderItem2D& collider) {
@@ -221,77 +184,40 @@ std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world) {
     return colliders;
 }
 
-void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders) {
-    PhysicsOverlapState& state = world.ctx<PhysicsOverlapState>();
-    std::map<std::pair<ecs::Entity, ecs::Entity>, bool> current;
-    ecs::EventWriter<CollisionEvent2D> writer{world};
-
-    for (std::size_t i = 0; i < colliders.size(); ++i) {
-        for (std::size_t j = i + 1; j < colliders.size(); ++j) {
-            const ColliderItem2D& a = colliders[i];
-            const ColliderItem2D& b = colliders[j];
-            if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
-                continue;
-            }
-            if (!layers_match(a, b)) {
-                continue;
-            }
-            const auto pair = make_pair(a.entity, b.entity);
-            const ColliderItem2D& first = pair.first == a.entity ? a : b;
-            const ColliderItem2D& second = pair.first == a.entity ? b : a;
-            const ContactManifold2D manifold = make_contact_2d(to_shape(first), to_shape(second));
-            if (manifold.count == 0) {
-                continue;
-            }
-            const bool is_trigger = a.is_trigger || b.is_trigger;
-            current.emplace(pair, is_trigger);
-            const CollisionPhase phase = state.last.contains(pair) ? CollisionPhase::Stay : CollisionPhase::Enter;
-            writer.send(CollisionEvent2D{
-                    .a = pair.first,
-                    .b = pair.second,
-                    .phase = phase,
-                    .is_trigger = is_trigger,
-                    .normal = manifold.normal,
-                    .penetration = manifold.points[0].penetration,
-                    .point = manifold.points[0].point,
-            });
-        }
-    }
-
-    for (const auto& [pair, was_trigger] : state.last) {
-        if (!current.contains(pair)) {
-            writer.send(CollisionEvent2D{pair.first, pair.second, CollisionPhase::Exit, was_trigger});
-        }
-    }
-    state.last = std::move(current);
-}
-
 void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders) {
-    std::vector<ItemPair> item_pairs;
+    std::vector<Aabb> bounds(colliders.size());
     for (std::size_t i = 0; i < colliders.size(); ++i) {
-        for (std::size_t j = i + 1; j < colliders.size(); ++j) {
-            const ColliderItem2D& a = colliders[i];
-            const ColliderItem2D& b = colliders[j];
-            if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
-                continue;
-            }
-            if (a.is_trigger || b.is_trigger || !layers_match(a, b) || a.entity == b.entity) {
-                continue;
-            }
-            const bool dynamic_a = is_dynamic(world.try_get<RigidBody2D>(a.entity));
-            const bool dynamic_b = is_dynamic(world.try_get<RigidBody2D>(b.entity));
-            if (!dynamic_a && !dynamic_b) {
-                continue;
-            }
-            if (a.entity < b.entity) {
-                item_pairs.push_back(ItemPair{static_cast<int>(i), static_cast<int>(j)});
-            } else {
-                item_pairs.push_back(ItemPair{static_cast<int>(j), static_cast<int>(i)});
-            }
+        bounds[i] = aabb_of_2d(colliders[i]);
+    }
+    Broadphase tree;
+    tree.rebuild(bounds);
+    std::vector<std::pair<int, int>> candidates;
+    tree.query_pairs(candidates);
+
+    std::vector<ItemPair> item_pairs;
+    for (const auto& [index_a, index_b] : candidates) {
+        const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
+        const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
+        if (world.try_get<RigidBody3D>(a.entity) != nullptr || world.try_get<RigidBody3D>(b.entity) != nullptr) {
+            continue;
+        }
+        if (a.is_trigger || b.is_trigger || !layers_match_2d(a, b) || a.entity == b.entity) {
+            continue;
+        }
+        const bool dynamic_a = is_dynamic(world.try_get<RigidBody2D>(a.entity));
+        const bool dynamic_b = is_dynamic(world.try_get<RigidBody2D>(b.entity));
+        if (!dynamic_a && !dynamic_b) {
+            continue;
+        }
+        if (a.entity < b.entity) {
+            item_pairs.push_back(ItemPair{index_a, index_b});
+        } else {
+            item_pairs.push_back(ItemPair{index_b, index_a});
         }
     }
     if (item_pairs.empty()) {
         world.ctx<PhysicsContactCache2D>().impulses.clear();
+        update_sleep_2d(world, {});
         return;
     }
 
@@ -337,6 +263,13 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
             slot.body.inverse_inertia = inverse_inertia_for(world, entity, colliders);
             slot.body.velocity = {rigid->velocity.x, rigid->velocity.y};
             slot.body.angular_velocity = rigid->angular_velocity;
+            if (rigid->sleeping) {
+                slot.frozen = true;
+                slot.body.inverse_mass = 0.f;
+                slot.body.inverse_inertia = 0.f;
+                slot.body.velocity = {0.f, 0.f};
+                slot.body.angular_velocity = 0.f;
+            }
         } else if (rigid != nullptr && rigid->type == BodyType2D::Kinematic) {
             slot.body.velocity = kinematic_world_velocity_xy(world, entity, rigid->velocity);
             slot.body.angular_velocity = rigid->angular_velocity;
@@ -400,6 +333,47 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         return key;
     };
 
+    std::vector<ecs::Entity> entities;
+    entities.reserve(slots.size());
+    for (const SolverSlot& slot : slots) {
+        entities.push_back(slot.entity);
+    }
+    std::vector<IslandBodyPair> links(pairs.size());
+    std::vector<std::uint8_t> overlapping(pairs.size(), 0);
+    refresh_bodies();
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
+        const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
+        links[i] = IslandBodyPair{shape_a.body, shape_b.body};
+        if (shape_a.body == shape_b.body) {
+            continue;
+        }
+        const ContactManifold2D manifold =
+                make_contact_2d(contact_shape_2d(shape_a, bodies[static_cast<std::size_t>(shape_a.body)].position),
+                                contact_shape_2d(shape_b, bodies[static_cast<std::size_t>(shape_b.body)].position));
+        if (manifold.count > 0) {
+            overlapping[i] = 1;
+        }
+    }
+    const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping);
+    if (islands.empty()) {
+        world.ctx<PhysicsContactCache2D>().impulses.clear();
+        update_sleep_2d(world, {});
+        return;
+    }
+    std::vector<SolverPair2D> ordered;
+    std::vector<std::size_t> group_begin;
+    std::vector<std::size_t> group_count;
+    ordered.reserve(pairs.size());
+    for (const std::vector<int>& island : islands) {
+        group_begin.push_back(ordered.size());
+        for (int index : island) {
+            ordered.push_back(pairs[static_cast<std::size_t>(index)]);
+        }
+        group_count.push_back(ordered.size() - group_begin.back());
+    }
+    pairs = std::move(ordered);
+
     // Seed the accumulator only. Do not apply the cached impulse to velocity. A flipped normal drops both points.
     PhysicsContactCache2D& cache = world.ctx<PhysicsContactCache2D>();
     std::vector<ContactImpulse2D> impulses(pairs.size());
@@ -430,21 +404,25 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         }
     }
 
-    for (int iteration = 0; iteration < kPositionIterations2D; ++iteration) {
-        refresh_bodies();
-        solve_position_iteration_2d(bodies, shapes, pairs, impulses);
-        for (int index : write_order) {
-            const std::size_t slot = static_cast<std::size_t>(index);
-            if (!bodies[slot].dynamic) {
-                continue;
+    for (std::size_t group = 0; group < group_begin.size(); ++group) {
+        const std::span<const SolverPair2D> pair_span{pairs.data() + group_begin[group], group_count[group]};
+        const std::span<ContactImpulse2D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
+        for (int iteration = 0; iteration < kPositionIterations2D; ++iteration) {
+            refresh_bodies();
+            solve_position_iteration_2d(bodies, shapes, pair_span, impulse_span);
+            for (int index : write_order) {
+                const std::size_t slot = static_cast<std::size_t>(index);
+                if (!bodies[slot].dynamic || slots[slot].frozen) {
+                    continue;
+                }
+                ecs::set_world_position(world, slots[slot].entity,
+                                        glm::vec3{bodies[slot].position.x, bodies[slot].position.y, world_z[slot]});
             }
-            ecs::set_world_position(world, slots[slot].entity,
-                                    glm::vec3{bodies[slot].position.x, bodies[slot].position.y, world_z[slot]});
         }
     }
 
     for (std::size_t i = 0; i < slots.size(); ++i) {
-        if (!bodies[i].dynamic) {
+        if (!bodies[i].dynamic || slots[i].frozen) {
             continue;
         }
         RigidBody2D& rigid = world.get<RigidBody2D>(slots[i].entity);
@@ -467,6 +445,19 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         rebuilt.impulses.emplace(cache_key_for(pairs[i]), stored);
     }
     cache = std::move(rebuilt);
+
+    std::vector<ecs::Entity> contacting;
+    contacting.reserve(pairs.size() * 2);
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        if (!impulses[i].touched) {
+            continue;
+        }
+        const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
+        const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
+        contacting.push_back(slots[static_cast<std::size_t>(shape_a.body)].entity);
+        contacting.push_back(slots[static_cast<std::size_t>(shape_b.body)].entity);
+    }
+    update_sleep_2d(world, contacting);
 }
 
 }

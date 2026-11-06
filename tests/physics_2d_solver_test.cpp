@@ -112,6 +112,7 @@ TEST(Physics2D, DynamicBoxRestsOnStaticFloor) {
     EXPECT_GT(crate_pos.y - 1.f, -engine::kContactSlop2D - 1e-3f);
     EXPECT_NEAR(world.get<engine::RigidBody2D>(crate).velocity.y, 0.f, 1e-3f);
     EXPECT_NEAR(world.get<engine::RigidBody2D>(crate).angular_velocity, 0.f, 1e-5f);
+    EXPECT_TRUE(world.get<engine::RigidBody2D>(crate).sleeping);
     EXPECT_EQ(world.get<engine::Transform>(floor).position, (glm::vec3{0.f, -1.f, 0.f}));
 }
 
