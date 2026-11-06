@@ -78,7 +78,7 @@ struct ItemPair {
 }
 
 [[nodiscard]] bool is_dynamic(const RigidBody2D* body) {
-    return body != nullptr && body->type == BodyType2D::Dynamic;
+    return body != nullptr && body->type == BodyType::Dynamic;
 }
 
 [[nodiscard]] float dynamic_mass(const RigidBody2D& body) {
@@ -270,7 +270,7 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
                 slot.body.velocity = {0.f, 0.f};
                 slot.body.angular_velocity = 0.f;
             }
-        } else if (rigid != nullptr && rigid->type == BodyType2D::Kinematic) {
+        } else if (rigid != nullptr && rigid->type == BodyType::Kinematic) {
             slot.body.velocity = kinematic_world_velocity_xy(world, entity, rigid->velocity);
             slot.body.angular_velocity = rigid->angular_velocity;
         } else if (rigid != nullptr) {
@@ -407,7 +407,7 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
     for (std::size_t group = 0; group < group_begin.size(); ++group) {
         const std::span<const SolverPair2D> pair_span{pairs.data() + group_begin[group], group_count[group]};
         const std::span<ContactImpulse2D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        for (int iteration = 0; iteration < kPositionIterations2D; ++iteration) {
+        for (int iteration = 0; iteration < kPositionIterations; ++iteration) {
             refresh_bodies();
             solve_position_iteration_2d(bodies, shapes, pair_span, impulse_span);
             for (int index : write_order) {

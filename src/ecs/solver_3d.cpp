@@ -102,7 +102,7 @@ void solve_position_iteration_3d(std::span<SolverBody3D> bodies, std::span<const
 
         const glm::vec3 origin_a = body_a.position;
         const glm::vec3 origin_b = body_b.position;
-        const float depth = std::max(0.f, manifold.points[0].penetration - kContactSlop3D);
+        const float depth = std::max(0.f, manifold.points[0].penetration - kContactSlop);
         const float inverse = body_a.inverse_mass + body_b.inverse_mass;
         if (inverse != 0.f && depth != 0.f) {
             const float correction = depth / inverse;
@@ -126,7 +126,7 @@ void solve_position_iteration_3d(std::span<SolverBody3D> bodies, std::span<const
         const glm::vec3 lever_b = point - origin_b;
         const glm::vec3 relative = velocity_at(body_b, lever_b) - velocity_at(body_a, lever_a);
         const float normal_speed = glm::dot(relative, normal);
-        const float restitution = normal_speed >= -kBounceThreshold3D ? 0.f : base_restitution;
+        const float restitution = normal_speed >= -kBounceThreshold ? 0.f : base_restitution;
 
         const glm::vec3 normal_lever_a = glm::cross(lever_a, normal);
         const glm::vec3 normal_lever_b = glm::cross(lever_b, normal);

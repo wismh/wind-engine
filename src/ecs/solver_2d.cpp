@@ -97,7 +97,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
         // Lever arms use the pose that produced the manifold, before the positional push.
         const glm::vec2 origin_a = body_a.position;
         const glm::vec2 origin_b = body_b.position;
-        const float depth = std::max(0.f, manifold.points[0].penetration - kContactSlop2D);
+        const float depth = std::max(0.f, manifold.points[0].penetration - kContactSlop);
         const float inverse = body_a.inverse_mass + body_b.inverse_mass;
         if (inverse != 0.f && depth != 0.f) {
             const float correction = depth / inverse;
@@ -135,7 +135,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
             const glm::vec2 relative = velocity_at(body_b, r_b) - velocity_at(body_a, r_a);
             const float normal_speed = glm::dot(relative, normal);
             const float tangent_speed = glm::dot(relative, tangent);
-            float restitution = normal_speed >= -kBounceThreshold2D ? 0.f : base_restitution;
+            float restitution = normal_speed >= -kBounceThreshold ? 0.f : base_restitution;
 
             ContactPointImpulse2D& point_impulse = accumulated.points[point_index];
             float normal_delta = 0.f;

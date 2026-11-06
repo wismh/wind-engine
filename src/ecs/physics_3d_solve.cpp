@@ -35,11 +35,11 @@ struct ItemPair {
 };
 
 [[nodiscard]] bool is_dynamic(const RigidBody3D* body) {
-    return body != nullptr && body->type == BodyType3D::Dynamic;
+    return body != nullptr && body->type == BodyType::Dynamic;
 }
 
 [[nodiscard]] float dynamic_mass(const RigidBody3D& body) {
-    return body.mass > kMinDynamicMass3D ? body.mass : kMinDynamicMass3D;
+    return body.mass > kMinDynamicMass ? body.mass : kMinDynamicMass;
 }
 
 [[nodiscard]] float dynamic_inverse_mass(const RigidBody3D& body) {
@@ -228,7 +228,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
                 slot.body.velocity = glm::vec3{0.f};
                 slot.body.angular_velocity = glm::vec3{0.f};
             }
-        } else if (rigid != nullptr && rigid->type == BodyType3D::Kinematic) {
+        } else if (rigid != nullptr && rigid->type == BodyType::Kinematic) {
             slot.body.velocity = kinematic_world_velocity(world, entity, rigid->velocity);
             slot.body.angular_velocity = rigid->angular_velocity;
         } else if (rigid != nullptr) {
@@ -358,7 +358,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     for (std::size_t group = 0; group < group_begin.size(); ++group) {
         const std::span<const SolverPair3D> pair_span{pairs.data() + group_begin[group], group_count[group]};
         const std::span<ContactImpulse3D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        for (int iteration = 0; iteration < kPositionIterations3D; ++iteration) {
+        for (int iteration = 0; iteration < kPositionIterations; ++iteration) {
             refresh_bodies();
             solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
             for (int index : write_order) {

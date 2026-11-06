@@ -58,8 +58,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/grid_query.h` | `CellPredicate`, `raycast_grid` (DDA through solid cells), `sweep_aabb` (axis-separated box move), 3D and 2D | [ECS](../modules/ECS.md#grid-queries) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D` (with `angular_velocity` and `sleeping`), `Physics2DConfig`, box, circle, and polygon colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/physics_3d.h` | `BodyType3D`, `RigidBody3D` (with `sleeping`), `Physics3DConfig`, box, sphere, and capsule colliders, `CollisionEvent3D`, `run_physics_3d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics.h` | `BodyType`, `CollisionPhase`, and the shared mass, slop, bounce, iteration, and sleep constants | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_2d.h` | `RigidBody2D` (with `angular_velocity` and `sleeping`), `Physics2DConfig`, box, circle, and polygon colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_3d.h` | `RigidBody3D` (with `sleeping`), `Physics3DConfig`, box, sphere, and capsule colliders, `CollisionEvent3D`, `run_physics_3d` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |

@@ -51,7 +51,7 @@ engine::ecs::World physics_world() {
 void make_dynamic(engine::ecs::World& world, engine::ecs::Entity entity, glm::vec3 velocity) {
     world.emplace<engine::RigidBody3D>(entity, engine::RigidBody3D{
                                                        .velocity = velocity,
-                                                       .type = engine::BodyType3D::Dynamic,
+                                                       .type = engine::BodyType::Dynamic,
                                                        .mass = 1.f,
                                                });
 }
@@ -95,7 +95,7 @@ TEST(Physics3D, SphereRestsOnStaticFloor) {
     make_dynamic(world, sphere, glm::vec3{0.f});
 
     step_physics_n(world, 30);
-    const float rest_y = 0.5f - engine::kContactSlop3D;
+    const float rest_y = 0.5f - engine::kContactSlop;
     EXPECT_NEAR(engine::ecs::world_position(world, sphere).y, rest_y, 1e-4f);
     EXPECT_NEAR(world.get<engine::RigidBody3D>(sphere).velocity.y, 0.f, 1e-4f);
 
@@ -114,7 +114,7 @@ TEST(Physics3D, BoxStackRestsWithNoTorque) {
     make_dynamic(world, crate, glm::vec3{0.f});
 
     step_physics_n(world, 30);
-    const float rest_y = 1.f - engine::kContactSlop3D;
+    const float rest_y = 1.f - engine::kContactSlop;
     EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
     EXPECT_NEAR(world.get<engine::RigidBody3D>(crate).velocity.y, 0.f, 1e-4f);
     EXPECT_NEAR(glm::length(world.get<engine::RigidBody3D>(crate).angular_velocity), 0.f, 1e-5f);
@@ -139,7 +139,7 @@ TEST(Physics3D, RestitutionBounceAboveThreshold) {
 
     step_physics(world);
 
-    EXPECT_NEAR(engine::ecs::world_position(world, sphere).y, 0.5f - engine::kContactSlop3D, 1e-4f);
+    EXPECT_NEAR(engine::ecs::world_position(world, sphere).y, 0.5f - engine::kContactSlop, 1e-4f);
     const engine::RigidBody3D& rigid = world.get<engine::RigidBody3D>(sphere);
     EXPECT_NEAR(rigid.velocity.y, 4.f, 1e-4f);
     EXPECT_NEAR(rigid.velocity.x, 0.f, 1e-4f);
@@ -150,7 +150,7 @@ TEST(Physics3D, FrictionRemovesOneUnitOnTheFirstRestingStep) {
     world.ctx<engine::Physics3DConfig>().gravity = {0.f, -60.f, 0.f};
     const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 8.f});
     world.get<engine::BoxCollider3D>(floor).friction = 1.f;
-    const float rest_y = 0.5f - engine::kContactSlop3D;
+    const float rest_y = 0.5f - engine::kContactSlop;
     const engine::ecs::Entity sphere = add_sphere(world, glm::vec3{0.f, rest_y, 0.f}, 0.5f);
     world.get<engine::SphereCollider3D>(sphere).friction = 1.f;
     make_dynamic(world, sphere, glm::vec3{10.f, 0.f, 0.f});
@@ -213,7 +213,7 @@ TEST(Physics3D, DefaultBodyIsKinematicAndIgnoresGravityAndOverlap) {
 
     step_physics(world);
 
-    EXPECT_EQ(world.get<engine::RigidBody3D>(mover).type, engine::BodyType3D::Kinematic);
+    EXPECT_EQ(world.get<engine::RigidBody3D>(mover).type, engine::BodyType::Kinematic);
     EXPECT_NEAR(world.get<engine::Transform>(mover).position.x, 1.f, 1e-5f);
     EXPECT_NEAR(world.get<engine::Transform>(mover).position.y, 0.f, 1e-5f);
     EXPECT_EQ(world.get<engine::RigidBody3D>(mover).velocity, (glm::vec3{60.f, 0.f, 0.f}));
@@ -224,8 +224,8 @@ TEST(Physics3D, StaticOverlapEmitsEventAndMovesNeither) {
     engine::ecs::World world = physics_world();
     const engine::ecs::Entity left = add_box(world, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 2.f});
     const engine::ecs::Entity right = add_box(world, glm::vec3{0.5f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 2.f});
-    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{.type = engine::BodyType3D::Static});
-    world.emplace<engine::RigidBody3D>(right, engine::RigidBody3D{.type = engine::BodyType3D::Static});
+    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{.type = engine::BodyType::Static});
+    world.emplace<engine::RigidBody3D>(right, engine::RigidBody3D{.type = engine::BodyType::Static});
 
     step_physics(world);
 
@@ -283,7 +283,7 @@ TEST(Physics3D, FreeSpinKeepsAxisAndMatchesOmegaDt) {
     const engine::ecs::Entity entity = add_sphere(world, glm::vec3{0.f}, 0.5f);
     world.emplace<engine::RigidBody3D>(entity, engine::RigidBody3D{
                                                        .angular_velocity = {0.f, 2.f, 0.f},
-                                                       .type = engine::BodyType3D::Dynamic,
+                                                       .type = engine::BodyType::Dynamic,
                                                });
 
     step_physics(world);
@@ -305,7 +305,7 @@ TEST(Physics3D, ChildSpinIsAppliedInWorldAxes) {
     world.emplace<engine::Transform>(child, engine::Transform{});
     world.emplace<engine::RigidBody3D>(child, engine::RigidBody3D{
                                                       .angular_velocity = {0.f, 1.f, 0.f},
-                                                      .type = engine::BodyType3D::Dynamic,
+                                                      .type = engine::BodyType::Dynamic,
                                               });
     ASSERT_TRUE(engine::ecs::set_parent(world, child, parent));
 
@@ -327,11 +327,11 @@ TEST(Physics3D, RigidBody3DSkipsSecondIntegrationFrom2D) {
     world.ctx<engine::Physics3DConfig>().gravity = {0.f, -60.f, 0.f};
     const engine::ecs::Entity both = world.create();
     world.emplace<engine::Transform>(both, engine::Transform{});
-    world.emplace<engine::RigidBody2D>(both, engine::RigidBody2D{.type = engine::BodyType2D::Dynamic});
-    world.emplace<engine::RigidBody3D>(both, engine::RigidBody3D{.type = engine::BodyType3D::Dynamic});
+    world.emplace<engine::RigidBody2D>(both, engine::RigidBody2D{.type = engine::BodyType::Dynamic});
+    world.emplace<engine::RigidBody3D>(both, engine::RigidBody3D{.type = engine::BodyType::Dynamic});
     const engine::ecs::Entity only_2d = world.create();
     world.emplace<engine::Transform>(only_2d, engine::Transform{});
-    world.emplace<engine::RigidBody2D>(only_2d, engine::RigidBody2D{.type = engine::BodyType2D::Dynamic});
+    world.emplace<engine::RigidBody2D>(only_2d, engine::RigidBody2D{.type = engine::BodyType::Dynamic});
 
     step_physics(world);
 
@@ -351,7 +351,7 @@ TEST(Physics3D, RigidBody3DIsNotSolvedByThe2DPair) {
     const engine::ecs::Entity crate = world.create();
     world.emplace<engine::Transform>(crate, engine::Transform{.position = {1.f, 0.f, 0.f}});
     world.emplace<engine::BoxCollider2D>(crate, engine::BoxCollider2D{.size = {2.f, 2.f, 1.f}});
-    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType2D::Dynamic});
+    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType::Dynamic});
 
     step_physics(world);
 
@@ -378,7 +378,7 @@ TEST(Physics3D, SerializerRoundTripAndMissingTypeIsKinematic) {
     auto loaded = engine::ecs::load_world_from_toml(world, kToml);
     ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     const engine::RigidBody3D& body = world.get<engine::RigidBody3D>(loaded->by_id.at("ball"));
-    EXPECT_EQ(body.type, engine::BodyType3D::Dynamic);
+    EXPECT_EQ(body.type, engine::BodyType::Dynamic);
     EXPECT_FLOAT_EQ(body.mass, 3.5f);
     EXPECT_FLOAT_EQ(body.gravity_scale, 0.5f);
     EXPECT_EQ(body.velocity, (glm::vec3{1.f, 2.f, 3.f}));
@@ -388,17 +388,17 @@ TEST(Physics3D, SerializerRoundTripAndMissingTypeIsKinematic) {
     EXPECT_FLOAT_EQ(capsule.height, 1.5f);
     EXPECT_FLOAT_EQ(capsule.friction, 0.2f);
     EXPECT_FLOAT_EQ(capsule.restitution, 0.4f);
-    EXPECT_EQ(world.get<engine::RigidBody3D>(loaded->by_id.at("plain")).type, engine::BodyType3D::Kinematic);
+    EXPECT_EQ(world.get<engine::RigidBody3D>(loaded->by_id.at("plain")).type, engine::BodyType::Kinematic);
 
     const std::string saved = engine::ecs::save_world_to_toml(world);
     engine::ecs::World again;
     auto reloaded = engine::ecs::load_world_from_toml(again, saved);
     ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
     const engine::RigidBody3D& round = again.get<engine::RigidBody3D>(reloaded->by_id.at("ball"));
-    EXPECT_EQ(round.type, engine::BodyType3D::Dynamic);
+    EXPECT_EQ(round.type, engine::BodyType::Dynamic);
     EXPECT_EQ(round.velocity, (glm::vec3{1.f, 2.f, 3.f}));
     EXPECT_EQ(round.angular_velocity, (glm::vec3{4.f, 5.f, 6.f}));
     EXPECT_FLOAT_EQ(round.mass, 3.5f);
     EXPECT_FLOAT_EQ(again.get<engine::CapsuleCollider3D>(reloaded->by_id.at("ball")).height, 1.5f);
-    EXPECT_EQ(again.get<engine::RigidBody3D>(reloaded->by_id.at("plain")).type, engine::BodyType3D::Kinematic);
+    EXPECT_EQ(again.get<engine::RigidBody3D>(reloaded->by_id.at("plain")).type, engine::BodyType::Kinematic);
 }

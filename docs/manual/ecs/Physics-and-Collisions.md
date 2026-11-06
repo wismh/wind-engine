@@ -4,7 +4,7 @@ Wind has two solvers. The 2D solver covers boxes, circles, and convex polygons: 
 
 The 3D solver is separate. It does not lock Z on the 2D shapes, and it does not read 2D colliders. Spheres, boxes, and capsules live in `<engine/ecs/physics_3d.h>` and report `CollisionEvent3D`. Characters and tiles stay on `sweep_aabb`. Do not put a `RigidBody2D` or a `RigidBody3D` on a predicted or controlled entity. Both systems run outside the prediction step, so a kinematic body still integrates and a dynamic body is solved there.
 
-The 2D names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because both solvers use it.
+The 2D names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `BodyType` and `CollisionPhase` live in `<engine/ecs/physics.h>` and both solvers use them.
 
 ---
 
@@ -39,7 +39,7 @@ world.emplace<engine::CircleCollider2D>(coin, engine::CircleCollider2D{
 
 Two colliders are tested against each other only when each one's `layer` hits the other's `mask`: `(a.layer & b.mask) != 0 && (b.layer & a.mask) != 0`. Give the player `layer = 1u << 1` and a `mask` that includes the wall and coin layers.
 
-`engine::BodyType2D` on `engine::RigidBody2D` chooses how a body moves. The default is `Kinematic`.
+`engine::BodyType` on `engine::RigidBody2D` chooses how a body moves. The default is `Kinematic`.
 
 - `Static` does not integrate and is not moved by contacts. A collider with no `RigidBody2D` is static too. `angular_velocity` is stored and is not integrated, and the solver does not write it.
 - `Kinematic` does `local position += velocity * fixed_delta_time` and is not moved by contacts. Two kinematics still tunnel. The solver does not change a kinematic velocity or `angular_velocity`. A kinematic's stored spin still contributes to the point velocity the solver reads, with inverse inertia 0, so it does not take torque.
@@ -57,19 +57,19 @@ world.emplace<engine::BoxCollider2D>(floor, engine::BoxCollider2D{.size = {8.f, 
 auto crate = world.create();
 world.emplace<engine::Transform>(crate, engine::Transform{.position = {0.f, 2.f, 0.f}});
 world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{
-    .type = engine::BodyType2D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::BoxCollider2D>(crate, engine::BoxCollider2D{.size = {2.f, 2.f, 1.f}});
 ```
 
-The crate falls, then rests with its bottom within `kContactSlop2D` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations2D`). With the default restitution of 0 it does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
+The crate falls, then rests with its bottom within `kContactSlop` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations`). With the default restitution of 0 it does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
 
-Sleep is automatic. A dynamic body slower than `kSleepLinear2D` and `kSleepAngular2D` (both `0.05`) for `kSleepSteps2D` (8) fixed steps, with at least one solver contact, sets `RigidBody2D.sleeping`. It then skips gravity and integration, and the solver treats it as frozen (inverse mass 0 and inverse inertia 0). A body in the air does not sleep, so a zero-gravity hover stays awake. Writing a linear or angular speed at or above that threshold wakes it before integration. An overlap with an awake dynamic, or with a kinematic whose `velocity` is not exactly zero or whose `angular_velocity` is not exactly zero, also wakes it on that same step, before the sleeper integrates, so a platform can push a crate that was asleep. A sleeper whose contact disappears stays frozen: the quiet counter clears, and `sleeping` stays set until a speed at or above the threshold or such an overlap wakes it. The quiet counter is not serialized. `sleeping` is, and a missing key loads false. Events still fire while it is asleep. Kinematic and static bodies ignore the flag. The broadphase is a deterministic dynamic AABB tree, rebuilt from the current bounds each step and shared with the 3D solver. It only skips pairs whose bounds are strictly apart. A shared face is still tested, and the narrowphase is unchanged, so the tree does not change which pairs collide. Contact islands are solved separately, ordered by the lowest entity id.
+Sleep is automatic. A dynamic body slower than `kSleepLinear` and `kSleepAngular` (both `0.05`) for `kSleepSteps` (8) fixed steps, with at least one solver contact, sets `RigidBody2D.sleeping`. It then skips gravity and integration, and the solver treats it as frozen (inverse mass 0 and inverse inertia 0). A body in the air does not sleep, so a zero-gravity hover stays awake. Writing a linear or angular speed at or above that threshold wakes it before integration. An overlap with an awake dynamic, or with a kinematic whose `velocity` is not exactly zero or whose `angular_velocity` is not exactly zero, also wakes it on that same step, before the sleeper integrates, so a platform can push a crate that was asleep. A sleeper whose contact disappears stays frozen: the quiet counter clears, and `sleeping` stays set until a speed at or above the threshold or such an overlap wakes it. The quiet counter is not serialized. `sleeping` is, and a missing key loads false. Events still fire while it is asleep. Kinematic and static bodies ignore the flag. The broadphase is a deterministic dynamic AABB tree, rebuilt from the current bounds each step and shared with the 3D solver. It only skips pairs whose bounds are strictly apart. A shared face is still tested, and the narrowphase is unchanged, so the tree does not change which pairs collide. Contact islands are solved separately, ordered by the lowest entity id.
 
 A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. Friction defaults to 0, so a floor that slides sideways under a crate does not drag it. Set friction on both colliders and that floor's tangential velocity pulls the crate.
 
-Friction and restitution live on the collider, and the solver reads them without writing a clamped value back. A negative or non-finite friction is 0 for that step. Restitution is clamped to `[0, 1]` for that step. A pair uses `sqrt(fa * fb)` and `max(ra, rb)`. Set friction on **both** colliders: a zero on either side is a frictionless pair. The contact cache seeds the next step's impulse accumulator and is not applied to velocity. `kBounceThreshold2D` is 1. An approach at that speed or slower (`v_rel_n >= -1`) is solved with restitution 0. Gravity `(0, -60)` adds exactly -1 to `velocity.y` each fixed step, so a body sitting on a floor does not bounce. A faster impact does. Particle `bounce` and `friction` are emitter fields. They do not read these collider fields. Particles still copy boxes and circles as axis-aligned shapes and do not see polygons or box yaw.
+Friction and restitution live on the collider, and the solver reads them without writing a clamped value back. A negative or non-finite friction is 0 for that step. Restitution is clamped to `[0, 1]` for that step. A pair uses `sqrt(fa * fb)` and `max(ra, rb)`. Set friction on **both** colliders: a zero on either side is a frictionless pair. The contact cache seeds the next step's impulse accumulator and is not applied to velocity. `kBounceThreshold` is 1. An approach at that speed or slower (`v_rel_n >= -1`) is solved with restitution 0. Gravity `(0, -60)` adds exactly -1 to `velocity.y` each fixed step, so a body sitting on a floor does not bounce. A faster impact does. Particle `bounce` and `friction` are emitter fields. They do not read these collider fields. Particles still copy boxes and circles as axis-aligned shapes and do not see polygons or box yaw.
 
 ```cpp
 world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
@@ -85,7 +85,7 @@ world.emplace<engine::BoxCollider2D>(ground, engine::BoxCollider2D{
 auto ball = world.create();
 world.emplace<engine::Transform>(ball, engine::Transform{.position = {0.f, 3.f, 0.f}});
 world.emplace<engine::RigidBody2D>(ball, engine::RigidBody2D{
-    .type = engine::BodyType2D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::CircleCollider2D>(ball, engine::CircleCollider2D{
@@ -101,7 +101,7 @@ auto sled = world.create();
 world.emplace<engine::Transform>(sled, engine::Transform{.position = {0.f, 1.f, 0.f}});
 world.emplace<engine::RigidBody2D>(sled, engine::RigidBody2D{
     .velocity = {10.f, 0.f, 0.f},
-    .type = engine::BodyType2D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::BoxCollider2D>(sled, engine::BoxCollider2D{
@@ -126,7 +126,7 @@ auto tumbling = world.create();
 world.emplace<engine::Transform>(tumbling, engine::Transform{.position = {0.f, 0.999f, 0.f}});
 world.emplace<engine::RigidBody2D>(tumbling, engine::RigidBody2D{
     .velocity = {10.f, 0.f, 0.f},
-    .type = engine::BodyType2D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::BoxCollider2D>(tumbling, engine::BoxCollider2D{
@@ -150,7 +150,7 @@ world.emplace<engine::PolygonCollider2D>(slope, hill);
 auto slider = world.create();
 world.emplace<engine::Transform>(slider, engine::Transform{.position = {2.2f, 1.85f, 0.f}});
 world.emplace<engine::RigidBody2D>(slider, engine::RigidBody2D{
-    .type = engine::BodyType2D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::BoxCollider2D>(slider, engine::BoxCollider2D{.size = {1.f, 1.f, 1.f}});
@@ -249,7 +249,7 @@ Do not put `RigidBody2D` and `RigidBody3D` on one entity. An entity that has `Ri
 
 Shapes ignore `Transform.scale` and use the world quaternion (the parent chain, not the scaled matrix axes). A capsule's `height` is the distance between its sphere centers along local Y. The total length is `height + 2 * radius`. `height == 0` is a sphere. Negative radius, negative height, or a negative box size produces no contact. Coincident centers use a `+X` normal.
 
-Contacts are one point, the deepest. Two identity boxes use the center of the overlap box (X wins a tie, then Y, then Z), so a centered stack resting on a face has no torque. Any other box rotation uses SAT and one witness; a rotated face can rock. The solver runs 8 iterations (`kPositionIterations3D`) with slop `kContactSlop3D` (`1e-3`). Friction is `sqrt(fa * fb)` and restitution is `max(ra, rb)`. An approach of `kBounceThreshold3D` (1) or slower does not bounce, so gravity `(0, -60, 0)` does not bounce a body that is already at rest. The contact cache seeds the next step and is not added to velocity first. Sleep matches the 2D rule: `kSleepLinear3D` and `kSleepAngular3D` are `0.05` (`kSleepAngular3D` is the length of `angular_velocity`) and `kSleepSteps3D` is 8. `RigidBody3D.sleeping` is serialized. A missing key loads false. Events still fire while a body is asleep. The same broadphase feeds this solver and is rebuilt each step. Islands are solved separately, ordered by the lowest entity id. The tree does not change which pairs collide.
+Contacts are one point, the deepest. Two identity boxes use the center of the overlap box (X wins a tie, then Y, then Z), so a centered stack resting on a face has no torque. Any other box rotation uses SAT and one witness; a rotated face can rock. The solver runs 8 iterations (`kPositionIterations`) with slop `kContactSlop` (`1e-3`). Friction is `sqrt(fa * fb)` and restitution is `max(ra, rb)`. An approach of `kBounceThreshold` (1) or slower does not bounce, so gravity `(0, -60, 0)` does not bounce a body that is already at rest. The contact cache seeds the next step and is not added to velocity first. Sleep matches the 2D rule: `kSleepLinear` and `kSleepAngular` are `0.05` (`kSleepAngular` is the length of `angular_velocity`) and `kSleepSteps` is 8. `RigidBody3D.sleeping` is serialized. A missing key loads false. Events still fire while a body is asleep. The same broadphase feeds this solver and is rebuilt each step. Islands are solved separately, ordered by the lowest entity id. The tree does not change which pairs collide.
 
 Inertia is one local diagonal per dynamic body, from the first non-trigger collider (boxes, then spheres, then capsules), rotated into a world inverse tensor. A box is `m/12 * (y²+z², z²+x², x²+y²)` with the full size. A sphere is `0.4 * m * r²` on every axis. A capsule is a uniform cylinder of length `height` plus two hemispheres; `height == 0` matches the sphere. Do not put a `RigidBody3D` on a predicted or controlled entity. `run_physics_3d` runs outside prediction `step`.
 
@@ -263,7 +263,7 @@ world.emplace<engine::BoxCollider3D>(floor, engine::BoxCollider3D{.size = {8.f, 
 auto ball = world.create();
 world.emplace<engine::Transform>(ball, engine::Transform{.position = {0.f, 2.f, 0.f}});
 world.emplace<engine::RigidBody3D>(ball, engine::RigidBody3D{
-    .type = engine::BodyType3D::Dynamic,
+    .type = engine::BodyType::Dynamic,
     .mass = 1.f,
 });
 world.emplace<engine::SphereCollider3D>(ball, engine::SphereCollider3D{.radius = 0.5f});

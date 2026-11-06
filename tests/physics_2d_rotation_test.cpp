@@ -44,7 +44,7 @@ void make_dynamic(engine::ecs::World& world, engine::ecs::Entity entity, glm::ve
                   float angular_velocity = 0.f) {
     world.emplace<engine::RigidBody2D>(entity, engine::RigidBody2D{
             .velocity = velocity,
-            .type = engine::BodyType2D::Dynamic,
+            .type = engine::BodyType::Dynamic,
             .mass = mass,
             .angular_velocity = angular_velocity,
     });

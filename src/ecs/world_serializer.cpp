@@ -50,54 +50,42 @@ struct SerializedAssetRefs {
     return id != AssetId{};
 }
 
-[[nodiscard]] std::string_view rigid_body_type_name(BodyType2D type) {
+[[nodiscard]] std::string_view body_type_name(BodyType type) {
     switch (type) {
-    case BodyType2D::Static:
+    case BodyType::Static:
         return "static";
-    case BodyType2D::Kinematic:
+    case BodyType::Kinematic:
         return "kinematic";
-    case BodyType2D::Dynamic:
+    case BodyType::Dynamic:
         return "dynamic";
     }
     return "kinematic";
 }
 
-[[nodiscard]] std::string_view rigid_body_3d_type_name(BodyType3D type) {
-    switch (type) {
-    case BodyType3D::Static:
-        return "static";
-    case BodyType3D::Kinematic:
-        return "kinematic";
-    case BodyType3D::Dynamic:
-        return "dynamic";
-    }
-    return "kinematic";
-}
-
-void read_body_type_3d(ComponentReader& in, BodyType3D& type) {
+void read_body_type(ComponentReader& in, BodyType& type, std::string_view component) {
     const auto it = in.table().find("type");
     if (it == in.table().end()) {
         return;
     }
     if (const std::string* s = it->second.as_string()) {
         if (*s == "static") {
-            type = BodyType3D::Static;
+            type = BodyType::Static;
         } else if (*s == "kinematic") {
-            type = BodyType3D::Kinematic;
+            type = BodyType::Kinematic;
         } else if (*s == "dynamic") {
-            type = BodyType3D::Dynamic;
+            type = BodyType::Dynamic;
         } else {
-            in.fail("invalid rigid_body_3d type \"" + *s + "\"");
+            in.fail(std::format("invalid {} type \"{}\"", component, *s));
         }
     } else if (const std::int64_t* i = it->second.as_int()) {
         if (*i == 0) {
-            type = BodyType3D::Static;
+            type = BodyType::Static;
         } else if (*i == 1) {
-            type = BodyType3D::Kinematic;
+            type = BodyType::Kinematic;
         } else if (*i == 2) {
-            type = BodyType3D::Dynamic;
+            type = BodyType::Dynamic;
         } else {
-            in.fail("invalid rigid_body_3d type index");
+            in.fail(std::format("invalid {} type index", component));
         }
     } else {
         in.fail("invalid field \"type\"");
@@ -609,7 +597,7 @@ void register_builtin_components(
             "rigid_body_2d",
             [](ComponentWriter& out, const RigidBody2D& c) {
                 out.field("velocity", c.velocity);
-                out.field("type", rigid_body_type_name(c.type));
+                out.field("type", body_type_name(c.type));
                 out.field("mass", c.mass);
                 out.field("gravity_scale", c.gravity_scale);
                 out.field("angular_velocity", c.angular_velocity);
@@ -619,31 +607,7 @@ void register_builtin_components(
                 (void)in.field("velocity", c.velocity);
                 // Same shape as Camera.projection: a known string, a known index, or a fail. A missing key keeps
                 // the defaults (kinematic, mass 1, gravity_scale 1).
-                if (const auto it = in.table().find("type"); it != in.table().end()) {
-                    if (const std::string* s = it->second.as_string()) {
-                        if (*s == "static") {
-                            c.type = BodyType2D::Static;
-                        } else if (*s == "kinematic") {
-                            c.type = BodyType2D::Kinematic;
-                        } else if (*s == "dynamic") {
-                            c.type = BodyType2D::Dynamic;
-                        } else {
-                            in.fail("invalid rigid_body_2d type \"" + *s + "\"");
-                        }
-                    } else if (const std::int64_t* i = it->second.as_int()) {
-                        if (*i == 0) {
-                            c.type = BodyType2D::Static;
-                        } else if (*i == 1) {
-                            c.type = BodyType2D::Kinematic;
-                        } else if (*i == 2) {
-                            c.type = BodyType2D::Dynamic;
-                        } else {
-                            in.fail("invalid rigid_body_2d type index");
-                        }
-                    } else {
-                        in.fail("invalid field \"type\"");
-                    }
-                }
+                read_body_type(in, c.type, "rigid_body_2d");
                 (void)in.field("mass", c.mass);
                 (void)in.field("gravity_scale", c.gravity_scale);
                 (void)in.field("angular_velocity", c.angular_velocity);
@@ -729,7 +693,7 @@ void register_builtin_components(
             [](ComponentWriter& out, const RigidBody3D& c) {
                 out.field("velocity", c.velocity);
                 out.field("angular_velocity", c.angular_velocity);
-                out.field("type", rigid_body_3d_type_name(c.type));
+                out.field("type", body_type_name(c.type));
                 out.field("mass", c.mass);
                 out.field("gravity_scale", c.gravity_scale);
                 out.field("sleeping", c.sleeping);
@@ -737,7 +701,7 @@ void register_builtin_components(
             [](ComponentReader& in, RigidBody3D& c) {
                 (void)in.field("velocity", c.velocity);
                 (void)in.field("angular_velocity", c.angular_velocity);
-                read_body_type_3d(in, c.type);
+                read_body_type(in, c.type, "rigid_body_3d");
                 (void)in.field("mass", c.mass);
                 (void)in.field("gravity_scale", c.gravity_scale);
                 (void)in.field("sleeping", c.sleeping);

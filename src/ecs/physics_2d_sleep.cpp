@@ -14,15 +14,15 @@ namespace engine {
 namespace {
 
 [[nodiscard]] bool is_sleeping_dynamic(const RigidBody2D* body) {
-    return body != nullptr && body->type == BodyType2D::Dynamic && body->sleeping;
+    return body != nullptr && body->type == BodyType::Dynamic && body->sleeping;
 }
 
 [[nodiscard]] bool is_awake_dynamic(const RigidBody2D* body) {
-    return body != nullptr && body->type == BodyType2D::Dynamic && !body->sleeping;
+    return body != nullptr && body->type == BodyType::Dynamic && !body->sleeping;
 }
 
 [[nodiscard]] bool is_moving_kinematic(const RigidBody2D* body) {
-    if (body == nullptr || body->type != BodyType2D::Kinematic) {
+    if (body == nullptr || body->type != BodyType::Kinematic) {
         return false;
     }
     return body->velocity != glm::vec3{0.f} || body->angular_velocity != 0.f;
@@ -55,12 +55,12 @@ void clear_sleep(ecs::World& world, ecs::Entity entity) {
 
 void wake_sleepers_by_velocity_2d(ecs::World& world) {
     world.view<RigidBody2D>().each([&](ecs::Entity entity, RigidBody2D& body) {
-        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType2D::Dynamic || !body.sleeping) {
+        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType::Dynamic || !body.sleeping) {
             return;
         }
         const float linear = glm::length(body.velocity);
         const float angular = std::abs(body.angular_velocity);
-        if (linear >= kSleepLinear2D || angular >= kSleepAngular2D) {
+        if (linear >= kSleepLinear || angular >= kSleepAngular) {
             body.sleeping = false;
             world.ctx<PhysicsSleepState2D>().quiet.erase(entity);
         }
@@ -105,24 +105,24 @@ void update_sleep_2d(ecs::World& world, std::span<const ecs::Entity> contacting)
     const std::unordered_set<ecs::Entity> hits(contacting.begin(), contacting.end());
     std::map<ecs::Entity, int> next;
     world.view<RigidBody2D>().each([&](ecs::Entity entity, RigidBody2D& body) {
-        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType2D::Dynamic) {
+        if (world.try_get<RigidBody3D>(entity) != nullptr || body.type != BodyType::Dynamic) {
             return;
         }
         const float linear = glm::length(body.velocity);
         const float angular = std::abs(body.angular_velocity);
-        const bool slow = linear < kSleepLinear2D && angular < kSleepAngular2D;
+        const bool slow = linear < kSleepLinear && angular < kSleepAngular;
         int count = 0;
         if (const auto found = state.quiet.find(entity); found != state.quiet.end()) {
             count = found->second;
         }
         if (slow && hits.contains(entity)) {
-            count = std::min(count + 1, kSleepSteps2D);
-            if (count >= kSleepSteps2D) {
+            count = std::min(count + 1, kSleepSteps);
+            if (count >= kSleepSteps) {
                 body.sleeping = true;
             }
         } else {
             count = 0;
-            if (linear >= kSleepLinear2D || angular >= kSleepAngular2D) {
+            if (linear >= kSleepLinear || angular >= kSleepAngular) {
                 body.sleeping = false;
             }
         }

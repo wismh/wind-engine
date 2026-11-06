@@ -85,7 +85,7 @@ glm::quat world_rotation_quat_3d(const ecs::World& world, ecs::Entity entity) {
 
 void integrate_kinematic_3d(ecs::World& world, float dt) {
     world.view<Transform, RigidBody3D>().each([dt](Transform& transform, const RigidBody3D& body) {
-        if (body.type != BodyType3D::Kinematic) {
+        if (body.type != BodyType::Kinematic) {
             return;
         }
         transform.position += body.velocity * dt;
@@ -96,7 +96,7 @@ void integrate_dynamic_3d(ecs::World& world, float dt) {
     const glm::vec3 gravity = world.ctx<Physics3DConfig>().gravity;
     std::vector<ecs::Entity> dynamics;
     world.view<Transform, RigidBody3D>().each([&](ecs::Entity entity, const Transform&, const RigidBody3D& body) {
-        if (body.type == BodyType3D::Dynamic && !body.sleeping) {
+        if (body.type == BodyType::Dynamic && !body.sleeping) {
             dynamics.push_back(entity);
         }
     });

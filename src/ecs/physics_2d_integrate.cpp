@@ -84,7 +84,7 @@ void integrate_kinematic_2d(ecs::World& world, float dt) {
         if (world.try_get<RigidBody3D>(entity) != nullptr) {
             return;
         }
-        if (body.type != BodyType2D::Kinematic) {
+        if (body.type != BodyType::Kinematic) {
             return;
         }
         transform.position += body.velocity * dt;
@@ -98,7 +98,7 @@ void integrate_dynamic_2d(ecs::World& world, float dt) {
         if (world.try_get<RigidBody3D>(entity) != nullptr) {
             return;
         }
-        if (body.type == BodyType2D::Dynamic && !body.sleeping) {
+        if (body.type == BodyType::Dynamic && !body.sleeping) {
             dynamics.push_back(entity);
         }
     });

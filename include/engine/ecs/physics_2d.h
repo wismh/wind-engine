@@ -3,6 +3,7 @@
 // docs/tech/modules/ECS.md
 
 #include <engine/ecs/entity.h>
+#include <engine/ecs/physics.h>
 #include <engine/ecs/world.h>
 
 #include <glm/vec2.hpp>
@@ -12,15 +13,9 @@
 
 namespace engine {
 
-enum class BodyType2D {
-    Static,     // does not integrate; inverse mass 0
-    Kinematic,  // default; parent-space velocity; the solver does not change it
-    Dynamic,    // world XY velocity, gravity, positional response
-};
-
 struct RigidBody2D {
     glm::vec3 velocity{0};  // Kinematic: parent space. Dynamic: world XY; z is world z.
-    BodyType2D type{BodyType2D::Kinematic};
+    BodyType type{BodyType::Kinematic};
     float mass{1.f};  // Dynamic only. Non-positive or non-finite uses kMinDynamicMass.
     float gravity_scale{1.f};
     // Radians/sec about world +Z. Kinematic and static store it. Only a dynamic body integrates it,
@@ -34,15 +29,6 @@ struct RigidBody2D {
 struct Physics2DConfig {
     glm::vec3 gravity{0.f};  // world space
 };
-
-inline constexpr float kMinDynamicMass = 1.0e-4f;
-inline constexpr float kContactSlop2D = 1.0e-3f;
-// Restitution is 0 when the approach is this slow or slower (v_rel_n >= -kBounceThreshold2D).
-inline constexpr float kBounceThreshold2D = 1.f;
-inline constexpr int kPositionIterations2D = 8;
-inline constexpr float kSleepLinear2D = 0.05f;
-inline constexpr float kSleepAngular2D = 0.05f;
-inline constexpr int kSleepSteps2D = 8;
 
 struct BoxCollider2D {
     // Full extents in the box's local XY. Not multiplied by Transform.scale.
@@ -76,12 +62,6 @@ struct PolygonCollider2D {
     bool is_trigger{false};
     float friction{0.f};     // >= 0; negative or non-finite is 0 when solved
     float restitution{0.f};  // clamped to [0, 1] when solved; non-finite is 0
-};
-
-enum class CollisionPhase {
-    Enter,
-    Stay,
-    Exit,
 };
 
 struct CollisionEvent2D {

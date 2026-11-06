@@ -142,7 +142,7 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     ASSERT_NE(rb, nullptr);
     EXPECT_FLOAT_EQ(rb->velocity.x, 1.5f);
     EXPECT_FLOAT_EQ(rb->velocity.y, -0.5f);
-    EXPECT_EQ(rb->type, engine::BodyType2D::Kinematic);
+    EXPECT_EQ(rb->type, engine::BodyType::Kinematic);
     EXPECT_FLOAT_EQ(rb->mass, 1.f);
     EXPECT_FLOAT_EQ(rb->gravity_scale, 1.f);
 
@@ -526,7 +526,7 @@ rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, grav
     ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
     const auto* body = world.try_get<engine::RigidBody2D>(loaded->by_id.at("crate"));
     ASSERT_NE(body, nullptr);
-    EXPECT_EQ(body->type, engine::BodyType2D::Dynamic);
+    EXPECT_EQ(body->type, engine::BodyType::Dynamic);
     EXPECT_FLOAT_EQ(body->mass, 3.5f);
     EXPECT_FLOAT_EQ(body->gravity_scale, 0.5f);
     EXPECT_FLOAT_EQ(body->velocity.x, 1.0f);
@@ -539,7 +539,7 @@ rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, grav
     ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
     const auto* round = again.try_get<engine::RigidBody2D>(reloaded->by_id.at("crate"));
     ASSERT_NE(round, nullptr);
-    EXPECT_EQ(round->type, engine::BodyType2D::Dynamic);
+    EXPECT_EQ(round->type, engine::BodyType::Dynamic);
     EXPECT_FLOAT_EQ(round->mass, 3.5f);
     EXPECT_FLOAT_EQ(round->gravity_scale, 0.5f);
     EXPECT_FLOAT_EQ(round->velocity.x, 1.0f);

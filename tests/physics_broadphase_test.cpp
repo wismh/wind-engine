@@ -171,10 +171,10 @@ TEST(Physics2D, SleepingCrateWakesWhenKinematicMoves) {
     world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
     add_box_2d(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
     const engine::ecs::Entity crate = add_box_2d(world, glm::vec3{0.f, 2.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
-    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType2D::Dynamic, .mass = 1.f});
+    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = 1.f});
 
     step_physics_n(world, 120);
-    const float rest_y = 1.f - engine::kContactSlop2D;
+    const float rest_y = 1.f - engine::kContactSlop;
     EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-3f);
     EXPECT_TRUE(world.get<engine::RigidBody2D>(crate).sleeping);
 
@@ -190,7 +190,7 @@ TEST(Physics2D, SleepingCrateWakesWhenKinematicMoves) {
 TEST(Physics2D, ZeroGravityHoverStaysAwake) {
     engine::ecs::World world = physics_world();
     const engine::ecs::Entity crate = add_box_2d(world, glm::vec3{0.f}, glm::vec3{1.f, 1.f, 1.f});
-    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType2D::Dynamic, .mass = 1.f});
+    world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = 1.f});
 
     step_physics_n(world, 120);
 
@@ -218,13 +218,13 @@ TEST(Physics3D, DistantSphereStacksSleepIndependently) {
     world.ctx<engine::Physics3DConfig>().gravity = {0.f, -60.f, 0.f};
     add_box_3d(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{4.f, 2.f, 4.f});
     const engine::ecs::Entity left = add_sphere(world, glm::vec3{0.f, 2.f, 0.f}, 0.5f);
-    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{.type = engine::BodyType3D::Dynamic, .mass = 1.f});
+    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{.type = engine::BodyType::Dynamic, .mass = 1.f});
     add_box_3d(world, glm::vec3{80.f, -1.f, 0.f}, glm::vec3{4.f, 2.f, 4.f});
     const engine::ecs::Entity right = add_sphere(world, glm::vec3{80.f, 2.f, 0.f}, 0.5f);
-    world.emplace<engine::RigidBody3D>(right, engine::RigidBody3D{.type = engine::BodyType3D::Dynamic, .mass = 1.f});
+    world.emplace<engine::RigidBody3D>(right, engine::RigidBody3D{.type = engine::BodyType::Dynamic, .mass = 1.f});
 
     step_physics_n(world, 120);
-    const float rest_y = 0.5f - engine::kContactSlop3D;
+    const float rest_y = 0.5f - engine::kContactSlop;
     EXPECT_NEAR(engine::ecs::world_position(world, left).y, rest_y, 1e-4f);
     EXPECT_NEAR(engine::ecs::world_position(world, right).y, rest_y, 1e-4f);
     EXPECT_TRUE(world.get<engine::RigidBody3D>(left).sleeping);
