@@ -47,8 +47,10 @@ inline constexpr AssetId shader_post_depth{"a0e1b2c3d4f5678901234567890abc13"};
 inline constexpr AssetId shader_sprite_lit{"a0e1b2c3d4f5678901234567890abc14"};
 // Alpha-blended, no depth, no cull, on shader_sprite_lit. Sprites stay on material_unlit until a game sets this.
 inline constexpr AssetId material_sprite_lit{"a0e1b2c3d4f5678901234567890abc15"};
+// Projects a texture through the unit cube onto the scene depth (docs/tech/features/Decals.md).
+inline constexpr AssetId shader_decal{"a0e1b2c3d4f5678901234567890abc16"};
 
-inline constexpr std::array<AssetId, 21> ids{
+inline constexpr std::array<AssetId, 22> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -70,6 +72,7 @@ inline constexpr std::array<AssetId, 21> ids{
         shader_post_depth,
         shader_sprite_lit,
         material_sprite_lit,
+        shader_decal,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

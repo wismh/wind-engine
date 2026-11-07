@@ -134,6 +134,12 @@ void OpenGLPost::destroy_targets(Targets& targets, bool delete_fbos) {
             glDeleteRenderbuffers(1, &targets.depth);
         }
     }
+    if (targets.depth_sample != 0) {
+        glDeleteTextures(1, &targets.depth_sample);
+    }
+    if (delete_fbos && targets.depth_sample_fbo != 0) {
+        glDeleteFramebuffers(1, &targets.depth_sample_fbo);
+    }
     if (delete_fbos) {
         glDeleteFramebuffers(2, targets.fbo);
         if (targets.scene_a_color != 0) {
@@ -209,6 +215,7 @@ void OpenGLPost::begin_scene(const PostChain& chain) {
         log::warn("Post stack HDR has no float color attachment; the stack runs in RGBA8");
     }
     Targets& targets = ensure(chain, hdr_effective_);
+    depth_copied_ = false;
     glBindFramebuffer(GL_FRAMEBUFFER, targets.fbo[0]);
     glViewport(0, 0, targets.width, targets.height);
     glDisable(GL_SCISSOR_TEST);
@@ -305,8 +312,11 @@ void OpenGLPost::finish(const PostChain& chain, float time) {
         bind_window();
         return;
     }
-    const std::vector<PostStep> steps =
-            post_steps(hdr_effective_, static_cast<int>(chain.effects.size()), chain.hdr && !hdr_effective_);
+    // A chain that exists only so decals can read depth has no effect and no tonemap. Copy the scene color out,
+    // or the window stays empty.
+    const bool present_copy = chain.effects.empty() && !hdr_effective_;
+    const std::vector<PostStep> steps = post_steps(hdr_effective_, static_cast<int>(chain.effects.size()),
+            present_copy || (chain.hdr && !hdr_effective_));
     for (const PostStep& step : steps) {
         const GLuint source = step.source == PostImage::SceneA ? targets->color[0] : targets->color[1];
         const bool to_window = step.dest == PostImage::Window;
@@ -345,14 +355,79 @@ void OpenGLPost::finish(const PostChain& chain, float time) {
     glDepthMask(GL_TRUE);
 }
 
-GLuint OpenGLPost::current_depth_texture() const {
-    const ContextObjects::Key key = current_gl_context();
+int OpenGLPost::scene_width() const {
+    if (!scene_bound_) {
+        return 0;
+    }
     for (const Targets& entry : targets_) {
-        if (entry.key == key) {
-            return entry.depth_texture ? entry.depth : 0u;
+        if (entry.key == current_gl_context()) {
+            return entry.width;
         }
     }
-    return 0u;
+    return 0;
+}
+
+int OpenGLPost::scene_height() const {
+    if (!scene_bound_) {
+        return 0;
+    }
+    for (const Targets& entry : targets_) {
+        if (entry.key == current_gl_context()) {
+            return entry.height;
+        }
+    }
+    return 0;
+}
+
+GLuint OpenGLPost::depth_for_sampling() {
+    if (!scene_bound_) {
+        return 0;
+    }
+    Targets* targets = nullptr;
+    const ContextObjects::Key key = current_gl_context();
+    for (Targets& entry : targets_) {
+        if (entry.key == key) {
+            targets = &entry;
+            break;
+        }
+    }
+    if (targets == nullptr || !targets->depth_texture || targets->depth == 0 || targets->fbo[0] == 0 ||
+            targets->width <= 0 || targets->height <= 0) {
+        return 0;
+    }
+    if (depth_copied_) {
+        return targets->depth_sample;
+    }
+    if (targets->depth_sample == 0) {
+        targets->depth_sample = make_depth(targets->width, targets->height, true);
+        glGenFramebuffers(1, &targets->depth_sample_fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targets->depth_sample_fbo);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, targets->depth_sample, 0);
+        const GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+        const bool complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targets->fbo[0]);
+        if (!complete) {
+            glDeleteFramebuffers(1, &targets->depth_sample_fbo);
+            glDeleteTextures(1, &targets->depth_sample);
+            targets->depth_sample_fbo = 0;
+            targets->depth_sample = 0;
+            depth_copied_ = true;
+            return 0;
+        }
+    }
+    GLint draw_fbo = 0;
+    GLint read_fbo = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, targets->fbo[0]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targets->depth_sample_fbo);
+    glBlitFramebuffer(0, 0, targets->width, targets->height, 0, 0, targets->width, targets->height,
+            GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_fbo));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fbo));
+    depth_copied_ = true;
+    return targets->depth_sample;
 }
 
 } // namespace engine::render

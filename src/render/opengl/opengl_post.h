@@ -29,7 +29,12 @@ public:
     void bind_window();
 
     [[nodiscard]] bool scene_bound() const noexcept { return scene_bound_; }
-    [[nodiscard]] GLuint current_depth_texture() const;
+    // Scene color size in pixels while a scene pass is bound, otherwise 0.
+    [[nodiscard]] int scene_width() const;
+    [[nodiscard]] int scene_height() const;
+    // A copy of the scene depth that is not attached to the draw framebuffer. The copy is taken once per scene
+    // pass, on the first call. 0 when the scene has no depth texture.
+    [[nodiscard]] GLuint depth_for_sampling();
 
 private:
     struct Targets {
@@ -44,6 +49,9 @@ private:
         // texture while `fbo[0]` still owns it.
         GLuint scene_a_color = 0;
         GLuint depth = 0;
+        // Depth copied out of `fbo[0]` so a decal can sample it without reading the attachment it is drawing into.
+        GLuint depth_sample = 0;
+        GLuint depth_sample_fbo = 0;
         GLuint bloom_color[3]{};
         GLuint bloom_fbo[3]{};
         int bloom_width[3]{};
@@ -64,6 +72,7 @@ private:
     int height_ = 0;
     float clear_alpha_ = 1.0f;
     bool scene_bound_ = false;
+    bool depth_copied_ = false;
     bool hdr_effective_ = false;
     bool r11_checked_ = false;
     bool r11_ok_ = false;

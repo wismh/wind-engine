@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/builtin_ids.h>
 #include <engine/core/bound_windows.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
@@ -16,15 +17,25 @@
 #include <engine/render/material.h>
 #include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
+#include <engine/render/sprite.h>
+#include <engine/resources/assets_db.h>
 #include <engine/ui/presentation.h>
+
+#include "fixtures/cooked_shaders.h"
+#include "fixtures/fatal_fakes.h"
+#include "shader_cook/cook.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -257,4 +268,124 @@ TEST(DecalTest, FrustumCullingDropsOffscreenDecalUnlessOptedOut) {
         }
     }
     EXPECT_TRUE(found_decal);
+}
+
+namespace {
+
+class TagShader final : public engine::render::IShader {};
+
+class TagTexture final : public engine::render::ITexture {};
+
+class AssetMesh final : public engine::render::IMesh {
+public:
+    explicit AssetMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+protected:
+    bool replace(const engine::render::MeshDesc&) override { return true; }
+};
+
+class AssetFactory final : public engine::render::IGraphicFactory {
+public:
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        return std::make_shared<AssetMesh>(desc);
+    }
+    std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
+        return std::make_shared<TagShader>();
+    }
+    std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc&) override {
+        return std::make_shared<TagTexture>();
+    }
+    std::shared_ptr<engine::render::ITexture> create_texture_array(const engine::render::TextureArrayDesc&) override {
+        return {};
+    }
+    std::shared_ptr<engine::render::IDynamicTexture> create_dynamic_texture(
+            const engine::render::DynamicTextureDesc&) override {
+        return {};
+    }
+};
+
+void write_text(const std::filesystem::path& path, std::string_view text) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << text;
+}
+
+} // namespace
+
+TEST(DecalTest, TextureDecalDoesNotReuseTheSpriteMaterial) {
+    engine::shader_cook::register_shader_cooker();
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path root =
+            std::filesystem::temp_directory_path() / ("wind_decal_assets_" + std::to_string(stamp));
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    write_text(root / "cube.mesh", "0 0 0  0 0 1  0 0\n1 0 0  0 0 1  1 0\n0 1 0  0 0 1  0 1\nf 0 1 2\n");
+    write_text(root / "unlit.shader",
+            "<xml><vertex>void main(){}</vertex><fragment>void main(){}</fragment></xml>");
+    write_text(root / "decal.shader",
+            "<xml><vertex>void main(){}</vertex><fragment>void main(){}</fragment></xml>");
+    ASSERT_TRUE(cook_shader_in_place(root / "unlit.shader"));
+    ASSERT_TRUE(cook_shader_in_place(root / "decal.shader"));
+
+    engine::CookedCatalog catalog;
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::builtin::mesh_cube, .relative_path = "cube.mesh", .importer = engine::ImporterKind::Mesh});
+    catalog.add(engine::CatalogEntry{.guid = engine::builtin::shader_unlit,
+            .relative_path = "unlit.shader",
+            .importer = engine::ImporterKind::Shader});
+    catalog.add(engine::CatalogEntry{.guid = engine::builtin::shader_decal,
+            .relative_path = "decal.shader",
+            .importer = engine::ImporterKind::Shader});
+
+    AssetFactory factory;
+    fakes::QuietFatal fatal;
+    engine::AssetsDb assets(fatal);
+    assets.set_graphic_factory(&factory);
+    assets.set_catalog(std::move(catalog));
+    assets.set_root(root);
+
+    engine::ecs::World world;
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(
+            world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal, .assets = &assets});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto texture = std::make_shared<TagTexture>();
+    const engine::ecs::Entity sprite = world.create();
+    world.emplace<engine::Transform>(sprite, engine::Transform{});
+    world.emplace<engine::render::Sprite>(
+            sprite, engine::render::Sprite{.texture = texture, .mesh = std::make_shared<FakeMesh>()});
+    const engine::ecs::Entity decal = world.create();
+    world.emplace<engine::Transform>(decal, engine::Transform{.position = {0.0f, 0.0f, -2.0f}});
+    world.emplace<engine::render::Decal>(decal, engine::render::Decal{.texture = texture});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const engine::render::CmdDrawMesh* mesh_cmd = nullptr;
+    const engine::render::CmdDrawDecal* decal_cmd = nullptr;
+    for (const engine::render::Command& command : commands) {
+        if (const auto* mesh = std::get_if<engine::render::CmdDrawMesh>(&command)) {
+            mesh_cmd = mesh;
+        } else if (const auto* drawn = std::get_if<engine::render::CmdDrawDecal>(&command)) {
+            decal_cmd = drawn;
+        }
+    }
+    ASSERT_NE(mesh_cmd, nullptr);
+    ASSERT_NE(decal_cmd, nullptr);
+    EXPECT_NE(mesh_cmd->material, decal_cmd->material);
+    const auto decal_shader = assets.try_get<engine::render::IShader>(engine::builtin::shader_decal);
+    const auto unlit_shader = assets.try_get<engine::render::IShader>(engine::builtin::shader_unlit);
+    ASSERT_TRUE(decal_shader.has_value());
+    ASSERT_TRUE(unlit_shader.has_value());
+    EXPECT_EQ(decal_cmd->material->shader().get(), decal_shader->get());
+    EXPECT_FALSE(decal_cmd->material->render_state().depth_test);
+    EXPECT_FALSE(decal_cmd->material->render_state().depth_write);
+    EXPECT_EQ(decal_cmd->material->render_state().cull, engine::render::CullMode::Front);
+    EXPECT_EQ(mesh_cmd->material->shader().get(), unlit_shader->get());
+    EXPECT_FALSE(mesh_cmd->material->render_state().depth_test);
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
 }

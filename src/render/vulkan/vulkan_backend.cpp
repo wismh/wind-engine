@@ -12,6 +12,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include <glm/geometric.hpp>
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
@@ -481,8 +482,9 @@ void VulkanRenderBackend::finish_post() {
     const PostChain& chain = view_.post;
     const bool hdr = post_.hdr_effective();
     const VkExtent2D full = post_.extent();
+    const bool present_copy = chain.effects.empty() && !hdr;
     const std::vector<PostStep> steps =
-            post_steps(hdr, static_cast<int>(chain.effects.size()), chain.hdr && !hdr);
+            post_steps(hdr, static_cast<int>(chain.effects.size()), present_copy || (chain.hdr && !hdr));
     auto open = [&](VkFramebuffer fb, VkRenderPass pass, VkExtent2D extent) {
         post_.begin(pass, fb, extent, false, false);
         adopt_pass(pass, extent);
@@ -635,6 +637,87 @@ void VulkanRenderBackend::execute_draw_decal(const CmdDrawDecal& cmd) {
     if (active_cmd_ == VK_NULL_HANDLE || !cmd.mesh || !cmd.material || !context_ || !context_->is_device_ready()) {
         return;
     }
+    const VulkanPost::DepthSample depth = post_.prepare_depth_sample();
+    if (depth.pass != VK_NULL_HANDLE) {
+        // Same negative-height viewport as the scene pass, so FragCoord stays top-left for uNdcScale.
+        active_render_pass_ = depth.pass;
+        pass_extent_ = post_.extent();
+        apply_viewport_and_scissor(false);
+    }
+
+    const auto shader = std::dynamic_pointer_cast<VulkanShader>(cmd.material->shader());
+    const auto mesh = std::dynamic_pointer_cast<VulkanMesh>(cmd.mesh);
+    if (!shader || !mesh || !shader->valid() || !mesh->valid() || !shader->ensure_modules()) {
+        return;
+    }
+    const MaterialOverride* override_ptr = cmd.material_override.has_value() ? &*cmd.material_override : nullptr;
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, override_ptr, shader->reflection().sampler_arrayed);
+    if (albedo == nullptr || !albedo->ensure_gpu_image()) {
+        return;
+    }
+    const VkPipeline pipeline = get_or_create_pipeline(*shader, cmd.material->render_state(), false);
+    if (pipeline == VK_NULL_HANDLE) {
+        return;
+    }
+
+    const SpirvReflection& refl = shader->reflection();
+    std::vector<std::uint8_t> ubo(std::max<std::uint32_t>(refl.ubo_size, 64u), 0);
+    write_mat4(ubo, refl, "uModel", cmd.model);
+    write_mat4(ubo, refl, "uInvModel", cmd.inv_model);
+    const glm::mat4 projection = vulkan_projection(view_.projection);
+    write_mat4(ubo, refl, "uInvViewProj", glm::inverse(projection * view_.view));
+    write_view_uniforms(ubo, refl, view_);
+    write_vec4(ubo, refl, "uColor", cmd.material->color() * cmd.color);
+    write_vec2(ubo, refl, "uUvScale", cmd.uv_scale);
+    write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
+    write_float(ubo, refl, "uAngleCutoff", cmd.angle_cutoff);
+    write_float(ubo, refl, "uNormalFade", cmd.normal_fade);
+    const glm::vec3 axis = glm::vec3(cmd.model[2]);
+    const float axis_len = glm::length(axis);
+    write_vec3(ubo, refl, "uDecalAxis", axis_len > 1e-8f ? axis / axis_len : glm::vec3{0.0f, 0.0f, 1.0f});
+
+    float origin_x = 0.0f;
+    float origin_y = 0.0f;
+    float span_w = static_cast<float>(pass_extent_.width > 0 ? pass_extent_.width : 1);
+    float span_h = static_cast<float>(pass_extent_.height > 0 ? pass_extent_.height : 1);
+    if (view_.viewport.has_value()) {
+        origin_x = view_.viewport->x;
+        origin_y = view_.viewport->y;
+        span_w = std::max(1.0f, view_.viewport->w);
+        span_h = std::max(1.0f, view_.viewport->h);
+    }
+    const VkExtent2D scene = post_.scene_bound() ? post_.extent() : pass_extent_;
+    write_vec2(ubo, refl, "uResolution",
+            glm::vec2{static_cast<float>(scene.width), static_cast<float>(scene.height)});
+    // FragCoord origin is the top-left. The negative viewport makes clip +Y the top of the image.
+    write_vec3(ubo, refl, "uNdcScale", glm::vec3{2.0f / span_w, -2.0f / span_h, 1.0f});
+    write_vec3(ubo, refl, "uNdcBias",
+            glm::vec3{-2.0f * origin_x / span_w - 1.0f, 2.0f * (origin_y + span_h) / span_h - 1.0f, 0.0f});
+    write_int(ubo, refl, "uHasDepth", depth.has_depth ? 1 : 0);
+    if (override_ptr != nullptr) {
+        for (const auto& [param_name, param_val] : override_ptr->vec4_params) {
+            write_vec4(ubo, refl, param_name, param_val);
+        }
+    }
+
+    DepthSamplerBind depth_bind{};
+    const DepthSamplerBind* depth_ptr = nullptr;
+    if (refl.has_normal_sampler) {
+        if (depth.view == VK_NULL_HANDLE) {
+            return;
+        }
+        depth_bind.view = depth.view;
+        depth_bind.sampler = depth.sampler;
+        depth_ptr = &depth_bind;
+    }
+    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo, nullptr, depth_ptr);
+    if (ds == VK_NULL_HANDLE) {
+        return;
+    }
+    const VulkanFunctions& fn = context_->fn();
+    fn.vkCmdBindPipeline(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    fn.vkCmdBindDescriptorSets(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &ds, 0, nullptr);
+    mesh->draw(active_cmd_);
 }
 
 void VulkanRenderBackend::execute_draw_mesh_particles(const CmdDrawParticles& cmd) {
@@ -1005,7 +1088,8 @@ VulkanTexture* VulkanRenderBackend::resolve_albedo(
 VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     const std::vector<std::uint8_t>& ubo_bytes,
     VulkanTexture& texture,
-    VulkanTexture* normal) {
+    VulkanTexture* normal,
+    const DepthSamplerBind* depth) {
     if (!ensure_shared_objects() || !ensure_frame_slot(active_slot_)) {
         return VK_NULL_HANDLE;
     }
@@ -1046,7 +1130,11 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     img_info.sampler = texture.sampler();
 
     VkDescriptorImageInfo normal_info{};
-    if (normal != nullptr) {
+    if (depth != nullptr && depth->view != VK_NULL_HANDLE) {
+        normal_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        normal_info.imageView = depth->view;
+        normal_info.sampler = depth->sampler;
+    } else if (normal != nullptr) {
         normal_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         normal_info.imageView = normal->image_view();
         normal_info.sampler = normal->sampler();
@@ -1068,7 +1156,7 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     writes[1].pImageInfo = &img_info;
 
     std::uint32_t write_count = 2;
-    if (normal != nullptr) {
+    if (normal_info.imageView != VK_NULL_HANDLE) {
         writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[2].dstSet = ds;
         writes[2].dstBinding = 2;

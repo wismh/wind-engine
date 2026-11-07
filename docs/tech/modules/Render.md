@@ -341,6 +341,10 @@ When `collision_enabled` is set, `run_particles` copies non-trigger colliders in
 - A non-empty `color_curve` (`Curve<glm::vec4>`) replaces the linear start/end color.
 - A non-empty `alpha_curve` (`Curve<float>`) then overwrites alpha.
 
+## Decals
+
+`Decal` (`include/engine/render/decal.h`) projects `builtin::shader_decal` through the unit cube onto the depth of the opaque scene. The full rule is [Decals](../features/Decals.md). `run_render` puts `CmdDrawDecal` in `DrawQueue::Decal`. The first decal in a view copies the scene depth to a texture that is not the framebuffer attachment, then both backends sample that copy. Vulkan ends the scene pass, copies, and resumes with the color and depth loaded. A world that contains a decal turns `PostChain::sample_depth` on, and a chain with nothing else to present copies the scene color to the window.
+
 ## Shaders
 
 Shading language is **Slang** (`external/slang`, `tools/shader_cook/slang_compiler.cpp`). The compiler is not in the engine library. `.shader` files in the source tree are XML with Slang source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`). `asset_codegen` cooks each one into a `WSHD` blob (`encode_shader_blob`): SPIR-V for Vulkan and GLSL 330 core for OpenGL. Optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` overrides the GLSL source while keeping Slang's SPIR-V; legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL shaders remain supported. The staged file keeps the `.shader` name. `load_gpu` decodes the blob and does not parse XML. A host cook without Slang keeps the `<glsl>` text and writes empty SPIR-V. `asset_codegen` fails the build with `CodegenErrorKind::Shader` when the source does not cook. Desktop OpenGL target is `ShaderTarget::Glsl330Core`; GLES (web and Android) uses `Glsl300Es` (`adapt_glsl` / `adapt_shader` in `include/engine/render/shader_adapt.h`). The Vulkan particle program and the Vulkan UI program are baked SPIR-V (`particle_spirv.inc`, `ui_spirv.inc`) generated from `tools/shader_cook/shaders/`.
@@ -353,7 +357,7 @@ These sources are not in the headless library. CMake adds them only when the win
 | --- | --- |
 | Factory | `src/render/opengl/opengl_factory.cpp` |
 | Mesh, shader, texture | `opengl_mesh.cpp`, `opengl_shader.cpp`, `opengl_texture.cpp` |
-| Execute mesh and particle draws | `opengl_backend.cpp` |
+| Execute mesh, particle, and decal draws | `opengl_backend.cpp` |
 | Scene targets and the post stack | `opengl_post.cpp` |
 | One VAO per GL context | `context_vao.cpp`, bookkeeping in `src/render/context_objects.cpp` |
 | Canvas, font and image upload | `opengl_canvas.cpp` |
@@ -400,7 +404,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
 | Buffers held until no frame in flight reads them (`RetireQueue`) | `src/render/vulkan/vulkan_retire_queue.h` |
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
-| Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`, `CmdPostProcess`) | `src/render/vulkan/vulkan_backend.cpp` |
+| Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`, `CmdDrawDecal`, `CmdPostProcess`) | `src/render/vulkan/vulkan_backend.cpp` |
 | Scene images, the pass split, and bloom targets | `src/render/vulkan/vulkan_post.cpp` |
 | UI device (`IUiDevice`) and its baked SPIR-V | `vulkan_ui_device.cpp`, `ui_spirv.inc` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |

@@ -25,6 +25,7 @@ Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader a
 | `shader_post_tonemap` | `shaders/post_tonemap.shader` | `shader` |
 | `shader_post_bloom` | `shaders/post_bloom.shader` | `shader` |
 | `shader_post_depth` | `shaders/post_depth.shader` | `shader` |
+| `shader_decal` | `shaders/decal.shader` | `shader` |
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
 

@@ -619,7 +619,7 @@ version = 1
 [[entities]]
 id = "splatter"
 transform = { position = [1.0, 2.0, 3.0] }
-decal = { color = [1.0, 0.5, 0.25, 1.0], uv_scale = [2.0, 3.0], uv_offset = [0.1, 0.2], layer = 2, order_in_layer = 5, angle_cutoff = 0.4, normal_fade = 0.15, frustum_cull = false }
+decal = { mesh = "asset://0123456789abcdef0123456789abcde1", texture = "asset://0123456789abcdef0123456789abcde2", color = [1.0, 0.5, 0.25, 1.0], uv_scale = [2.0, 3.0], uv_offset = [0.1, 0.2], layer = 2, order_in_layer = 5, angle_cutoff = 0.4, normal_fade = 0.15, frustum_cull = false }
 )";
 
     engine::ecs::World world;
@@ -642,6 +642,8 @@ decal = { color = [1.0, 0.5, 0.25, 1.0], uv_scale = [2.0, 3.0], uv_offset = [0.1
     EXPECT_FALSE(decal->frustum_cull);
 
     const std::string saved = engine::ecs::save_world_to_toml(world);
+    EXPECT_NE(saved.find("0123456789abcdef0123456789abcde1"), std::string::npos);
+    EXPECT_NE(saved.find("0123456789abcdef0123456789abcde2"), std::string::npos);
     engine::ecs::World again;
     auto reloaded = engine::ecs::load_world_from_toml(again, saved);
     ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;

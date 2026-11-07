@@ -17,6 +17,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include <glm/geometric.hpp>
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
@@ -390,10 +391,21 @@ void main() {
         shader->set_mat4("uInvModel", cmd.inv_model);
         const glm::mat4 inv_view_proj = glm::inverse(view_.projection * view_.view);
         shader->set_mat4("uInvViewProj", inv_view_proj);
+        const glm::vec3 axis = glm::vec3(cmd.model[2]);
+        const float axis_len = glm::length(axis);
+        shader->set_vec3("uDecalAxis", axis_len > 1e-8f ? axis / axis_len : glm::vec3{0.0f, 0.0f, 1.0f});
 
         GLint vp[4]{};
         glGetIntegerv(GL_VIEWPORT, vp);
-        shader->set_vec2("uResolution", glm::vec2{static_cast<float>(vp[2]), static_cast<float>(vp[3])});
+        const float viewport_w = static_cast<float>(vp[2] > 0 ? vp[2] : 1);
+        const float viewport_h = static_cast<float>(vp[3] > 0 ? vp[3] : 1);
+        shader->set_vec3("uNdcScale", glm::vec3{2.0f / viewport_w, 2.0f / viewport_h, 2.0f});
+        shader->set_vec3("uNdcBias", glm::vec3{-2.0f * static_cast<float>(vp[0]) / viewport_w - 1.0f,
+                                               -2.0f * static_cast<float>(vp[1]) / viewport_h - 1.0f, -1.0f});
+        const int scene_w = post_.scene_width();
+        const int scene_h = post_.scene_height();
+        shader->set_vec2("uResolution", glm::vec2{static_cast<float>(scene_w > 0 ? scene_w : vp[2]),
+                                                  static_cast<float>(scene_h > 0 ? scene_h : vp[3])});
 
         apply_view(*shader, view_);
         shader->set_vec4("uColor", cmd.material->color() * cmd.color);
@@ -410,9 +422,10 @@ void main() {
         }
         bind_albedo(override_bound ? cmd.material_override->albedo : cmd.material->texture(0));
 
+        const GLuint depth_tex = post_.depth_for_sampling();
+        shader->set_int("uHasDepth", depth_tex != 0 ? 1 : 0);
         glActiveTexture(GL_TEXTURE1);
-        const GLuint depth_tex = post_.current_depth_texture();
-        glBindTexture(GL_TEXTURE_2D, depth_tex != 0 ? depth_tex : white_texture());
+        glBindTexture(GL_TEXTURE_2D, depth_tex);
         shader->set_int("uTexture", 0);
         shader->set_int("uDepth", 1);
         glActiveTexture(GL_TEXTURE0);
@@ -438,7 +451,7 @@ void main() {
         }
     }
 
-void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
+    void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
         if (!cmd.mesh || !cmd.material) {
             return;
         }

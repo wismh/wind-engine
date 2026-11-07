@@ -15,9 +15,10 @@
 namespace engine::render {
 
 struct Decal {
-    // Optional explicit mesh. When null, uses builtin::mesh_cube.
+    // Optional explicit mesh. When null, uses builtin::mesh_cube (local extent [-0.5, 0.5]).
     std::shared_ptr<IMesh> mesh;
-    // Optional explicit material. When null, uses builtin::shader_decal with `texture`.
+    // Optional explicit material. When null and `texture` is set, uses builtin::shader_decal with that texture.
+    // The cached state is alpha, no depth test, no depth write, cull front. No material and no texture is fatal.
     std::shared_ptr<IMaterial> material;
     std::shared_ptr<ITexture> texture;
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};

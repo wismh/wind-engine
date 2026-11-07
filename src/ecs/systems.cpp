@@ -349,6 +349,12 @@ namespace engine {
             std::unordered_map<const render::ITexture *, std::shared_ptr<render::IMaterial>> materials;
         };
 
+        // Decals do not share the sprite cache: the same texture pointer would otherwise keep whichever RenderState
+        // was built first.
+        struct DecalMaterialCache {
+            std::unordered_map<const render::ITexture *, std::shared_ptr<render::IMaterial>> materials;
+        };
+
         struct DrawItem {
             render::DrawSortKey key;
             render::Command command;
@@ -504,6 +510,7 @@ namespace engine {
             std::shared_ptr<render::IMesh> default_quad;
             std::shared_ptr<render::IMesh> default_cube;
             std::shared_ptr<render::IShader> default_shader;
+            std::shared_ptr<render::IShader> decal_shader;
             std::shared_ptr<render::IMaterial> default_unlit;
             if (assets != nullptr) {
                 if (auto mesh_res = assets->try_get<render::IMesh>(builtin::mesh_quad)) {
@@ -514,6 +521,9 @@ namespace engine {
                 }
                 if (auto shader_res = assets->try_get<render::IShader>(builtin::shader_unlit)) {
                     default_shader = std::move(*shader_res);
+                }
+                if (auto decal_res = assets->try_get<render::IShader>(builtin::shader_decal)) {
+                    decal_shader = std::move(*decal_res);
                 }
                 if (auto mat_res = assets->try_get<render::IMaterial>(builtin::material_unlit)) {
                     default_unlit = std::move(*mat_res);
@@ -588,18 +598,18 @@ namespace engine {
                 std::shared_ptr<render::IMaterial> material;
                 if (d.material != nullptr) {
                     material = d.material;
-                } else if (d.texture != nullptr) {
-                    auto it = cache.materials.find(d.texture.get());
-                    if (it != cache.materials.end()) {
+                } else if (d.texture != nullptr && decal_shader != nullptr) {
+                    auto &decal_cache = world.ctx<DecalMaterialCache>();
+                    auto it = decal_cache.materials.find(d.texture.get());
+                    if (it != decal_cache.materials.end()) {
                         material = it->second;
-                    } else if (default_shader != nullptr) {
+                    } else {
                         material = std::make_shared<render::Material>(
-                                default_shader, d.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
-                                render::RenderState{.blend = render::BlendMode::Alpha, .depth_test = true, .depth_write = false});
-                        cache.materials[d.texture.get()] = material;
+                                decal_shader, d.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                render::RenderState{.blend = render::BlendMode::Alpha, .depth_test = false,
+                                        .depth_write = false, .cull = render::CullMode::Front});
+                        decal_cache.materials[d.texture.get()] = material;
                     }
-                } else {
-                    material = default_unlit;
                 }
 
                 if (!mesh || !material) {
@@ -870,6 +880,13 @@ namespace engine {
             render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
             if (any_decals) {
                 post.sample_depth = true;
+                // An otherwise empty chain would leave the scene offscreen. Vulkan presents that copy with the grade
+                // shader; OpenGL blits and does not need it.
+                if (!post.hdr && post.effects.empty() && post.ldr_copy == nullptr && deps.assets != nullptr) {
+                    if (auto copy = deps.assets->try_get<render::IShader>(builtin::shader_post_grade)) {
+                        post.ldr_copy = std::move(*copy);
+                    }
+                }
             }
             const float time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f;
 

@@ -7,7 +7,11 @@
 #include "shader_cook/cook.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -42,6 +46,22 @@ TEST(ShaderCook, BlobRoundTripsGlslAndSpirv) {
     EXPECT_NE(desc->fragment_src.find("FragColor = vec4(1.0);"), std::string::npos);
     EXPECT_TRUE(desc->vertex_spirv.empty());
     EXPECT_TRUE(desc->fragment_spirv.empty());
+}
+
+TEST(ShaderCook, BuiltinDecalShaderCooksProjectionUniforms) {
+    const std::filesystem::path file =
+            std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR} / "shaders" / "decal.shader";
+    std::ifstream in(file);
+    ASSERT_TRUE(in.is_open()) << file.generic_string();
+    const std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto cooked = engine::cook_shader_asset(xml, file.parent_path());
+    ASSERT_TRUE(cooked.has_value()) << cooked.error();
+    const auto desc = engine::decode_shader_blob(std::span<const std::uint8_t>(cooked->data(), cooked->size()));
+    ASSERT_TRUE(desc.has_value()) << desc.error();
+    EXPECT_NE(desc->fragment_src.find("uDepth"), std::string::npos);
+    EXPECT_NE(desc->fragment_src.find("uInvViewProj"), std::string::npos);
+    EXPECT_NE(desc->fragment_src.find("uDecalAxis"), std::string::npos);
+    EXPECT_NE(desc->fragment_src.find("uHasDepth"), std::string::npos);
 }
 
 TEST(ShaderCook, RejectsABlobThatIsNotWshd) {
