@@ -210,6 +210,7 @@ TEST(HierarchySystems, ChildColliderOverlapsInWorldCoordinates) {
     engine::register_engine_systems(world);
 
     const Entity parent = spawn(world, Transform{.position = {10.f, 0.f, 0.f}});
+    world.emplace<engine::RigidBody2D>(parent, engine::RigidBody2D{});
     const Entity child = spawn_child(world, parent, Transform{.position = {0.5f, 0.f, 0.f}});
     world.emplace<engine::BoxCollider2D>(child, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     const Entity other = spawn(world, Transform{.position = {10.5f, 0.f, 0.f}});

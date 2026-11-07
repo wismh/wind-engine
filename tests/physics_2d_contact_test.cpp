@@ -53,6 +53,7 @@ engine::ecs::Entity add_box(engine::ecs::World& world, glm::vec3 position, glm::
     world.emplace<engine::Transform>(entity, engine::Transform{.position = position});
     world.emplace<engine::BoxCollider2D>(entity,
             engine::BoxCollider2D{.size = size, .is_trigger = trigger});
+    world.emplace<engine::RigidBody2D>(entity, engine::RigidBody2D{});
     return entity;
 }
 
@@ -60,6 +61,7 @@ engine::ecs::Entity add_circle(engine::ecs::World& world, glm::vec3 position, fl
     const engine::ecs::Entity entity = world.create();
     world.emplace<engine::Transform>(entity, engine::Transform{.position = position});
     world.emplace<engine::CircleCollider2D>(entity, engine::CircleCollider2D{.radius = radius});
+    world.emplace<engine::RigidBody2D>(entity, engine::RigidBody2D{});
     return entity;
 }
 
@@ -417,4 +419,63 @@ TEST(Physics2D, FirstShapePairKeepsItsManifold) {
     EXPECT_EQ(events[0].b, other);
     // The circle overlap is 0.8 deep. The box, gathered first, is the 0.3 face.
     expect_contact(events[0], glm::vec2{1.f, 0.f}, 0.3f, glm::vec2{0.85f, 0.f});
+}
+
+TEST(Physics2D, MultiPairEnterStayExitSequence) {
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity a = add_box(world, glm::vec3{0.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    const engine::ecs::Entity b = add_box(world, glm::vec3{1.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+
+    const engine::ecs::Entity c = add_box(world, glm::vec3{10.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    const engine::ecs::Entity d = add_box(world, glm::vec3{11.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+
+    const engine::ecs::Entity e = add_box(world, glm::vec3{20.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+    const engine::ecs::Entity f = add_box(world, glm::vec3{21.f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+
+    step_physics(world);
+    auto events = read_collisions(world);
+    ASSERT_EQ(events.size(), 3u);
+    for (const auto& ev : events) {
+        EXPECT_EQ(ev.phase, engine::CollisionPhase::Enter);
+    }
+
+    drop_collision_history(world);
+    step_physics(world);
+    events = read_collisions(world);
+    ASSERT_EQ(events.size(), 3u);
+    for (const auto& ev : events) {
+        EXPECT_EQ(ev.phase, engine::CollisionPhase::Stay);
+    }
+
+    world.get<engine::Transform>(c).position.x = 100.f;
+    drop_collision_history(world);
+    step_physics(world);
+    events = read_collisions(world);
+    ASSERT_EQ(events.size(), 3u);
+    int stay_count = 0;
+    int exit_count = 0;
+    for (const auto& ev : events) {
+        if (ev.phase == engine::CollisionPhase::Stay) {
+            ++stay_count;
+        } else if (ev.phase == engine::CollisionPhase::Exit) {
+            ++exit_count;
+            EXPECT_TRUE((ev.a == c && ev.b == d) || (ev.a == d && ev.b == c));
+        }
+    }
+    EXPECT_EQ(stay_count, 2);
+    EXPECT_EQ(exit_count, 1);
+
+    world.get<engine::Transform>(a).position.x = -100.f;
+    world.get<engine::Transform>(e).position.x = 200.f;
+    drop_collision_history(world);
+    step_physics(world);
+    events = read_collisions(world);
+    ASSERT_EQ(events.size(), 2u);
+    for (const auto& ev : events) {
+        EXPECT_EQ(ev.phase, engine::CollisionPhase::Exit);
+    }
+
+    drop_collision_history(world);
+    step_physics(world);
+    EXPECT_TRUE(read_collisions(world).empty());
 }
