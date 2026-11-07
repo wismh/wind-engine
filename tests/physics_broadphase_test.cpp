@@ -146,11 +146,31 @@ TEST(Physics2D, BroadphaseOneEnterAmongSeparatedBoxes) {
         add_box_2d(world, glm::vec3{static_cast<float>(i) * 5.f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
     }
     add_box_2d(world, glm::vec3{1000.f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
-    add_box_2d(world, glm::vec3{1000.5f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    const engine::ecs::Entity mover2d = add_box_2d(world, glm::vec3{1000.5f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    world.emplace<engine::RigidBody2D>(mover2d, engine::RigidBody2D{});
 
     step_physics(world);
 
     EXPECT_EQ(enter_count_2d(world), 1);
+}
+
+TEST(Physics2D, TenThousandStaticCollidersNeverGenerateStaticPairs) {
+    engine::ecs::World world = physics_world();
+    // 100 x 100 contiguous grid of static 1x1 boxes = 10,000 static colliders
+    for (int y = 0; y < 100; ++y) {
+        for (int x = 0; x < 100; ++x) {
+            add_box_2d(world, glm::vec3{static_cast<float>(x), static_cast<float>(y), 0.f}, glm::vec3{1.f, 1.f, 1.f});
+        }
+    }
+    const engine::ecs::Entity mover = add_box_2d(world, glm::vec3{50.f, 100.5f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    world.emplace<engine::RigidBody2D>(mover, engine::RigidBody2D{});
+
+    step_physics(world);
+    EXPECT_LE(enter_count_2d(world), 2);
+
+    for (int i = 0; i < 4; ++i) {
+        step_physics(world);
+    }
 }
 
 TEST(Physics3D, BroadphaseOneEnterAmongSeparatedSpheres) {
@@ -159,7 +179,8 @@ TEST(Physics3D, BroadphaseOneEnterAmongSeparatedSpheres) {
         add_sphere(world, glm::vec3{static_cast<float>(i) * 5.f, 0.f, 0.f}, 0.4f);
     }
     add_sphere(world, glm::vec3{1000.f, 0.f, 0.f}, 0.5f);
-    add_sphere(world, glm::vec3{1000.5f, 0.f, 0.f}, 0.5f);
+    const engine::ecs::Entity mover3d = add_sphere(world, glm::vec3{1000.5f, 0.f, 0.f}, 0.5f);
+    world.emplace<engine::RigidBody3D>(mover3d, engine::RigidBody3D{});
 
     step_physics(world);
 

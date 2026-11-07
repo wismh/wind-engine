@@ -184,18 +184,10 @@ std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world) {
     return colliders;
 }
 
-void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders) {
-    std::vector<Aabb> bounds(colliders.size());
-    for (std::size_t i = 0; i < colliders.size(); ++i) {
-        bounds[i] = aabb_of_2d(colliders[i]);
-    }
-    Broadphase tree;
-    tree.rebuild(bounds);
-    std::vector<std::pair<int, int>> candidates;
-    tree.query_pairs(candidates);
-
+void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
+                               std::span<const std::pair<int, int>> candidate_pairs) {
     std::vector<ItemPair> item_pairs;
-    for (const auto& [index_a, index_b] : candidates) {
+    for (const auto& [index_a, index_b] : candidate_pairs) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
         if (claimed_by_physics_3d(world, a.entity) || claimed_by_physics_3d(world, b.entity)) {

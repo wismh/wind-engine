@@ -61,8 +61,32 @@ void wake_sleepers_by_velocity_2d(ecs::World& world) {
     });
 }
 
+[[nodiscard]] bool has_sleeping_dynamic_2d(ecs::World& world) {
+    bool has_sleeping = false;
+    world.view<RigidBody2D>().each([&](ecs::Entity entity, const RigidBody2D& body) {
+        if (!has_sleeping && body.type == BodyType::Dynamic && body.sleeping && !claimed_by_physics_3d(world, entity)) {
+            has_sleeping = true;
+        }
+    });
+    return has_sleeping;
+}
+
 void wake_sleepers_by_overlap_2d(ecs::World& world) {
-    const std::vector<ColliderItem2D> colliders = gather_colliders_2d(world);
+    if (!has_sleeping_dynamic_2d(world)) {
+        return;
+    }
+    const std::vector<ColliderItem2D> all_colliders = gather_colliders_2d(world);
+    std::vector<ColliderItem2D> colliders;
+    colliders.reserve(all_colliders.size());
+    for (const ColliderItem2D& item : all_colliders) {
+        const RigidBody2D* body = world.try_get<RigidBody2D>(item.entity);
+        if (is_sleeping_dynamic(body) || is_awake_dynamic(body) || is_moving_kinematic(body)) {
+            colliders.push_back(item);
+        }
+    }
+    if (colliders.empty()) {
+        return;
+    }
     std::vector<ecs::Entity> wake;
     for (const auto& [index_a, index_b] : candidate_pairs(colliders)) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];

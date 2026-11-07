@@ -220,7 +220,7 @@ TEST(Physics3D, DefaultBodyIsKinematicAndIgnoresGravityAndOverlap) {
     EXPECT_EQ(world.get<engine::Transform>(wall).position, (glm::vec3{0.f}));
 }
 
-TEST(Physics3D, StaticOverlapEmitsEventAndMovesNeither) {
+TEST(Physics3D, StaticOverlapEmitsNoEventAndMovesNeither) {
     engine::ecs::World world = physics_world();
     const engine::ecs::Entity left = add_box(world, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 2.f});
     const engine::ecs::Entity right = add_box(world, glm::vec3{0.5f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 2.f});
@@ -232,9 +232,23 @@ TEST(Physics3D, StaticOverlapEmitsEventAndMovesNeither) {
     EXPECT_EQ(world.get<engine::Transform>(left).position, (glm::vec3{0.f}));
     EXPECT_EQ(world.get<engine::Transform>(right).position, (glm::vec3{0.5f, 0.f, 0.f}));
     const std::vector<engine::CollisionEvent3D> events = read_collisions(world);
+    EXPECT_TRUE(events.empty());
+}
+
+TEST(Physics3D, StaticTriggerOverlapEmitsEvent) {
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity left = add_box(world, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 2.f});
+    const engine::ecs::Entity right = add_box(world, glm::vec3{0.5f, 0.f, 0.f}, glm::vec3{2.f, 2.f, 2.f});
+    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{.type = engine::BodyType::Static});
+    world.emplace<engine::RigidBody3D>(right, engine::RigidBody3D{.type = engine::BodyType::Static});
+    world.get<engine::BoxCollider3D>(right).is_trigger = true;
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent3D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
-    EXPECT_FALSE(events[0].is_trigger);
+    EXPECT_TRUE(events[0].is_trigger);
     EXPECT_GT(events[0].penetration, 0.f);
 }
 
@@ -257,6 +271,7 @@ TEST(Physics3D, TriggerDoesNotMoveDynamic) {
 TEST(Physics3D, ScaleDoesNotChangeSpherePenetration) {
     engine::ecs::World world = physics_world();
     const engine::ecs::Entity left = add_sphere(world, glm::vec3{0.f}, 0.5f);
+    world.emplace<engine::RigidBody3D>(left, engine::RigidBody3D{});
     world.get<engine::Transform>(left).scale = glm::vec3{4.f};
     add_sphere(world, glm::vec3{0.5f, 0.f, 0.f}, 0.5f);
 
@@ -410,6 +425,7 @@ TEST(Physics3D, FirstShapePairKeepsItsManifold) {
     world.emplace<engine::BoxCollider3D>(body, engine::BoxCollider3D{.size = {2.f, 2.f, 2.f}});
     world.emplace<engine::SphereCollider3D>(body, engine::SphereCollider3D{.radius = 1.5f});
     const engine::ecs::Entity other = add_box(world, glm::vec3{1.2f, 0.f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    world.emplace<engine::RigidBody3D>(other, engine::RigidBody3D{});
 
     step_physics(world);
 

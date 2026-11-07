@@ -15,6 +15,11 @@ namespace {
     return {a, b};
 }
 
+[[nodiscard]] bool is_movable_3d(const ecs::World& world, ecs::Entity entity) {
+    const RigidBody3D* body = world.try_get<RigidBody3D>(entity);
+    return body != nullptr && (body->type == BodyType::Dynamic || body->type == BodyType::Kinematic);
+}
+
 [[nodiscard]] std::vector<std::pair<int, int>> candidate_pairs(const std::vector<ColliderItem3D>& colliders) {
     std::vector<Aabb> boxes;
     boxes.reserve(colliders.size());
@@ -35,6 +40,11 @@ void publish_collision_events_3d(ecs::World& world, const std::vector<ColliderIt
         const ColliderItem3D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem3D& b = colliders[static_cast<std::size_t>(index_b)];
         if (a.entity == b.entity || !layers_match_3d(a, b)) {
+            continue;
+        }
+        const bool movable_a = is_movable_3d(world, a.entity);
+        const bool movable_b = is_movable_3d(world, b.entity);
+        if (!movable_a && !movable_b && !a.is_trigger && !b.is_trigger) {
             continue;
         }
         const auto pair = ordered_pair(a.entity, b.entity);

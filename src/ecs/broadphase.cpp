@@ -6,16 +6,6 @@
 namespace engine {
 namespace {
 
-[[nodiscard]] bool aabb_valid(const Aabb& box) {
-    const glm::vec3& lo = box.min;
-    const glm::vec3& hi = box.max;
-    if (!std::isfinite(lo.x) || !std::isfinite(lo.y) || !std::isfinite(lo.z) || !std::isfinite(hi.x) ||
-        !std::isfinite(hi.y) || !std::isfinite(hi.z)) {
-        return false;
-    }
-    return lo.x <= hi.x && lo.y <= hi.y && lo.z <= hi.z;
-}
-
 [[nodiscard]] Aabb combine_aabb(const Aabb& a, const Aabb& b) {
     Aabb out;
     out.min.x = std::min(a.min.x, b.min.x);
@@ -160,6 +150,13 @@ void Broadphase::query_pairs(std::vector<std::pair<int, int>>& out) const {
             stack.push_back(node.child1);
         }
     }
+}
+
+void Broadphase::query(const Aabb& box, std::vector<int>& out) const {
+    out.clear();
+    query(box, [&](int leaf) {
+        out.push_back(leaf);
+    });
 }
 
 std::vector<std::pair<int, int>> query_sorted_pairs(std::span<const Aabb> boxes) {

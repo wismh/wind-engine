@@ -4,6 +4,7 @@
 
 #include <glm/vec3.hpp>
 
+#include <cmath>
 #include <span>
 #include <utility>
 #include <vector>
@@ -15,6 +16,16 @@ struct Aabb {
     glm::vec3 min{0.f};
     glm::vec3 max{0.f};
 };
+
+[[nodiscard]] inline bool aabb_valid(const Aabb& box) {
+    const glm::vec3& lo = box.min;
+    const glm::vec3& hi = box.max;
+    if (!std::isfinite(lo.x) || !std::isfinite(lo.y) || !std::isfinite(lo.z) || !std::isfinite(hi.x) ||
+        !std::isfinite(hi.y) || !std::isfinite(hi.z)) {
+        return false;
+    }
+    return lo.x <= hi.x && lo.y <= hi.y && lo.z <= hi.z;
+}
 
 [[nodiscard]] inline bool aabb_overlaps(const Aabb& a, const Aabb& b) {
     if (a.max.x < b.min.x || b.max.x < a.min.x) {
@@ -30,11 +41,40 @@ struct Aabb {
 }
 
 // Indices match the span passed to rebuild. An inverted or non-finite box overlaps nothing.
-// The same span produces the same pair list. `query_sorted_pairs` sorts it by index.
+// The same span produces the same pair list. query_sorted_pairs sorts it by index.
 class Broadphase {
 public:
     void rebuild(std::span<const Aabb> boxes);
     void query_pairs(std::vector<std::pair<int, int>>& out) const;
+    void query(const Aabb& box, std::vector<int>& out) const;
+
+    template <typename Callback>
+    void query(const Aabb& box, Callback&& callback) const {
+        if (root_ < 0 || !aabb_valid(box)) {
+            return;
+        }
+        std::vector<int> stack;
+        stack.reserve(32);
+        stack.push_back(root_);
+        while (!stack.empty()) {
+            const int node_index = stack.back();
+            stack.pop_back();
+            const Node& node = nodes_[static_cast<std::size_t>(node_index)];
+            if (!aabb_overlaps(box, node.box)) {
+                continue;
+            }
+            if (node.child1 < 0) {
+                callback(node.leaf);
+                continue;
+            }
+            stack.push_back(node.child2);
+            stack.push_back(node.child1);
+        }
+    }
+
+    [[nodiscard]] bool empty() const noexcept {
+        return root_ < 0;
+    }
 
 private:
     struct Node {

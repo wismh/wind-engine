@@ -56,6 +56,7 @@ TEST(Physics2D, AabbOverlap) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
@@ -75,6 +76,7 @@ TEST(Physics2D, CollisionPhaseEnterThenStay) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
@@ -102,6 +104,7 @@ TEST(Physics2D, CollisionPhaseExitThenReenter) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
@@ -140,6 +143,7 @@ TEST(Physics2D, CircleOverlap) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::CircleCollider2D>(a, engine::CircleCollider2D{.radius = 1.f});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
     world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
@@ -159,6 +163,7 @@ TEST(Physics2D, CircleNoOverlapBeyondRadius) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::CircleCollider2D>(a, engine::CircleCollider2D{.radius = 1.f});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{3.f, 0.f, 0.f}});
     world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
@@ -175,6 +180,7 @@ TEST(Physics2D, BoxCircleOverlapCrossShape) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
     world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
@@ -195,6 +201,7 @@ TEST(Physics2D, LayerMaskFiltersCollision) {
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a,
             engine::BoxCollider2D{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b01, .mask = 0b01});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(b,
             engine::BoxCollider2D{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b10, .mask = 0b10});
@@ -212,6 +219,7 @@ TEST(Physics2D, LayerMaskDefaultStillCollidesWithAll) {
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{});
     world.emplace<engine::Transform>(b, engine::Transform{});
     world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
@@ -237,4 +245,38 @@ TEST(Physics2D, TriggerFlagReportedOnEvent) {
     const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(events[0].is_trigger);
+}
+
+TEST(Physics2D, StaticNonTriggerOverlapEmitsNoEvents) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::Transform>(b, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+
+    step_physics(world);
+
+    EXPECT_TRUE(read_collisions(world).empty());
+}
+
+TEST(Physics2D, ExplicitStaticRigidBodyEmitsNoEvents) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(a, engine::RigidBody2D{.type = engine::BodyType::Static});
+    world.emplace<engine::Transform>(b, engine::Transform{});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::RigidBody2D>(b, engine::RigidBody2D{.type = engine::BodyType::Static});
+
+    step_physics(world);
+
+    EXPECT_TRUE(read_collisions(world).empty());
 }
