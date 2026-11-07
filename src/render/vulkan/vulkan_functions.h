@@ -88,6 +88,7 @@ struct VulkanFunctions {
     PFN_vkCmdCopyBuffer vkCmdCopyBuffer = nullptr;
     PFN_vkCmdCopyBufferToImage vkCmdCopyBufferToImage = nullptr;
     PFN_vkCmdBlitImage vkCmdBlitImage = nullptr;
+    PFN_vkCmdCopyImage vkCmdCopyImage = nullptr;
     PFN_vkCmdCopyImageToBuffer vkCmdCopyImageToBuffer = nullptr;
 
     PFN_vkCmdBindPipeline vkCmdBindPipeline = nullptr;

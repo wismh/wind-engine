@@ -2,7 +2,6 @@
 
 #if defined(ENGINE_WITH_WINDOW) && !defined(__EMSCRIPTEN__)
 
-#include "render/slang_compiler.h"
 #include "render/vulkan/sdl_vk_presentation.h"
 #include "render/vulkan/vulkan_backend.h"
 #include "render/vulkan/vulkan_canvas.h"
@@ -14,8 +13,7 @@
 #include "render/vulkan/vulkan_spirv.h"
 #include "render/vulkan/vulkan_texture.h"
 #include "render/vulkan/vulkan_ui_device.h"
-#include "render/vulkan/vulkan_ui_shader.h"
-#include "resources/importers.h"
+#include "shader_cook/parse_shader.h"
 
 #include <engine/render/command_buffer.h>
 #include <engine/render/commands.h>

@@ -40,11 +40,11 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 
 ## 4. Copy assets
 
-`<game>_stage` (`engine_prepare_runtime`) runs before the game compiles and depends on the asset files, not on the link, so an edited asset is staged even though `asset_ids.h` stays as it was and nothing relinks. It runs `asset_codegen --stage`, which writes only the staged tree: `<exe>/assets/catalog.toml` and the reachable assets. A `.gltf` or `.glb` is cooked to the model blob at that step instead of being copied ([Assets](../features/Assets.md#models)). On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, it copies that tree there for Gradle. Targets that stage the same `assets/` to the same place (a game and its server, `wind_editor` and `wind_editor_tests`) share the first one's stage.
+`<game>_stage` (`engine_prepare_runtime`) runs before the game compiles and depends on the asset files, not on the link, so an edited asset is staged even though `asset_ids.h` stays as it was and nothing relinks. It runs `asset_codegen --stage`, which writes only the staged tree: `<exe>/assets/catalog.toml` and the reachable assets. A `.gltf` or `.glb` is cooked to the model blob at that step instead of being copied ([Assets](../features/Assets.md#models)). A `.shader` is cooked to a `WSHD` blob the same way. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, it copies that tree there for Gradle. Targets that stage the same `assets/` to the same place (a game and its server, `wind_editor` and `wind_editor_tests`) share the first one's stage.
 
 `engine_runtime_<hash>` (also `engine_prepare_runtime`) is one target per output directory, and every target landing there depends on it, because `bin/` holds several (`engine_tests`, `wind_editor`, `wind_editor_tests`, the server fixture) that need the same files. A step per target would write them in parallel:
 
-1. Copy `builtin_assets/` to `<exe>/assets/engine/`.
+1. Copy the cooked builtin tree (`engine_builtin_stage`, `WSHD` shader blobs) to `<exe>/assets/engine/`. An SDK already has that tree in `bin/assets/engine`.
 2. Copy the cooked engine `catalog.toml` over that tree's catalog.
 
 On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, a POST_BUILD copies the whole `assets/` tree there for Gradle.

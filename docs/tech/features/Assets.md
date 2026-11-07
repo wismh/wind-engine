@@ -110,7 +110,7 @@ Checks. Parsing the `.meta` fails (`MetaError::InvalidField`, so the cook fails 
 
 ## Shaders
 
-`importer = "shader"` (`.shader`, assigned by `asset_guid`) is an XML file containing Slang shader source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), an optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` backend override, or legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL (`parse_shader` / `parse_shader_xml`, `src/resources/importers.cpp`). `asset_codegen` compiles and validates every `.shader` file and fails the build with `CodegenErrorKind::Shader` on syntax, type, or XML errors. See [Render](../modules/Render.md#shaders).
+`importer = "shader"` (`.shader`, assigned by `asset_guid`) is an XML file in the source tree containing Slang shader source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), an optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` backend override, or legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL. `asset_codegen` cooks it, on the host, into a little-endian `WSHD` blob (GLSL 330 plus SPIR-V) and `--stage` writes that blob in place of the XML. The runtime decodes the blob (`decode_shader_blob`) and never compiles Slang. A cook that fails is `CodegenErrorKind::Shader`. See [Render](../modules/Render.md#shaders).
 
 ## Models
 

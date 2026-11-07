@@ -11,7 +11,7 @@
 #   ENGINE_COOKED_CATALOG      cooked catalog.toml for those builtins
 #   ENGINE_CMAKE_DIR           the engine source tree (cmake/web/link_flags.cmake)
 #   ENGINE_GNS_RUNTIME_DLLS    on Windows, the GameNetworkingSockets DLLs copied beside a server or a game's executable
-#   ENGINE_SLANG_RUNTIME_DLLS  on Windows, the Slang DLLs copied beside a game's executable
+#   ENGINE_SLANG_RUNTIME_DLLS  on Windows, the Slang DLLs asset_codegen needs. A game does not import them.
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
@@ -197,7 +197,13 @@ function(engine_prepare_runtime target)
         string(MD5 _runtime_key "${_runtime_dir}")
         set(_runtime_step engine_runtime_${_runtime_key})
         if(NOT TARGET ${_runtime_step})
-            file(GLOB_RECURSE _engine_builtin_files CONFIGURE_DEPENDS "${ENGINE_BUILTIN_ASSETS_DIR}/*")
+            if(ENGINE_FROM_SDK)
+                set(_engine_assets_src "${ENGINE_BUILTIN_ASSETS_DIR}")
+                set(_engine_assets_dep "${ENGINE_BUILTIN_ASSETS_DIR}/catalog.toml")
+            else()
+                set(_engine_assets_src "${ENGINE_STAGED_BUILTIN_ASSETS}")
+                set(_engine_assets_dep "${ENGINE_STAGED_BUILTIN_ASSETS}/catalog.toml")
+            endif()
             set(_runtime_stamp "${CMAKE_BINARY_DIR}/generated/engine_runtime/${_runtime_key}.$<CONFIG>.stamp")
             set(_copy_dll_command)
             set(_copy_dll_depends)
@@ -209,19 +215,19 @@ function(engine_prepare_runtime target)
             add_custom_command(
                 OUTPUT "${_runtime_stamp}"
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${ENGINE_BUILTIN_ASSETS_DIR}"
+                    "${_engine_assets_src}"
                     "$<TARGET_FILE_DIR:${target}>/assets/engine"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${ENGINE_COOKED_CATALOG}"
                     "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
                 ${_copy_dll_command}
                 COMMAND ${CMAKE_COMMAND} -E touch "${_runtime_stamp}"
-                DEPENDS "${ENGINE_COOKED_CATALOG}" ${_engine_builtin_files} ${_copy_dll_depends}
+                DEPENDS "${ENGINE_COOKED_CATALOG}" "${_engine_assets_dep}" ${_copy_dll_depends}
                 COMMENT "Copy engine assets and cooked catalog beside ${target}"
                 VERBATIM)
             add_custom_target(${_runtime_step} DEPENDS "${_runtime_stamp}")
             if(NOT ENGINE_FROM_SDK)
-                add_dependencies(${_runtime_step} engine_builtin_catalog)
+                add_dependencies(${_runtime_step} engine_builtin_catalog engine_builtin_stage)
             endif()
         endif()
         add_dependencies(${target} ${_runtime_step})
@@ -517,7 +523,6 @@ function(engine_add_game target)
     # when the game uses a transport, which CMake cannot tell here.
     get_target_property(_game_type ${target} TYPE)
     if(_game_type STREQUAL "EXECUTABLE")
-        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
         engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
     endif()
 endfunction()
@@ -587,10 +592,6 @@ function(engine_add_server target)
     set_target_properties(${target} PROPERTIES MACOSX_BUNDLE OFF)
     engine_configure_app(${target})
     engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
-    # The Server player of an SDK has no Slang. The source build's engine does when it has a window.
-    if(NOT ENGINE_FROM_SDK)
-        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
-    endif()
 endfunction()
 
 function(engine_add_web_game target)

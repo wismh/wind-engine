@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "fixtures/cooked_shaders.h"
 #include "fixtures/fatal_fakes.h"
 
 namespace {
@@ -354,6 +355,7 @@ TEST(Sprite, AutomaticMeshAndMaterialResolutionWithAssets) {
     write_file(tree.path / "quad.mesh", "-0.5 0.5 0 0 1\n");
     write_file(tree.path / "unlit.shader",
             "<xml><vertex>void main(){}</vertex><fragment>void main(){}</fragment></xml>");
+    ASSERT_TRUE(cook_shader_in_place(tree.path / "unlit.shader"));
 
     engine::CookedCatalog catalog;
     catalog.add(engine::CatalogEntry{

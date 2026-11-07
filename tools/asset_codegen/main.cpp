@@ -1,4 +1,5 @@
 #include "gltf/cook.h"
+#include "shader_cook/cook.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/project/wind_project.h>
@@ -13,6 +14,7 @@
 
 int main(int argc, char** argv) {
     engine::gltf::register_gltf_cooker();
+    engine::shader_cook::register_shader_cooker();
     if (argc >= 3 && std::string_view(argv[1]) == "--components") {
         const std::filesystem::path output_file = argv[2];
         std::vector<std::filesystem::path> dirs;

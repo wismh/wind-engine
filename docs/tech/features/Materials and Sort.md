@@ -9,6 +9,7 @@ World draws are data on entities. `run_render` turns them into commands, sorts t
 | `Renderable` + `Transform` | one `CmdDrawMesh` |
 | `Sprite` + `Transform` | one `CmdDrawMesh` (quad unless `mesh` is set) |
 | `ParticleEmitter` | one `CmdDrawParticles` after `run_particles`, when `particles` is not empty and the emitter bounds meet a frustum (`frustum_cull` default true; false always draws) |
+| `Decal` + `Transform` | one `CmdDrawDecal` in the decal queue ([Decals](Decals.md)) |
 | `SpriteAnimator` + `Sprite` | the animator copies the current frame onto the sprite first (`Sprite::apply_frame`) |
 
 An entity with both `Renderable` and `Sprite` skips the sprite. `run_render` emits only the `Renderable` command (and nothing from that entity when the `Renderable` itself is skipped).

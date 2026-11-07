@@ -3,13 +3,15 @@
 #include <engine/render/shader_adapt.h>
 #include <engine/resources/meta.h>
 
-#include "render/slang_compiler.h"
-#include "resources/importers.h"
+#include "shader_cook/parse_shader.h"
+#include "shader_cook/slang_compiler.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -173,3 +175,29 @@ TEST(SlangShader, CodegenScanRejectsInvalidSlangShader) {
     EXPECT_EQ(scanned.error().kind, engine::CodegenErrorKind::Shader);
     EXPECT_NE(scanned.error().message.find("shaders/broken.shader"), std::string::npos);
 }
+
+#ifdef ENGINE_WITH_SLANG
+#include "render/vulkan/particle_spirv.inc"
+#include "render/vulkan/ui_spirv.inc"
+
+TEST(SlangShader, BakedBuiltinSpirvMatchesTheCooker) {
+    const std::filesystem::path dir =
+            std::filesystem::path{ENGINE_SOURCE_DIR} / "tools" / "shader_cook" / "shaders";
+    const auto expect_match = [](const std::filesystem::path& slang, const std::uint32_t* vertex, std::size_t vertex_count,
+                                      const std::uint32_t* fragment, std::size_t fragment_count) {
+        std::ifstream in(slang);
+        ASSERT_TRUE(in.is_open()) << slang.generic_string();
+        const std::string source((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const auto compiled = engine::render::compile_slang_shader(source);
+        ASSERT_TRUE(compiled.has_value()) << compiled.error();
+        ASSERT_EQ(compiled->vertex_spirv.size(), vertex_count);
+        ASSERT_EQ(compiled->fragment_spirv.size(), fragment_count);
+        EXPECT_TRUE(std::equal(vertex, vertex + vertex_count, compiled->vertex_spirv.begin()));
+        EXPECT_TRUE(std::equal(fragment, fragment + fragment_count, compiled->fragment_spirv.begin()));
+    };
+    expect_match(dir / "particle.slang", engine::render::kParticleVertexSpirv, std::size(engine::render::kParticleVertexSpirv),
+            engine::render::kParticleFragmentSpirv, std::size(engine::render::kParticleFragmentSpirv));
+    expect_match(dir / "ui.slang", engine::render::kUiVertexSpirv, std::size(engine::render::kUiVertexSpirv),
+            engine::render::kUiFragmentSpirv, std::size(engine::render::kUiFragmentSpirv));
+}
+#endif

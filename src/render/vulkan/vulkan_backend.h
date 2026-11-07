@@ -55,6 +55,7 @@ public:
     void set_view(const CmdSetView& view);
     void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
+    void execute_draw_decal(const CmdDrawDecal& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
     void execute_draw_mesh_particles(const CmdDrawParticles& cmd);
     void execute(const CommandBuffer& commands) override;
@@ -110,10 +111,17 @@ private:
         const RenderState& state,
         bool is_particle,
         bool fullscreen = false);
+    // Binding 2. When set, this image is written instead of `normal` (a decal's depth copy).
+    struct DepthSamplerBind {
+        VkImageView view = VK_NULL_HANDLE;
+        VkSampler sampler = VK_NULL_HANDLE;
+    };
+
     [[nodiscard]] VkDescriptorSet allocate_and_write_descriptor(
         const std::vector<std::uint8_t>& ubo_bytes,
         VulkanTexture& texture,
-        VulkanTexture* normal = nullptr);
+        VulkanTexture* normal = nullptr,
+        const DepthSamplerBind* depth = nullptr);
     void apply_viewport_and_scissor(bool clear_if_requested);
     void adopt_pass(VkRenderPass pass, VkExtent2D extent);
     void draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params, const glm::vec2& resolution,

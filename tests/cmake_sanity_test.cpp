@@ -257,7 +257,7 @@ TEST(Scaffold, DedicatedServerWiring) {
 
     // An exported target names an import library inside the player, not in this checkout: an SDK moves.
     EXPECT_NE(cmake.find("$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/GameNetworkingSockets.lib>"), std::string::npos);
-    EXPECT_NE(cmake.find("$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/slang.lib>"), std::string::npos);
+    EXPECT_EQ(cmake.find("$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/slang.lib>"), std::string::npos);
 
     // The GameNetworkingSockets source is an opt-in: a plain recursive update must not clone its nested webrtc.
     const std::size_t submodule = modules.find("external/GameNetworkingSockets-src");
@@ -609,8 +609,9 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     // Export copies the directory it lands in. Both the source build and the SDK name them.
     const std::size_t add_game = game.find("function(engine_add_game target)");
     ASSERT_NE(add_game, std::string::npos);
-    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})", add_game), std::string::npos);
+    EXPECT_EQ(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})", add_game), std::string::npos);
     EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})", add_game), std::string::npos);
+    EXPECT_NE(cmake.find("engine_copy_runtime_dlls(${_user} ${ENGINE_SLANG_RUNTIME_DLLS})"), std::string::npos);
     // One step per directory and set, not a POST_BUILD per target: a game and its server can share a directory, and so
     // do the tools and tests in bin/. It is the only thing that copies them.
     EXPECT_EQ(cmake.find("Copy Slang DLLs"), std::string::npos);

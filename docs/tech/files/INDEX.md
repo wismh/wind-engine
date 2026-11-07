@@ -129,8 +129,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog, post), `CmdPostProcess` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdDrawDecal`, `CmdSetView` (camera, lights, fog, post), `CmdPostProcess` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
+| `include/engine/render/decal.h` | `Decal` projected volume | [Decals](../features/Decals.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/point_light.h` | `PointLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/spot_light.h` | `SpotLight` component | [Render](../modules/Render.md#lights) |
@@ -160,6 +161,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
 | `include/engine/resources/meta.h` | Importers, `MipmapMode`, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/shader_blob.h` | `WSHD` encode and decode | [Assets](../features/Assets.md) |
+| `include/engine/resources/shader_cook.h` | Host shader-cooker hook | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
 | `include/engine/resources/text_asset.h` | `TextAsset` raw text asset for data importer | [Assets](../features/Assets.md) |
 | `include/engine/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
@@ -298,7 +301,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points, `texture_array_from_frames` | [Assets](../features/Assets.md) |
+| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), PNG decode entry points, `texture_array_from_frames` | [Assets](../features/Assets.md) |
+| `src/resources/shader_blob.cpp` | `WSHD` shader blob encode and decode | [Assets](../features/Assets.md) |
+| `src/resources/shader_cook.cpp` | Host shader-cooker hook | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -735,6 +740,10 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `templates/empty/**` | The empty project template the SDK installs and the launcher copies | [Launcher](../features/Launcher.md) |
+| `tools/shader_cook/slang_compiler.cpp` | Slang to SPIR-V and GLSL 330, host only | [Asset Codegen](../build/Asset%20Codegen.md) |
+| `tools/shader_cook/parse_shader.cpp` | Shader XML parse and `#include` expand | [Asset Codegen](../build/Asset%20Codegen.md) |
+| `tools/shader_cook/register_cooker.cpp` | Registers the shader cooker | [Asset Codegen](../build/Asset%20Codegen.md) |
+| `tools/shader_cook/emit_builtin.cpp` | Writes baked particle and UI SPIR-V | [Render](../modules/Render.md) |
 | `tools/asset_codegen/main.cpp` | `asset_codegen` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_codegen/README.md` | One-page usage | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_guid/main.cpp` | `asset_guid` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |

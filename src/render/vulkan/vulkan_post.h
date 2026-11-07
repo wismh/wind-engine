@@ -36,6 +36,16 @@ public:
     [[nodiscard]] VkImageView depth_view() const noexcept { return depth_texture_ ? depth_.view : VK_NULL_HANDLE; }
     [[nodiscard]] bool pass_open() const noexcept { return pass_open_; }
     [[nodiscard]] VkSampler depth_sampler() const noexcept { return depth_sampler_; }
+
+    // A copy of the scene depth taken after the opaque draws, plus the render pass that continues the scene
+    // while that copy is sampled. `has_depth` is false when the scene has no depth texture.
+    struct DepthSample {
+        VkImageView view = VK_NULL_HANDLE;
+        VkSampler sampler = VK_NULL_HANDLE;
+        VkRenderPass pass = VK_NULL_HANDLE;
+        bool has_depth = false;
+    };
+    [[nodiscard]] DepthSample prepare_depth_sample();
     [[nodiscard]] VkExtent2D extent() const noexcept { return extent_; }
     [[nodiscard]] int bloom_width(int level) const noexcept { return level >= 0 && level < 3 ? bloom_width_[level] : 0; }
     [[nodiscard]] int bloom_height(int level) const noexcept {
@@ -70,6 +80,8 @@ private:
     VkRenderPass scene_pass_ = VK_NULL_HANDLE;
     VkRenderPass color_pass_ = VK_NULL_HANDLE;
     VkRenderPass window_load_ = VK_NULL_HANDLE;
+    // Same attachments as `scene_pass_`, loading color and depth so decals and later draws continue after the copy.
+    VkRenderPass scene_resume_ = VK_NULL_HANDLE;
     VkFormat scene_format_ = VK_FORMAT_UNDEFINED;
     VkFormat pass_window_color_ = VK_FORMAT_UNDEFINED;
     VkFormat pass_window_depth_ = VK_FORMAT_UNDEFINED;
@@ -79,7 +91,10 @@ private:
     VkFramebuffer color0_color_fb_ = VK_NULL_HANDLE;
     Slot bloom_[3]{};
     Slot depth_{};
+    Slot depth_copy_{};
+    VkImageLayout depth_copy_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     bool depth_texture_ = false;
+    bool depth_copied_ = false;
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler depth_sampler_ = VK_NULL_HANDLE;
     int bloom_width_[3]{};

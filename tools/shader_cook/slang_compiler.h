@@ -1,6 +1,6 @@
 #pragma once
 
-// docs/tech/modules/Render.md
+// docs/tech/build/Asset Codegen.md
 
 #include <engine/render/graphic_factory.h>
 

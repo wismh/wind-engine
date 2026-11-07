@@ -8,6 +8,7 @@
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/ambient_light.h>
 #include <engine/render/animation.h>
+#include <engine/render/decal.h>
 #include <engine/render/directional_light.h>
 #include <engine/render/point_light.h>
 #include <engine/render/spot_light.h>
@@ -609,4 +610,56 @@ rigid_body_2d = { type = "dynamicc" }
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error().kind, engine::ecs::WorldErrorKind::InvalidField);
     EXPECT_NE(res.error().message.find("dynamicc"), std::string::npos);
+}
+
+TEST(WorldSerializer, DecalComponentRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "splatter"
+transform = { position = [1.0, 2.0, 3.0] }
+decal = { mesh = "asset://0123456789abcdef0123456789abcde1", texture = "asset://0123456789abcdef0123456789abcde2", color = [1.0, 0.5, 0.25, 1.0], uv_scale = [2.0, 3.0], uv_offset = [0.1, 0.2], layer = 2, order_in_layer = 5, angle_cutoff = 0.4, normal_fade = 0.15, frustum_cull = false }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto* decal = world.try_get<engine::render::Decal>(loaded->by_id.at("splatter"));
+    ASSERT_NE(decal, nullptr);
+    EXPECT_FLOAT_EQ(decal->color.r, 1.0f);
+    EXPECT_FLOAT_EQ(decal->color.g, 0.5f);
+    EXPECT_FLOAT_EQ(decal->color.b, 0.25f);
+    EXPECT_FLOAT_EQ(decal->color.a, 1.0f);
+    EXPECT_FLOAT_EQ(decal->uv_scale.x, 2.0f);
+    EXPECT_FLOAT_EQ(decal->uv_scale.y, 3.0f);
+    EXPECT_FLOAT_EQ(decal->uv_offset.x, 0.1f);
+    EXPECT_FLOAT_EQ(decal->uv_offset.y, 0.2f);
+    EXPECT_EQ(decal->layer, 2);
+    EXPECT_EQ(decal->order_in_layer, 5);
+    EXPECT_FLOAT_EQ(decal->angle_cutoff, 0.4f);
+    EXPECT_FLOAT_EQ(decal->normal_fade, 0.15f);
+    EXPECT_FALSE(decal->frustum_cull);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    EXPECT_NE(saved.find("0123456789abcdef0123456789abcde1"), std::string::npos);
+    EXPECT_NE(saved.find("0123456789abcdef0123456789abcde2"), std::string::npos);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto* round = again.try_get<engine::render::Decal>(reloaded->by_id.at("splatter"));
+    ASSERT_NE(round, nullptr);
+    EXPECT_FLOAT_EQ(round->color.r, 1.0f);
+    EXPECT_FLOAT_EQ(round->color.g, 0.5f);
+    EXPECT_FLOAT_EQ(round->color.b, 0.25f);
+    EXPECT_FLOAT_EQ(round->color.a, 1.0f);
+    EXPECT_FLOAT_EQ(round->uv_scale.x, 2.0f);
+    EXPECT_FLOAT_EQ(round->uv_scale.y, 3.0f);
+    EXPECT_FLOAT_EQ(round->uv_offset.x, 0.1f);
+    EXPECT_FLOAT_EQ(round->uv_offset.y, 0.2f);
+    EXPECT_EQ(round->layer, 2);
+    EXPECT_EQ(round->order_in_layer, 5);
+    EXPECT_FLOAT_EQ(round->angle_cutoff, 0.4f);
+    EXPECT_FLOAT_EQ(round->normal_fade, 0.15f);
+    EXPECT_FALSE(round->frustum_cull);
 }

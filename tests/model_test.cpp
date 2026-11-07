@@ -12,6 +12,7 @@
 #include <engine/resources/assets_db.h>
 #include <engine/resources/meta.h>
 
+#include "fixtures/cooked_shaders.h"
 #include "fixtures/fatal_fakes.h"
 #include "gltf/cook.h"
 #include "render/mesh_check.h"
@@ -507,7 +508,8 @@ TEST(Model, SpawnWritesPartsTheWorldSaveSkips) {
     }
     constexpr std::string_view kModel = "ccccccccccccccccccccccccccccccc1";
     engine::CookedCatalog catalog;
-    const auto builtin = std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
+    const auto builtin = cooked_builtin_assets();
+    ASSERT_FALSE(builtin.empty());
     catalog.add({engine::builtin::shader_lit, "shaders/lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
     catalog.add({engine::builtin::shader_unlit, "shaders/unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
     catalog.add({engine::builtin::shader_skin_lit, "shaders/skin_lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
@@ -548,7 +550,8 @@ TEST(Model, SpawnedClipFiresTheMarkerAtZero) {
     }
     constexpr std::string_view kModel = "ccccccccccccccccccccccccccccccc2";
     engine::CookedCatalog catalog;
-    const auto builtin = std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
+    const auto builtin = cooked_builtin_assets();
+    ASSERT_FALSE(builtin.empty());
     catalog.add({engine::builtin::shader_lit, "shaders/lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
     catalog.add({engine::builtin::shader_unlit, "shaders/unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
     catalog.add(

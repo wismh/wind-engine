@@ -19,6 +19,7 @@
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
 #include <engine/render/animation.h>
+#include <engine/render/decal.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/draw_sort.h>
 #include <engine/render/fog.h>
@@ -348,6 +349,12 @@ namespace engine {
             std::unordered_map<const render::ITexture *, std::shared_ptr<render::IMaterial>> materials;
         };
 
+        // Decals do not share the sprite cache: the same texture pointer would otherwise keep whichever RenderState
+        // was built first.
+        struct DecalMaterialCache {
+            std::unordered_map<const render::ITexture *, std::shared_ptr<render::IMaterial>> materials;
+        };
+
         struct DrawItem {
             render::DrawSortKey key;
             render::Command command;
@@ -501,14 +508,22 @@ namespace engine {
             }
 
             std::shared_ptr<render::IMesh> default_quad;
+            std::shared_ptr<render::IMesh> default_cube;
             std::shared_ptr<render::IShader> default_shader;
+            std::shared_ptr<render::IShader> decal_shader;
             std::shared_ptr<render::IMaterial> default_unlit;
             if (assets != nullptr) {
                 if (auto mesh_res = assets->try_get<render::IMesh>(builtin::mesh_quad)) {
                     default_quad = std::move(*mesh_res);
                 }
+                if (auto cube_res = assets->try_get<render::IMesh>(builtin::mesh_cube)) {
+                    default_cube = std::move(*cube_res);
+                }
                 if (auto shader_res = assets->try_get<render::IShader>(builtin::shader_unlit)) {
                     default_shader = std::move(*shader_res);
+                }
+                if (auto decal_res = assets->try_get<render::IShader>(builtin::shader_decal)) {
+                    decal_shader = std::move(*decal_res);
                 }
                 if (auto mat_res = assets->try_get<render::IMaterial>(builtin::material_unlit)) {
                     default_unlit = std::move(*mat_res);
@@ -573,6 +588,56 @@ namespace engine {
 
                 const render::DrawSortKey key = render::make_draw_sort_key(
                         material.get(), s.layer, s.order_in_layer, glm::vec3(cmd.model[3]), view, entity);
+                items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
+            }
+
+            auto decals = world.view<render::Decal, Transform>();
+            for (ecs::Entity entity : decals) {
+                const auto &d = decals.get<render::Decal>(entity);
+                std::shared_ptr<render::IMesh> mesh = d.mesh ? d.mesh : default_cube;
+                std::shared_ptr<render::IMaterial> material;
+                if (d.material != nullptr) {
+                    material = d.material;
+                } else if (d.texture != nullptr && decal_shader != nullptr) {
+                    auto &decal_cache = world.ctx<DecalMaterialCache>();
+                    auto it = decal_cache.materials.find(d.texture.get());
+                    if (it != decal_cache.materials.end()) {
+                        material = it->second;
+                    } else {
+                        material = std::make_shared<render::Material>(
+                                decal_shader, d.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                render::RenderState{.blend = render::BlendMode::Alpha, .depth_test = false,
+                                        .depth_write = false, .cull = render::CullMode::Front});
+                        decal_cache.materials[d.texture.get()] = material;
+                    }
+                }
+
+                if (!mesh || !material) {
+                    if (fatal != nullptr) {
+                        fatal->report("Decal is missing mesh or material");
+                    }
+                    continue;
+                }
+
+                const glm::mat4 model = ecs::world_matrix(world, entity);
+                if (!mesh_in_view(*mesh, model, d.frustum_cull, frustums)) {
+                    continue;
+                }
+
+                render::CmdDrawDecal cmd;
+                cmd.mesh = mesh;
+                cmd.material = material;
+                cmd.model = model;
+                cmd.inv_model = glm::inverse(model);
+                cmd.color = d.color;
+                cmd.uv_scale = d.uv_scale;
+                cmd.uv_offset = d.uv_offset;
+                cmd.angle_cutoff = d.angle_cutoff;
+                cmd.normal_fade = d.normal_fade;
+                cmd.material_override = d.material_override;
+
+                const render::DrawSortKey key = render::make_decal_draw_sort_key(
+                        material.get(), d.layer, d.order_in_layer, glm::vec3(model[3]), view, entity);
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
@@ -763,8 +828,11 @@ namespace engine {
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
             auto tilemaps = world.view<render::Tilemap, Transform>();
+            auto decals = world.view<render::Decal, Transform>();
+            const bool any_decals = decals.begin() != decals.end();
             const bool any_drawable = renderables.begin() != renderables.end() || sprites.begin() != sprites.end() ||
-                                      emitters.begin() != emitters.end() || tilemaps.begin() != tilemaps.end();
+                                      emitters.begin() != emitters.end() || tilemaps.begin() != tilemaps.end() ||
+                                      any_decals;
             const render::PostStack* post_stack = nullptr;
             if (const ActiveCamera* active_camera = world.try_ctx<ActiveCamera>();
                 active_camera != nullptr && world.valid(active_camera->entity)) {
@@ -809,7 +877,17 @@ namespace engine {
             if (const render::Fog *camera_fog = world.try_get<render::Fog>(active.entity)) {
                 fog = *camera_fog;
             }
-            const render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
+            render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
+            if (any_decals) {
+                post.sample_depth = true;
+                // An otherwise empty chain would leave the scene offscreen. Vulkan presents that copy with the grade
+                // shader; OpenGL blits and does not need it.
+                if (!post.hdr && post.effects.empty() && post.ldr_copy == nullptr && deps.assets != nullptr) {
+                    if (auto copy = deps.assets->try_get<render::IShader>(builtin::shader_post_grade)) {
+                        post.ldr_copy = std::move(*copy);
+                    }
+                }
+            }
             const float time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f;
 
             for (const WindowId id: windows) {

@@ -1,15 +1,3 @@
-#pragma once
-
-// docs/tech/modules/Render.md
-//
-// The UI uber-shader in Slang, compiled to SPIR-V for VulkanUiDevice. Implements src/ui/render/fragment.h
-// line for line with the vertex layout and four sampler slots of src/ui/render/ui_pipeline.h.
-
-#include <string_view>
-
-namespace engine::render {
-
-inline constexpr std::string_view kVulkanUiSlangShader = R"(
 struct VertexInput {
     [[vk::location(0)]] float2 a_position : POSITION;
     [[vk::location(1)]] float2 a_uv       : TEXCOORD0;
@@ -144,6 +132,3 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
     return color * clip_coverage(input.v_clip);
 }
-)";
-
-} // namespace engine::render

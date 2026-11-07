@@ -83,6 +83,84 @@ VkRenderPass make_color_pass(const VulkanFunctions& fn, VkDevice device, VkForma
     return pass;
 }
 
+// Continues a scene pass whose color and depth already hold the opaque draws. Layouts match the scene pass's
+// final layout, so the copy can run between the two passes.
+VkRenderPass make_resume_pass(const VulkanFunctions& fn, VkDevice device, VkFormat color, VkFormat depth) {
+    VkAttachmentDescription color_att{};
+    color_att.format = color;
+    color_att.samples = VK_SAMPLE_COUNT_1_BIT;
+    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    color_att.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    color_att.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentDescription depth_att{};
+    depth_att.format = depth;
+    depth_att.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    depth_att.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference color_ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference depth_ref{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    std::array<VkAttachmentDescription, 2> attachments{color_att, depth_att};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &color_ref;
+    subpass.pDepthStencilAttachment = &depth_ref;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                       VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dep.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+
+    VkRenderPassCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    info.attachmentCount = 2;
+    info.pAttachments = attachments.data();
+    info.subpassCount = 1;
+    info.pSubpasses = &subpass;
+    info.dependencyCount = 1;
+    info.pDependencies = &dep;
+    VkRenderPass pass = VK_NULL_HANDLE;
+    if (fn.vkCreateRenderPass(device, &info, nullptr, &pass) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
+    return pass;
+}
+
+void image_barrier(const VulkanFunctions& fn, VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
+        VkImageLayout new_layout, VkAccessFlags src_access, VkAccessFlags dst_access, VkPipelineStageFlags src_stage,
+        VkPipelineStageFlags dst_stage) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = src_access;
+    barrier.dstAccessMask = dst_access;
+    barrier.oldLayout = old_layout;
+    barrier.newLayout = new_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    fn.vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+
 } // namespace
 
 void VulkanPost::set_frame(VulkanContext* context, VkCommandBuffer cmd, VkFramebuffer window_fb, VkExtent2D extent,
@@ -103,6 +181,7 @@ void VulkanPost::shutdown() {
         scene_pass_ = VK_NULL_HANDLE;
         color_pass_ = VK_NULL_HANDLE;
         window_load_ = VK_NULL_HANDLE;
+        scene_resume_ = VK_NULL_HANDLE;
         return;
     }
     const VulkanFunctions& fn = context_->fn();
@@ -116,13 +195,16 @@ void VulkanPost::shutdown() {
     if (window_load_ != VK_NULL_HANDLE) {
         fn.vkDestroyRenderPass(device, window_load_, nullptr);
     }
+    if (scene_resume_ != VK_NULL_HANDLE) {
+        fn.vkDestroyRenderPass(device, scene_resume_, nullptr);
+    }
     if (sampler_ != VK_NULL_HANDLE) {
         fn.vkDestroySampler(device, sampler_, nullptr);
     }
     if (depth_sampler_ != VK_NULL_HANDLE) {
         fn.vkDestroySampler(device, depth_sampler_, nullptr);
     }
-    scene_pass_ = color_pass_ = window_load_ = VK_NULL_HANDLE;
+    scene_pass_ = color_pass_ = window_load_ = scene_resume_ = VK_NULL_HANDLE;
     sampler_ = depth_sampler_ = VK_NULL_HANDLE;
     context_ = nullptr;
 }
@@ -217,12 +299,16 @@ void VulkanPost::destroy_targets() {
         destroy_slot(level);
     }
     destroy_slot(depth_);
+    destroy_slot(depth_copy_);
+    depth_copy_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_copied_ = false;
     width_ = 0;
     height_ = 0;
 }
 
 bool VulkanPost::ensure_passes() {
-    if (scene_pass_ != VK_NULL_HANDLE && color_pass_ != VK_NULL_HANDLE && window_load_ != VK_NULL_HANDLE &&
+    const bool resume_ok = !depth_texture_ || scene_resume_ != VK_NULL_HANDLE;
+    if (scene_pass_ != VK_NULL_HANDLE && color_pass_ != VK_NULL_HANDLE && window_load_ != VK_NULL_HANDLE && resume_ok &&
             pass_window_color_ == window_color_ && pass_window_depth_ == window_depth_ &&
             scene_format_ == vk_format(targets_format_) && pass_samples_depth_ == depth_texture_) {
         return true;
@@ -241,10 +327,17 @@ bool VulkanPost::ensure_passes() {
     if (window_load_ != VK_NULL_HANDLE) {
         fn.vkDestroyRenderPass(device, window_load_, nullptr);
     }
+    if (scene_resume_ != VK_NULL_HANDLE) {
+        fn.vkDestroyRenderPass(device, scene_resume_, nullptr);
+        scene_resume_ = VK_NULL_HANDLE;
+    }
     const VkFormat scene = vk_format(targets_format_);
     const bool sample_depth = depth_texture_;
     scene_pass_ = make_color_pass(fn, device, scene, true, true, VK_FORMAT_D32_SFLOAT, sample_depth);
     color_pass_ = make_color_pass(fn, device, scene, false, false, VK_FORMAT_D32_SFLOAT, false);
+    if (sample_depth) {
+        scene_resume_ = make_resume_pass(fn, device, scene, VK_FORMAT_D32_SFLOAT);
+    }
 
     VkAttachmentDescription color_att{};
     color_att.format = window_color_;
@@ -302,7 +395,8 @@ bool VulkanPost::ensure_passes() {
     pass_window_depth_ = window_depth_;
     scene_format_ = scene;
     pass_samples_depth_ = depth_texture_;
-    return scene_pass_ != VK_NULL_HANDLE && color_pass_ != VK_NULL_HANDLE && window_load_ != VK_NULL_HANDLE;
+    return scene_pass_ != VK_NULL_HANDLE && color_pass_ != VK_NULL_HANDLE && window_load_ != VK_NULL_HANDLE &&
+           (!sample_depth || scene_resume_ != VK_NULL_HANDLE);
 }
 
 bool VulkanPost::ensure_targets(SceneColorFormat format, bool depth_texture) {
@@ -330,10 +424,18 @@ bool VulkanPost::ensure_targets(SceneColorFormat format, bool depth_texture) {
         return false;
     }
     const VkImageUsageFlags depth_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                                          (depth_texture ? VK_IMAGE_USAGE_SAMPLED_BIT : 0);
+                                          (depth_texture ? (VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+                                                         : 0);
     if (!create_image(depth_, VK_FORMAT_D32_SFLOAT, extent_, depth_usage, VK_IMAGE_ASPECT_DEPTH_BIT)) {
         return false;
     }
+    if (depth_texture &&
+            !create_image(depth_copy_, VK_FORMAT_D32_SFLOAT, extent_,
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT)) {
+        return false;
+    }
+    depth_copy_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_copied_ = false;
     const VulkanFunctions& fn = context_->fn();
     const VkDevice device = context_->device();
     auto make_fb = [&](Slot& slot, VkRenderPass pass, bool with_depth) {
@@ -463,9 +565,67 @@ bool VulkanPost::begin_scene(const PostChain& chain) {
         }
         return false;
     }
+    depth_copied_ = false;
     begin_pass(scene_pass_, color_[0].fb, extent_, true, true);
     scene_bound_ = true;
     return true;
+}
+
+VulkanPost::DepthSample VulkanPost::prepare_depth_sample() {
+    DepthSample sample;
+    sample.sampler = depth_sampler_;
+    if (!scene_bound_ || !pass_open_ || context_ == nullptr || cmd_ == VK_NULL_HANDLE || !depth_texture_ ||
+            depth_.image == VK_NULL_HANDLE || depth_copy_.image == VK_NULL_HANDLE || scene_resume_ == VK_NULL_HANDLE) {
+        return sample;
+    }
+    if (depth_copied_) {
+        sample.view = depth_copy_.view;
+        sample.pass = scene_resume_;
+        sample.has_depth = depth_copy_.view != VK_NULL_HANDLE;
+        return sample;
+    }
+    const VulkanFunctions& fn = context_->fn();
+    if (fn.vkCmdCopyImage == nullptr || fn.vkCmdPipelineBarrier == nullptr) {
+        return sample;
+    }
+    fn.vkCmdEndRenderPass(cmd_);
+    pass_open_ = false;
+
+    image_barrier(fn, cmd_, depth_.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT);
+    const VkAccessFlags copy_src_access =
+            depth_copy_layout_ == VK_IMAGE_LAYOUT_UNDEFINED ? 0 : VK_ACCESS_SHADER_READ_BIT;
+    const VkPipelineStageFlags copy_src_stage = depth_copy_layout_ == VK_IMAGE_LAYOUT_UNDEFINED
+            ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+            : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    image_barrier(fn, cmd_, depth_copy_.image, depth_copy_layout_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copy_src_access,
+            VK_ACCESS_TRANSFER_WRITE_BIT, copy_src_stage, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    VkImageCopy region{};
+    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    region.srcSubresource.layerCount = 1;
+    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    region.dstSubresource.layerCount = 1;
+    region.extent = {extent_.width, extent_.height, 1};
+    fn.vkCmdCopyImage(cmd_, depth_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, depth_copy_.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    image_barrier(fn, cmd_, depth_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
+    image_barrier(fn, cmd_, depth_copy_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    depth_copy_layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    begin_pass(scene_resume_, color_[0].fb, extent_, false, false);
+    depth_copied_ = true;
+    sample.view = depth_copy_.view;
+    sample.pass = scene_resume_;
+    sample.has_depth = true;
+    return sample;
 }
 
 void VulkanPost::begin(VkRenderPass pass, VkFramebuffer framebuffer, VkExtent2D extent, bool clear_color,
