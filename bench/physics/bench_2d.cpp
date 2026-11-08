@@ -145,6 +145,7 @@ BenchResult bench_pyramid_10(int total_steps) {
 // 2. Box2D Classic Pyramid 20 rows (210 boxes)
 BenchResult bench_pyramid_20(int total_steps) {
     ecs::World world = make_physics_world();
+    world.ctx<Physics2DConfig>().position_iterations = 16;
     add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{80.f, 2.f, 1.f}, 0.5f);
 
     constexpr int kRows = 20;
