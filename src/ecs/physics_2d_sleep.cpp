@@ -179,16 +179,21 @@ void update_sleep_2d(ecs::World& world, std::span<const ecs::Entity> contacting)
 
     // Evaluate sleep per island
     for (const auto& [root, members] : islands) {
-        bool all_quiet = true;
+        const int member_count = static_cast<int>(members.size());
+        const int allowed_waking = member_count > 50 ? std::max(1, member_count / 50) : 0;
+        int waking = 0;
         for (ecs::Entity e : members) {
             const RigidBody2D& body = world.get<RigidBody2D>(e);
             const float linear = glm::length(body.velocity);
             const float angular = std::abs(body.angular_velocity);
             if (sleep_speed_wakes(linear, angular)) {
-                all_quiet = false;
-                break;
+                ++waking;
+                if (waking > allowed_waking) {
+                    break;
+                }
             }
         }
+        const bool all_quiet = (waking <= allowed_waking);
 
         if (all_quiet) {
             int min_quiet = kSleepSteps;

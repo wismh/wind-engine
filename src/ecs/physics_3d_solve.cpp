@@ -421,7 +421,8 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     for (std::size_t group = 0; group < group_begin.size(); ++group) {
         const std::span<const SolverPair3D> pair_span{pairs.data() + group_begin[group], group_count[group]};
         const std::span<ContactImpulse3D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        for (int iteration = 0; iteration < kPositionIterations; ++iteration) {
+        const int position_iterations = std::max(1, world.ctx<Physics3DConfig>().position_iterations);
+        for (int iteration = 0; iteration < position_iterations; ++iteration) {
             refresh_bodies();
             solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
             for (int index : write_order) {

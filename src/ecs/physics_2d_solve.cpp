@@ -464,7 +464,8 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
     for (std::size_t group = 0; group < group_begin.size(); ++group) {
         const std::span<const SolverPair2D> pair_span{pairs.data() + group_begin[group], group_count[group]};
         const std::span<ContactImpulse2D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        for (int iteration = 0; iteration < kPositionIterations; ++iteration) {
+        const int position_iterations = std::max(1, world.ctx<Physics2DConfig>().position_iterations);
+        for (int iteration = 0; iteration < position_iterations; ++iteration) {
             refresh_bodies();
             solve_position_iteration_2d(bodies, shapes, pair_span, impulse_span);
             for (int index : write_order) {
@@ -506,16 +507,8 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
                         const glm::vec2 tangent{-n_sup.y, n_sup.x};
                         const float vt = glm::dot(bodies[b_idx].velocity, tangent);
                         if (std::abs(vt) < 0.5f) {
-                            if (std::abs(vt) < kSleepLinear) {
-                                bodies[b_idx].velocity -= tangent * vt;
-                            } else {
-                                bodies[b_idx].velocity -= tangent * (vt * 0.5f);
-                            }
-                            if (std::abs(bodies[b_idx].angular_velocity) < kSleepAngular) {
-                                bodies[b_idx].angular_velocity = 0.f;
-                            } else if (std::abs(bodies[b_idx].angular_velocity) < 1.5f) {
-                                bodies[b_idx].angular_velocity *= 0.2f;
-                            }
+                            bodies[b_idx].velocity -= tangent * vt;
+                            bodies[b_idx].angular_velocity = 0.f;
                         }
                     }
                 }

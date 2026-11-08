@@ -28,6 +28,7 @@ struct RigidBody3D {
 // Not serialized.
 struct Physics3DConfig {
     glm::vec3 gravity{0.f};  // world space
+    int position_iterations{kPositionIterations};
 };
 
 struct BoxCollider3D {
