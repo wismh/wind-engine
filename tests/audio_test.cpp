@@ -176,8 +176,8 @@ TEST(Audio, StopAllSilencesEverythingAndKeepsVolumes) {
 }
 
 TEST(Audio, AttenuationFormula) {
-    using namespace engine;
-    using namespace engine::audio;
+    using engine::AttenuationModel;
+    using engine::audio::calculate_attenuation;
 
     // Linear attenuation: min=10, max=100
     EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Linear, 5.f, 10.f, 100.f, 1.f), 1.f);

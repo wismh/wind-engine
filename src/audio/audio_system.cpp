@@ -38,6 +38,28 @@ ma_attenuation_model to_ma_attenuation(AttenuationModel model) {
     return ma_attenuation_model_inverse;
 }
 
+void apply_spatial_params(ma_sound& sound, const SpatialAudioParams& params) {
+    ma_sound_set_spatialization_enabled(&sound, MA_TRUE);
+    ma_sound_set_position(&sound, params.position.x, params.position.y, params.position.z);
+    ma_sound_set_velocity(&sound, params.velocity.x, params.velocity.y, params.velocity.z);
+    ma_sound_set_direction(&sound, params.direction.x, params.direction.y, params.direction.z);
+    ma_sound_set_min_distance(&sound, params.min_distance);
+    ma_sound_set_max_distance(&sound, params.max_distance);
+    ma_sound_set_rolloff(&sound, params.rolloff);
+    ma_sound_set_attenuation_model(&sound, to_ma_attenuation(params.attenuation));
+    ma_sound_set_doppler_factor(&sound, params.doppler_factor);
+}
+
+void fade_or_stop_voice(ma_sound& sound, bool& active, float fade_seconds) {
+    if (fade_seconds <= 0.f) {
+        ma_sound_stop(&sound);
+        ma_sound_uninit(&sound);
+        active = false;
+    } else {
+        ma_sound_set_fade_in_milliseconds(&sound, -1.f, 0.f, static_cast<ma_uint64>(fade_seconds * 1000.f));
+    }
+}
+
 #endif
 
 } // namespace
@@ -306,7 +328,8 @@ void AudioSystem::play_spatial_sfx(const Sound& sound, const SpatialAudioParams&
         return;
     }
     const float distance = glm::distance(impl_->mixer.listener_position, params.position);
-    const float att = audio::calculate_attenuation(params.attenuation, distance, params.min_distance, params.max_distance, params.rolloff);
+    const float att = audio::calculate_attenuation(
+            params.attenuation, distance, params.min_distance, params.max_distance, params.rolloff);
     const float voice = sound.volume * volume_scale;
     const float gain = impl_->sfx_gain(voice * att);
     const float ratio = pitch_ratio(sound);
@@ -333,15 +356,7 @@ void AudioSystem::play_spatial_sfx(const Sound& sound, const SpatialAudioParams&
                 ma_sound_set_volume(&voice_slot.sound, voice);
                 ma_sound_set_pitch(&voice_slot.sound, ratio);
                 ma_sound_set_looping(&voice_slot.sound, sound.loop ? MA_TRUE : MA_FALSE);
-                ma_sound_set_spatialization_enabled(&voice_slot.sound, MA_TRUE);
-                ma_sound_set_position(&voice_slot.sound, params.position.x, params.position.y, params.position.z);
-                ma_sound_set_velocity(&voice_slot.sound, params.velocity.x, params.velocity.y, params.velocity.z);
-                ma_sound_set_direction(&voice_slot.sound, params.direction.x, params.direction.y, params.direction.z);
-                ma_sound_set_min_distance(&voice_slot.sound, params.min_distance);
-                ma_sound_set_max_distance(&voice_slot.sound, params.max_distance);
-                ma_sound_set_rolloff(&voice_slot.sound, params.rolloff);
-                ma_sound_set_attenuation_model(&voice_slot.sound, to_ma_attenuation(params.attenuation));
-                ma_sound_set_doppler_factor(&voice_slot.sound, params.doppler_factor);
+                apply_spatial_params(voice_slot.sound, params);
                 ma_sound_start(&voice_slot.sound);
             }
         }
@@ -403,13 +418,7 @@ void AudioSystem::play_music(const Sound& sound, bool loop, float fade_seconds) 
             if (outgoing >= 0) {
                 auto& out_slot = impl_->music_slots[static_cast<std::size_t>(outgoing)];
                 if (out_slot.active) {
-                    if (fade_seconds <= 0.f) {
-                        ma_sound_stop(&out_slot.sound);
-                        ma_sound_uninit(&out_slot.sound);
-                        out_slot.active = false;
-                    } else {
-                        ma_sound_set_fade_in_milliseconds(&out_slot.sound, -1.f, 0.f, static_cast<ma_uint64>(fade_seconds * 1000.f));
-                    }
+                    fade_or_stop_voice(out_slot.sound, out_slot.active, fade_seconds);
                 }
             }
             auto& in_slot = impl_->music_slots[static_cast<std::size_t>(incoming)];
@@ -429,7 +438,8 @@ void AudioSystem::play_music(const Sound& sound, bool loop, float fade_seconds) 
                     ma_sound_set_volume(&in_slot.sound, sound.volume);
                 } else {
                     ma_sound_set_volume(&in_slot.sound, 0.f);
-                    ma_sound_set_fade_in_milliseconds(&in_slot.sound, 0.f, sound.volume, static_cast<ma_uint64>(fade_seconds * 1000.f));
+                    ma_sound_set_fade_in_milliseconds(
+                            &in_slot.sound, 0.f, sound.volume, static_cast<ma_uint64>(fade_seconds * 1000.f));
                 }
                 ma_sound_start(&in_slot.sound);
             }
@@ -449,13 +459,7 @@ void AudioSystem::stop_music(float fade_seconds) {
     if (impl_->engine_inited) {
         for (auto& slot : impl_->music_slots) {
             if (slot.active) {
-                if (fade_seconds <= 0.f) {
-                    ma_sound_stop(&slot.sound);
-                    ma_sound_uninit(&slot.sound);
-                    slot.active = false;
-                } else {
-                    ma_sound_set_fade_in_milliseconds(&slot.sound, -1.f, 0.f, static_cast<ma_uint64>(fade_seconds * 1000.f));
-                }
+                fade_or_stop_voice(slot.sound, slot.active, fade_seconds);
             }
         }
     }
@@ -511,23 +515,17 @@ void AudioSystem::play_looping_sfx(LoopingSfxHandle handle, const Sound& sound, 
                 voice_slot.path = path;
                 ma_sound_set_looping(&voice_slot.sound, MA_TRUE);
                 ma_sound_set_pitch(&voice_slot.sound, ratio);
-                ma_sound_set_spatialization_enabled(&voice_slot.sound, track->is_spatial ? MA_TRUE : MA_FALSE);
                 if (track->is_spatial) {
-                    const auto& p = track->spatial;
-                    ma_sound_set_position(&voice_slot.sound, p.position.x, p.position.y, p.position.z);
-                    ma_sound_set_velocity(&voice_slot.sound, p.velocity.x, p.velocity.y, p.velocity.z);
-                    ma_sound_set_direction(&voice_slot.sound, p.direction.x, p.direction.y, p.direction.z);
-                    ma_sound_set_min_distance(&voice_slot.sound, p.min_distance);
-                    ma_sound_set_max_distance(&voice_slot.sound, p.max_distance);
-                    ma_sound_set_rolloff(&voice_slot.sound, p.rolloff);
-                    ma_sound_set_attenuation_model(&voice_slot.sound, to_ma_attenuation(p.attenuation));
-                    ma_sound_set_doppler_factor(&voice_slot.sound, p.doppler_factor);
+                    apply_spatial_params(voice_slot.sound, track->spatial);
+                } else {
+                    ma_sound_set_spatialization_enabled(&voice_slot.sound, MA_FALSE);
                 }
                 if (fade_in <= 0.f) {
                     ma_sound_set_volume(&voice_slot.sound, voice);
                 } else {
                     ma_sound_set_volume(&voice_slot.sound, 0.f);
-                    ma_sound_set_fade_in_milliseconds(&voice_slot.sound, 0.f, voice, static_cast<ma_uint64>(fade_in * 1000.f));
+                    ma_sound_set_fade_in_milliseconds(
+                            &voice_slot.sound, 0.f, voice, static_cast<ma_uint64>(fade_in * 1000.f));
                 }
                 ma_sound_start(&voice_slot.sound);
             }
@@ -548,15 +546,7 @@ void AudioSystem::set_looping_sfx_spatial(LoopingSfxHandle handle, const Spatial
     if (impl_->engine_inited) {
         auto it = impl_->looping_voices.find(handle.id);
         if (it != impl_->looping_voices.end() && it->second.active) {
-            ma_sound_set_spatialization_enabled(&it->second.sound, MA_TRUE);
-            ma_sound_set_position(&it->second.sound, params.position.x, params.position.y, params.position.z);
-            ma_sound_set_velocity(&it->second.sound, params.velocity.x, params.velocity.y, params.velocity.z);
-            ma_sound_set_direction(&it->second.sound, params.direction.x, params.direction.y, params.direction.z);
-            ma_sound_set_min_distance(&it->second.sound, params.min_distance);
-            ma_sound_set_max_distance(&it->second.sound, params.max_distance);
-            ma_sound_set_rolloff(&it->second.sound, params.rolloff);
-            ma_sound_set_attenuation_model(&it->second.sound, to_ma_attenuation(params.attenuation));
-            ma_sound_set_doppler_factor(&it->second.sound, params.doppler_factor);
+            apply_spatial_params(it->second.sound, params);
         }
     }
 #endif
@@ -572,13 +562,7 @@ void AudioSystem::stop_looping_sfx(LoopingSfxHandle handle, float fade_out) {
     if (impl_->engine_inited) {
         auto it = impl_->looping_voices.find(handle.id);
         if (it != impl_->looping_voices.end() && it->second.active) {
-            if (fade_out <= 0.f) {
-                ma_sound_stop(&it->second.sound);
-                ma_sound_uninit(&it->second.sound);
-                it->second.active = false;
-            } else {
-                ma_sound_set_fade_in_milliseconds(&it->second.sound, -1.f, 0.f, static_cast<ma_uint64>(fade_out * 1000.f));
-            }
+            fade_or_stop_voice(it->second.sound, it->second.active, fade_out);
         }
     }
 #endif
