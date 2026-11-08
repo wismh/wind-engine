@@ -1,6 +1,10 @@
 #pragma once
 
 #include <engine/audio/audio_system.h>
+#include <engine/audio/spatial.h>
+
+#include <glm/geometric.hpp>
+#include <glm/vec3.hpp>
 
 #include <array>
 #include <cstdint>
@@ -23,6 +27,9 @@ struct FakeTrack {
     bool stop_when_fade_done = false;
     bool release_when_fade_done = false;
 
+    bool is_spatial = false;
+    SpatialAudioParams spatial{};
+
     void reset() {
         *this = FakeTrack{};
     }
@@ -38,6 +45,8 @@ struct FakeTrack {
         release_when_fade_done = false;
         fade_elapsed = 0.f;
         fade_duration = 0.f;
+        is_spatial = false;
+        spatial = {};
     }
 
     void start_fade(float to, float duration, bool stop_when_done) {
@@ -87,6 +96,11 @@ struct FakeMixer {
     int sfx_play_count = 0;
     float last_sfx_gain = 0.f;
 
+    glm::vec3 listener_position{0.f, 0.f, 0.f};
+    glm::vec3 listener_forward{0.f, 0.f, -1.f};
+    glm::vec3 listener_up{0.f, 1.f, 0.f};
+    glm::vec3 listener_velocity{0.f, 0.f, 0.f};
+
     void reset() {
         sfx = {};
         music = {};
@@ -95,6 +109,10 @@ struct FakeMixer {
         active_music_index = 0;
         sfx_play_count = 0;
         last_sfx_gain = 0.f;
+        listener_position = {0.f, 0.f, 0.f};
+        listener_forward = {0.f, 0.f, -1.f};
+        listener_up = {0.f, 1.f, 0.f};
+        listener_velocity = {0.f, 0.f, 0.f};
     }
 
     FakeTrack* acquire_sfx() {
@@ -104,6 +122,17 @@ struct FakeMixer {
             }
         }
         return nullptr;
+    }
+
+    FakeTrack* looping_track(LoopingSfxHandle handle) {
+        if (!handle.valid()) {
+            return nullptr;
+        }
+        const auto it = looping.find(handle.id);
+        if (it == looping.end()) {
+            return nullptr;
+        }
+        return &it->second;
     }
 
     [[nodiscard]] int sfx_playing_count() const {
@@ -125,17 +154,6 @@ struct FakeMixer {
         return false;
     }
 
-    FakeTrack* looping_track(LoopingSfxHandle handle) {
-        if (!handle.valid()) {
-            return nullptr;
-        }
-        const auto it = looping.find(handle.id);
-        if (it == looping.end()) {
-            return nullptr;
-        }
-        return &it->second;
-    }
-
     void tick(float dt) {
         for (FakeTrack& track : sfx) {
             track.tick(dt);
@@ -143,15 +161,9 @@ struct FakeMixer {
         for (FakeTrack& track : music) {
             track.tick(dt);
         }
-        for (auto& [id, track] : looping) {
-            track.tick(dt);
-        }
-        erase_released_looping();
-    }
-
-    void erase_released_looping() {
         for (auto it = looping.begin(); it != looping.end();) {
-            if (it->second.release_when_fade_done && !it->second.playing && !it->second.fading) {
+            it->second.tick(dt);
+            if (it->second.release_when_fade_done && !it->second.fading && !it->second.playing) {
                 it = looping.erase(it);
             } else {
                 ++it;
@@ -160,4 +172,4 @@ struct FakeMixer {
     }
 };
 
-}
+} // namespace engine::audio

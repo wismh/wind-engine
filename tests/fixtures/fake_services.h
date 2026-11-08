@@ -41,6 +41,9 @@ public:
     void dispose() override {}
     void update(float) override {}
     void play_sfx(const engine::Sound&, float) override {}
+    void play_spatial_sfx(const engine::Sound&, const engine::SpatialAudioParams&, float) override {}
+    void set_listener(const glm::vec3&, const glm::vec3&, const glm::vec3&, const glm::vec3&) override {}
+    void set_looping_sfx_spatial(engine::LoopingSfxHandle, const engine::SpatialAudioParams&) override {}
     void play_music(const engine::Sound&, bool, float) override {}
     void stop_music(float) override {}
     bool is_music_playing() const override {
