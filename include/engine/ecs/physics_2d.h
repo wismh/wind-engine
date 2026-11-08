@@ -28,6 +28,7 @@ struct RigidBody2D {
 // Not a component. world.ctx<Physics2DConfig>() default-constructs it (gravity zero) on first use.
 struct Physics2DConfig {
     glm::vec3 gravity{0.f};  // world space
+    int position_iterations{kPositionIterations};
 };
 
 struct BoxCollider2D {

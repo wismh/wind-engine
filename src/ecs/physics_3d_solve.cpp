@@ -296,18 +296,81 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     std::vector<IslandBodyPair> links(pairs.size());
     std::vector<std::uint8_t> overlapping(pairs.size(), 0);
     refresh_bodies();
-    for (std::size_t i = 0; i < pairs.size(); ++i) {
-        const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
-        const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
-        links[i] = IslandBodyPair{shape_a.body, shape_b.body};
-        if (shape_a.body == shape_b.body) {
-            continue;
+
+    auto unfreeze_slot_3d = [&](int slot_index) {
+        SolverSlot& slot = slots[static_cast<std::size_t>(slot_index)];
+        if (!slot.frozen) {
+            return;
         }
-        const ContactManifold3D manifold =
-                make_contact_3d(contact_shape_3d(shape_a, bodies[static_cast<std::size_t>(shape_a.body)].position),
-                                contact_shape_3d(shape_b, bodies[static_cast<std::size_t>(shape_b.body)].position));
-        if (manifold.count > 0) {
-            overlapping[i] = 1;
+        slot.frozen = false;
+        RigidBody3D* rigid = world.try_get<RigidBody3D>(slot.entity);
+        if (rigid != nullptr) {
+            rigid->sleeping = false;
+            slot.body.inverse_mass = dynamic_inverse_mass(*rigid);
+            slot.body.inverse_inertia = inverse_inertia_for(world, slot.entity, colliders);
+            bodies[static_cast<std::size_t>(slot_index)].inverse_mass = slot.body.inverse_mass;
+            bodies[static_cast<std::size_t>(slot_index)].inverse_inertia = slot.body.inverse_inertia;
+        }
+        world.ctx<PhysicsSleepState3D>().quiet.erase(slot.entity);
+    };
+
+    auto is_active_body_3d = [&](int slot_index) {
+        const SolverSlot& slot = slots[static_cast<std::size_t>(slot_index)];
+        if (bodies[static_cast<std::size_t>(slot_index)].dynamic && !slot.frozen) {
+            return true;
+        }
+        const RigidBody3D* rigid = world.try_get<RigidBody3D>(slot.entity);
+        if (rigid != nullptr && rigid->type == BodyType::Kinematic) {
+            return rigid->velocity != glm::vec3{0.f} || rigid->angular_velocity != glm::vec3{0.f};
+        }
+        return false;
+    };
+
+    bool slot_unfrozen = true;
+    while (slot_unfrozen) {
+        slot_unfrozen = false;
+        for (std::size_t i = 0; i < pairs.size(); ++i) {
+            const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(pairs[i].shape_a)];
+            const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(pairs[i].shape_b)];
+            links[i] = IslandBodyPair{shape_a.body, shape_b.body};
+            if (shape_a.body == shape_b.body) {
+                continue;
+            }
+            const ContactManifold3D manifold =
+                    make_contact_3d(contact_shape_3d(shape_a, bodies[static_cast<std::size_t>(shape_a.body)].position),
+                                    contact_shape_3d(shape_b, bodies[static_cast<std::size_t>(shape_b.body)].position));
+            if (manifold.count > 0) {
+                overlapping[i] = 1;
+                const int body_a_idx = shape_a.body;
+                const int body_b_idx = shape_b.body;
+                const bool frozen_a = slots[static_cast<std::size_t>(body_a_idx)].frozen;
+                const bool frozen_b = slots[static_cast<std::size_t>(body_b_idx)].frozen;
+                if (frozen_a || frozen_b) {
+                    const bool active_a = is_active_body_3d(body_a_idx);
+                    const bool active_b = is_active_body_3d(body_b_idx);
+                    if ((frozen_a && active_b) || (frozen_b && active_a)) {
+                        const glm::vec3 pt = manifold.points[0].point;
+                        const glm::vec3 r_a = pt - bodies[static_cast<std::size_t>(body_a_idx)].position;
+                        const glm::vec3 r_b = pt - bodies[static_cast<std::size_t>(body_b_idx)].position;
+                        const glm::vec3 v_a = bodies[static_cast<std::size_t>(body_a_idx)].velocity +
+                                glm::cross(bodies[static_cast<std::size_t>(body_a_idx)].angular_velocity, r_a);
+                        const glm::vec3 v_b = bodies[static_cast<std::size_t>(body_b_idx)].velocity +
+                                glm::cross(bodies[static_cast<std::size_t>(body_b_idx)].angular_velocity, r_b);
+                        const float normal_speed = glm::dot(v_b - v_a, manifold.normal);
+                        const float penetration = manifold.points[0].penetration;
+                        if (normal_speed < -1e-4f || penetration > kContactSlop) {
+                            if (frozen_a && active_b) {
+                                unfreeze_slot_3d(body_a_idx);
+                                slot_unfrozen = true;
+                            }
+                            if (frozen_b && active_a) {
+                                unfreeze_slot_3d(body_b_idx);
+                                slot_unfrozen = true;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping);
@@ -358,7 +421,8 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     for (std::size_t group = 0; group < group_begin.size(); ++group) {
         const std::span<const SolverPair3D> pair_span{pairs.data() + group_begin[group], group_count[group]};
         const std::span<ContactImpulse3D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        for (int iteration = 0; iteration < kPositionIterations; ++iteration) {
+        const int position_iterations = std::max(1, world.ctx<Physics3DConfig>().position_iterations);
+        for (int iteration = 0; iteration < position_iterations; ++iteration) {
             refresh_bodies();
             solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
             for (int index : write_order) {
@@ -368,6 +432,46 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
                 }
                 ecs::set_world_position(world, slots[slot].entity, bodies[slot].position);
             }
+        }
+    }
+
+    const glm::vec3 gravity = world.ctx<Physics3DConfig>().gravity;
+    const float g_len = glm::length(gravity);
+
+    // Resting contact velocity stabilization
+    if (g_len > 0.f) {
+        for (std::size_t i = 0; i < pairs.size(); ++i) {
+            if (!impulses[i].touched) {
+                continue;
+            }
+            const SolverPair3D& pair = pairs[i];
+            const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(pair.shape_a)];
+            const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(pair.shape_b)];
+            const std::size_t body_a_idx = static_cast<std::size_t>(shape_a.body);
+            const std::size_t body_b_idx = static_cast<std::size_t>(shape_b.body);
+            const glm::vec3 normal = impulses[i].normal_axis;
+
+            auto stabilize_body = [&](std::size_t b_idx, glm::vec3 n_sup) {
+                if (!bodies[b_idx].dynamic || slots[b_idx].frozen) {
+                    return;
+                }
+                if (glm::dot(n_sup, gravity) < -0.95f * g_len) {
+                    const float vn = glm::dot(bodies[b_idx].velocity, n_sup);
+                    if (vn < 0.f || (vn > 0.f && vn < 0.15f)) {
+                        bodies[b_idx].velocity -= n_sup * vn;
+                        const glm::vec3 lateral = bodies[b_idx].velocity;
+                        if (glm::length(lateral) < kSleepLinear) {
+                            bodies[b_idx].velocity = glm::vec3{0.f};
+                        }
+                        if (glm::length(bodies[b_idx].angular_velocity) < kSleepAngular) {
+                            bodies[b_idx].angular_velocity = glm::vec3{0.f};
+                        }
+                    }
+                }
+            };
+
+            stabilize_body(body_b_idx, normal);
+            stabilize_body(body_a_idx, -normal);
         }
     }
 

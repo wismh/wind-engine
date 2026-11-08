@@ -3,6 +3,7 @@
 // Private to the 2D physics translation units. Not installed.
 
 #include <engine/ecs/entity.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/world.h>
 
@@ -38,8 +39,35 @@ struct ColliderItem2D {
     float restitution{0.f};
 };
 
+struct OverlapRecord2D {
+    std::pair<ecs::Entity, ecs::Entity> pair{};
+    bool is_trigger{false};
+
+    [[nodiscard]] constexpr friend bool operator<(const OverlapRecord2D& lhs, const OverlapRecord2D& rhs) noexcept {
+        return lhs.pair < rhs.pair;
+    }
+
+    [[nodiscard]] constexpr friend bool operator==(const OverlapRecord2D& lhs, const OverlapRecord2D& rhs) noexcept {
+        return lhs.pair == rhs.pair;
+    }
+};
+
 struct PhysicsOverlapState {
-    std::map<std::pair<ecs::Entity, ecs::Entity>, bool> last{};  // value: was_trigger
+    std::vector<OverlapRecord2D> last{};
+    std::vector<OverlapRecord2D> current{};
+};
+
+struct StaticColliderItem2D {
+    ecs::Entity entity{};
+    Aabb box{};
+    int collider_index{-1};
+};
+
+struct PhysicsBroadphase2D {
+    Broadphase static_tree{};
+    Broadphase dynamic_tree{};
+    std::vector<StaticColliderItem2D> static_items{};
+    bool static_dirty{true};
 };
 
 // Pair key matches the solver order: lower entity, then shape kind. Not serialized.
@@ -78,6 +106,21 @@ struct PhysicsSleepState2D {
     std::map<ecs::Entity, int> quiet{};
 };
 
+[[nodiscard]] inline bool has_movable_body_2d(const ecs::World& world, ecs::Entity entity) {
+    ecs::Entity current = entity;
+    for (int step = 0; step < ecs::kMaxHierarchyDepth && world.valid(current); ++step) {
+        if (const RigidBody2D* body = world.try_get<RigidBody2D>(current)) {
+            return body->type == BodyType::Dynamic || body->type == BodyType::Kinematic;
+        }
+        const Parent* parent = world.try_get<Parent>(current);
+        if (parent == nullptr || !world.valid(parent->entity)) {
+            break;
+        }
+        current = parent->entity;
+    }
+    return false;
+}
+
 [[nodiscard]] bool layers_match_2d(const ColliderItem2D& a, const ColliderItem2D& b);
 [[nodiscard]] ContactShape2D contact_shape_of_2d(const ColliderItem2D& item);
 [[nodiscard]] Aabb aabb_of_2d(const ColliderItem2D& item);
@@ -90,7 +133,11 @@ void integrate_kinematic_2d(ecs::World& world, float dt);
 void integrate_dynamic_2d(ecs::World& world, float dt);
 
 [[nodiscard]] std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world);
-void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders);
-void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders);
+[[nodiscard]] std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
+        ecs::World& world, const std::vector<ColliderItem2D>& colliders);
+void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
+                                 std::span<const std::pair<int, int>> candidate_pairs);
+void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
+                               std::span<const std::pair<int, int>> candidate_pairs);
 
 }

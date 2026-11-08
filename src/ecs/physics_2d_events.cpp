@@ -3,6 +3,8 @@
 
 #include <engine/ecs/events.h>
 
+#include <algorithm>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -16,27 +18,31 @@ namespace {
     return {a, b};
 }
 
-[[nodiscard]] std::vector<std::pair<int, int>> candidate_pairs(const std::vector<ColliderItem2D>& colliders) {
-    std::vector<Aabb> boxes;
-    boxes.reserve(colliders.size());
-    for (const ColliderItem2D& item : colliders) {
-        boxes.push_back(aabb_of_2d(item));
-    }
-    return query_sorted_pairs(boxes);
+[[nodiscard]] bool is_movable_2d(const ecs::World& world, ecs::Entity entity) {
+    return has_movable_body_2d(world, entity);
 }
 
 }
 
-void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders) {
+void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
+                                 std::span<const std::pair<int, int>> candidate_pairs) {
     PhysicsOverlapState& state = world.ctx<PhysicsOverlapState>();
-    std::map<std::pair<ecs::Entity, ecs::Entity>, bool> current;
+    state.current.clear();
+    if (state.current.capacity() < state.last.size()) {
+        state.current.reserve(state.last.size());
+    }
     ecs::EventWriter<CollisionEvent2D> writer{world};
 
-    for (const auto& [index_a, index_b] : candidate_pairs(colliders)) {
+    for (const auto& [index_a, index_b] : candidate_pairs) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
         if (a.entity == b.entity || claimed_by_physics_3d(world, a.entity) ||
             claimed_by_physics_3d(world, b.entity) || !layers_match_2d(a, b)) {
+            continue;
+        }
+        const bool movable_a = is_movable_2d(world, a.entity);
+        const bool movable_b = is_movable_2d(world, b.entity);
+        if (!movable_a && !movable_b && !a.is_trigger && !b.is_trigger) {
             continue;
         }
         const auto pair = ordered_pair(a.entity, b.entity);
@@ -47,11 +53,15 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
             continue;
         }
         const bool is_trigger = a.is_trigger || b.is_trigger;
-        const bool inserted = current.emplace(pair, is_trigger).second;
-        if (!inserted) {
+        const auto it = std::ranges::lower_bound(state.current, pair, {}, &OverlapRecord2D::pair);
+        if (it != state.current.end() && it->pair == pair) {
             continue;
         }
-        const CollisionPhase phase = state.last.contains(pair) ? CollisionPhase::Stay : CollisionPhase::Enter;
+        state.current.insert(it, OverlapRecord2D{.pair = pair, .is_trigger = is_trigger});
+
+        const auto last_it = std::ranges::lower_bound(state.last, pair, {}, &OverlapRecord2D::pair);
+        const bool was_in_last = (last_it != state.last.end() && last_it->pair == pair);
+        const CollisionPhase phase = was_in_last ? CollisionPhase::Stay : CollisionPhase::Enter;
         writer.send(CollisionEvent2D{
                 .a = pair.first,
                 .b = pair.second,
@@ -63,12 +73,18 @@ void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderIt
         });
     }
 
-    for (const auto& [pair, was_trigger] : state.last) {
-        if (!current.contains(pair)) {
-            writer.send(CollisionEvent2D{pair.first, pair.second, CollisionPhase::Exit, was_trigger});
+    for (const auto& [last_pair, was_trigger] : state.last) {
+        const auto curr_it = std::ranges::lower_bound(state.current, last_pair, {}, &OverlapRecord2D::pair);
+        if (curr_it == state.current.end() || curr_it->pair != last_pair) {
+            writer.send(CollisionEvent2D{
+                    .a = last_pair.first,
+                    .b = last_pair.second,
+                    .phase = CollisionPhase::Exit,
+                    .is_trigger = was_trigger,
+            });
         }
     }
-    state.last = std::move(current);
+    state.last.swap(state.current);
 }
 
 }

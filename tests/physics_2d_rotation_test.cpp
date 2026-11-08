@@ -118,6 +118,7 @@ TEST(Physics2D, OrientedBoxContactMatchesSat) {
     const engine::ecs::Entity diamond = add_box(world, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 1.f});
     world.get<engine::Transform>(diamond).rotation = engine::rotation_z(glm::quarter_pi<float>());
     add_box(world, glm::vec3{2.f, 0.f, 0.f}, glm::vec3{2.f, 4.f, 1.f});
+    world.emplace<engine::RigidBody2D>(diamond, engine::RigidBody2D{});
 
     step_physics(world);
 
@@ -165,6 +166,7 @@ TEST(Physics2D, DynamicBoxSlidesDownStaticSlope) {
     polygon.vertices[1] = {4.f, 0.f};
     polygon.vertices[2] = {4.f, 2.f};
     world.emplace<engine::PolygonCollider2D>(slope, polygon);
+    world.emplace<engine::RigidBody2D>(slope, engine::RigidBody2D{});
     const engine::ecs::Entity crate = add_box(world, glm::vec3{2.2f, 1.85f, 0.f}, glm::vec3{1.f, 1.f, 1.f});
     make_dynamic(world, crate, glm::vec3{0.f}, 1.f);
 
@@ -230,7 +232,9 @@ TEST(Physics2D, StaticPolygonContactsABox) {
     polygon.vertices[2] = {4.f, 2.f};
     world.emplace<engine::PolygonCollider2D>(slope, polygon);
     // (2.2, 1.85) is tangent. This is the pose after one gravity step, still static.
-    add_box(world, glm::vec3{2.2f, 1.85f - engine::kFixed, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    const engine::ecs::Entity box =
+            add_box(world, glm::vec3{2.2f, 1.85f - engine::kFixed, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    world.emplace<engine::RigidBody2D>(box, engine::RigidBody2D{});
 
     step_physics(world);
 

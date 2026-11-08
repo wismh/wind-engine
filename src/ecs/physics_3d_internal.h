@@ -3,6 +3,7 @@
 // Private to the 3D physics translation units. Not installed.
 
 #include <engine/ecs/entity.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_3d.h>
 #include <engine/ecs/world.h>
 
@@ -74,6 +75,21 @@ struct PhysicsContactCache3D {
 struct PhysicsSleepState3D {
     std::map<ecs::Entity, int> quiet{};
 };
+
+[[nodiscard]] inline bool has_movable_body_3d(const ecs::World& world, ecs::Entity entity) {
+    ecs::Entity current = entity;
+    for (int step = 0; step < ecs::kMaxHierarchyDepth && world.valid(current); ++step) {
+        if (const RigidBody3D* body = world.try_get<RigidBody3D>(current)) {
+            return body->type == BodyType::Dynamic || body->type == BodyType::Kinematic;
+        }
+        const Parent* parent = world.try_get<Parent>(current);
+        if (parent == nullptr || !world.valid(parent->entity)) {
+            break;
+        }
+        current = parent->entity;
+    }
+    return false;
+}
 
 [[nodiscard]] bool layers_match_3d(const ColliderItem3D& a, const ColliderItem3D& b);
 [[nodiscard]] ContactShape3D contact_shape_of_3d(const ColliderItem3D& item);

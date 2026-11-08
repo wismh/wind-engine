@@ -765,6 +765,12 @@ if(ENGINE_BENCH)
     add_subdirectory(bench)
 endif()
 
+# Headless physics benchmark suite (bench/physics/).
+option(ENGINE_PHYSICS_BENCH "Build wind_physics_bench (headless CLI)" ${_engine_is_root})
+if(ENGINE_PHYSICS_BENCH AND NOT ENGINE_PLAYER)
+    add_subdirectory(bench/physics)
+endif()
+
 # The player libraries (ENGINE_PLAYER): engine and every static library it links, exported as imported targets in
 # the namespace WindPlayer<Flavour>:: and installed into <prefix>/lib and <prefix>/cmake, with cmake/wind_player.cmake
 # beside them. cmake/player_build.cmake runs the configure, the build, and this install for the editor SDK

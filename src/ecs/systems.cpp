@@ -18,6 +18,8 @@
 #include <engine/ecs/transform.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
+#include <engine/animation/tween.h>
+#include <engine/nav/nav_system.h>
 #include <engine/render/animation.h>
 #include <engine/render/decal.h>
 #include <engine/render/command_buffer.h>
@@ -1297,8 +1299,10 @@ namespace engine {
         world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_3d(w); });
+        nav::register_nav_systems(world);
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { animation::run_tweens(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game,
                          [jobs = deps.jobs](ecs::World &w) { run_particles(w, jobs); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Transform,

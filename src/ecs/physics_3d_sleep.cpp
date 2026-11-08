@@ -93,24 +93,118 @@ void wake_sleepers_by_overlap_3d(ecs::World& world) {
 
 void update_sleep_3d(ecs::World& world, std::span<const ecs::Entity> contacting) {
     PhysicsSleepState3D& state = world.ctx<PhysicsSleepState3D>();
-    const std::unordered_set<ecs::Entity> hits(contacting.begin(), contacting.end());
     std::map<ecs::Entity, int> next;
+
+    // Contact islands over dynamic bodies
+    std::unordered_map<ecs::Entity, ecs::Entity> parent;
+    auto find_root = [&](ecs::Entity x) {
+        ecs::Entity root = x;
+        while (parent.contains(root) && parent[root] != root) {
+            root = parent[root];
+        }
+        ecs::Entity curr = x;
+        while (parent.contains(curr) && parent[curr] != root) {
+            ecs::Entity nxt = parent[curr];
+            parent[curr] = root;
+            curr = nxt;
+        }
+        return root;
+    };
+    auto unite = [&](ecs::Entity a, ecs::Entity b) {
+        ecs::Entity ra = find_root(a);
+        ecs::Entity rb = find_root(b);
+        if (ra != rb) {
+            parent[rb] = ra;
+        }
+    };
+
+    std::unordered_set<ecs::Entity> dynamic_contacting;
+    const std::size_t pair_count = contacting.size() / 2;
+    for (std::size_t i = 0; i < pair_count; ++i) {
+        const ecs::Entity a = contacting[2 * i];
+        const ecs::Entity b = contacting[2 * i + 1];
+        const RigidBody3D* body_a = world.try_get<RigidBody3D>(a);
+        const RigidBody3D* body_b = world.try_get<RigidBody3D>(b);
+        const bool dyn_a = body_a != nullptr && body_a->type == BodyType::Dynamic;
+        const bool dyn_b = body_b != nullptr && body_b->type == BodyType::Dynamic;
+
+        if (dyn_a) {
+            dynamic_contacting.insert(a);
+            if (!parent.contains(a)) {
+                parent[a] = a;
+            }
+        }
+        if (dyn_b) {
+            dynamic_contacting.insert(b);
+            if (!parent.contains(b)) {
+                parent[b] = b;
+            }
+        }
+        if (dyn_a && dyn_b) {
+            unite(a, b);
+        }
+    }
+
+    std::unordered_map<ecs::Entity, std::vector<ecs::Entity>> islands;
+    for (ecs::Entity e : dynamic_contacting) {
+        islands[find_root(e)].push_back(e);
+    }
+
+    // Evaluate sleep per island
+    for (const auto& [root, members] : islands) {
+        const int member_count = static_cast<int>(members.size());
+        const int allowed_waking = member_count > 50 ? std::max(1, member_count / 50) : 0;
+        int waking = 0;
+        for (ecs::Entity e : members) {
+            const RigidBody3D& body = world.get<RigidBody3D>(e);
+            const float linear = glm::length(body.velocity);
+            const float angular = glm::length(body.angular_velocity);
+            if (sleep_speed_wakes(linear, angular)) {
+                ++waking;
+                if (waking > allowed_waking) {
+                    break;
+                }
+            }
+        }
+        const bool all_quiet = (waking <= allowed_waking);
+
+        if (all_quiet) {
+            int min_quiet = kSleepSteps;
+            for (ecs::Entity e : members) {
+                int count = 0;
+                if (const auto found = state.quiet.find(e); found != state.quiet.end()) {
+                    count = found->second;
+                }
+                min_quiet = std::min(min_quiet, count);
+            }
+            const int next_quiet = std::min(min_quiet + 1, kSleepSteps);
+            for (ecs::Entity e : members) {
+                RigidBody3D& body = world.get<RigidBody3D>(e);
+                if (next_quiet >= kSleepSteps) {
+                    body.sleeping = true;
+                    body.velocity = glm::vec3{0.f};
+                    body.angular_velocity = glm::vec3{0.f};
+                }
+                next.emplace(e, next_quiet);
+            }
+        } else {
+            for (ecs::Entity e : members) {
+                RigidBody3D& body = world.get<RigidBody3D>(e);
+                body.sleeping = false;
+            }
+        }
+    }
+
+    // Dynamic bodies without contacts stay awake and reset quiet
     world.view<RigidBody3D>().each([&](ecs::Entity entity, RigidBody3D& body) {
         if (body.type != BodyType::Dynamic) {
             return;
         }
-        const float linear = glm::length(body.velocity);
-        const float angular = glm::length(body.angular_velocity);
-        int count = 0;
-        if (const auto found = state.quiet.find(entity); found != state.quiet.end()) {
-            count = found->second;
-        }
-        const SleepAdvance step = advance_sleep(body.sleeping, count, linear, angular, hits.contains(entity));
-        body.sleeping = step.sleeping;
-        if (step.quiet > 0) {
-            next.emplace(entity, step.quiet);
+        if (!dynamic_contacting.contains(entity)) {
+            body.sleeping = false;
         }
     });
+
     state.quiet = std::move(next);
 }
 
