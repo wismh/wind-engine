@@ -7,6 +7,7 @@
 
 namespace engine::bench {
 
+[[nodiscard]] std::vector<BenchResult> run_all_3d_benchmarks(const BenchOptions& options);
 [[nodiscard]] std::vector<BenchResult> run_all_3d_benchmarks(int steps_override = 0, std::uint32_t worker_threads = 0);
 
 }
