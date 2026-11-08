@@ -116,7 +116,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
     return candidates;
 }
 
-void run_physics_2d(ecs::World& world) {
+void run_physics_2d(ecs::World& world, JobSystem* jobs) {
     const float dt = world.ctx<Time>().fixed_delta_time;
 
     wake_sleepers_by_velocity_2d(world);
@@ -132,7 +132,7 @@ void run_physics_2d(ecs::World& world) {
     const std::vector<ColliderItem2D> colliders = gather_colliders_2d(world);
     if (colliders.empty()) {
         publish_collision_events_2d(world, colliders, {});
-        solve_physics_contacts_2d(world, colliders, {});
+        solve_physics_contacts_2d(world, colliders, {}, jobs);
         ecs::update_world_transforms(world);
         return;
     }
@@ -140,7 +140,7 @@ void run_physics_2d(ecs::World& world) {
     const std::vector<std::pair<int, int>> candidates = compute_broadphase_candidates_2d(world, colliders);
 
     publish_collision_events_2d(world, colliders, candidates);
-    solve_physics_contacts_2d(world, colliders, candidates);
+    solve_physics_contacts_2d(world, colliders, candidates, jobs);
     ecs::update_world_transforms(world);
 }
 

@@ -1,10 +1,12 @@
 #include "physics_2d_internal.h"
 #include "physics_owner.h"
 
+#include <engine/core/job_system.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 
 #include "broadphase.h"
+#include "contact_graph_coloring.h"
 #include "contact_islands.h"
 #include "inertia_2d.h"
 #include "solver_2d.h"
@@ -23,6 +25,9 @@
 
 namespace engine {
 namespace {
+
+inline constexpr std::size_t kMinParallelContacts2D = 16;
+inline constexpr std::size_t kParallelContactGrain2D = 8;
 
 struct SolverSlot {
     ecs::Entity entity{};
@@ -79,6 +84,22 @@ struct ItemPair {
 
 [[nodiscard]] bool is_dynamic(const RigidBody2D* body) {
     return body != nullptr && body->type == BodyType::Dynamic;
+}
+
+[[nodiscard]] bool has_awake_dynamic_ancestor_2d(const ecs::World& world, ecs::Entity entity) {
+    ecs::Entity current = entity;
+    for (int step = 0; step < ecs::kMaxHierarchyDepth; ++step) {
+        const Parent* parent = world.try_get<Parent>(current);
+        if (parent == nullptr || !world.valid(parent->entity)) {
+            break;
+        }
+        current = parent->entity;
+        const RigidBody2D* rigid = world.try_get<RigidBody2D>(current);
+        if (is_dynamic(rigid) && !rigid->sleeping && !claimed_by_physics_3d(world, current)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] float dynamic_mass(const RigidBody2D& body) {
@@ -185,7 +206,7 @@ std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world) {
 }
 
 void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
-                               std::span<const std::pair<int, int>> candidate_pairs) {
+                               std::span<const std::pair<int, int>> candidate_pairs, JobSystem* jobs) {
     std::vector<ItemPair> item_pairs;
     for (const auto& [index_a, index_b] : candidate_pairs) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
@@ -314,6 +335,16 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
             world_z[i] = position.z;
         }
     };
+    auto write_bodies = [&] {
+        for (int index : write_order) {
+            const std::size_t slot = static_cast<std::size_t>(index);
+            if (!bodies[slot].dynamic || slots[slot].frozen) {
+                continue;
+            }
+            ecs::set_world_position(world, slots[slot].entity,
+                                    glm::vec3{bodies[slot].position.x, bodies[slot].position.y, world_z[slot]});
+        }
+    };
     auto cache_key_for = [&](const SolverPair2D& pair) {
         const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pair.shape_a)];
         const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pair.shape_b)];
@@ -412,23 +443,61 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
             }
         }
     }
-    const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping);
+
+    std::vector<std::uint8_t> dynamic_mask(slots.size(), 0);
+    std::vector<std::uint8_t> writable_mask(slots.size(), 0);
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        dynamic_mask[i] = bodies[i].dynamic ? 1 : 0;
+        writable_mask[i] = (bodies[i].dynamic && !slots[i].frozen && bodies[i].inverse_mass > 0.f) ? 1 : 0;
+    }
+
+    const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping, dynamic_mask);
     if (islands.empty()) {
         world.ctx<PhysicsContactCache2D>().impulses.clear();
         update_sleep_2d(world, {});
         return;
     }
-    std::vector<SolverPair2D> ordered;
-    std::vector<std::size_t> group_begin;
-    std::vector<std::size_t> group_count;
-    ordered.reserve(pairs.size());
+
+    std::vector<SolverPair2D> island_ordered;
+    island_ordered.reserve(pairs.size());
     for (const std::vector<int>& island : islands) {
-        group_begin.push_back(ordered.size());
         for (int index : island) {
-            ordered.push_back(pairs[static_cast<std::size_t>(index)]);
+            island_ordered.push_back(pairs[static_cast<std::size_t>(index)]);
         }
-        group_count.push_back(ordered.size() - group_begin.back());
     }
+
+    // Build the 2D graph coloring over the canonical island-ordered pairs.
+    std::vector<IslandBodyPair> color_links(island_ordered.size());
+    for (std::size_t i = 0; i < island_ordered.size(); ++i) {
+        const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(island_ordered[i].shape_a)];
+        const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(island_ordered[i].shape_b)];
+        color_links[i] = IslandBodyPair{shape_a.body, shape_b.body};
+    }
+    const ContactColorGraph color_graph =
+            build_contact_color_graph(static_cast<int>(slots.size()), writable_mask, color_links);
+
+    std::vector<SolverPair2D> ordered;
+    std::vector<std::size_t> color_begin;
+    std::vector<std::size_t> color_count;
+    ordered.reserve(island_ordered.size());
+    color_begin.reserve(color_graph.colors.size());
+    color_count.reserve(color_graph.colors.size());
+
+    for (const std::vector<int>& bucket : color_graph.colors) {
+        if (bucket.empty()) {
+            continue;
+        }
+        color_begin.push_back(ordered.size());
+        for (int idx : bucket) {
+            ordered.push_back(island_ordered[static_cast<std::size_t>(idx)]);
+        }
+        color_count.push_back(ordered.size() - color_begin.back());
+    }
+    const std::size_t overflow_begin = ordered.size();
+    for (int idx : color_graph.overflow) {
+        ordered.push_back(island_ordered[static_cast<std::size_t>(idx)]);
+    }
+    const std::size_t overflow_count = ordered.size() - overflow_begin;
     pairs = std::move(ordered);
 
     // Seed the accumulator only. Do not apply the cached impulse to velocity. A flipped normal drops both points.
@@ -461,22 +530,45 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         }
     }
 
-    for (std::size_t group = 0; group < group_begin.size(); ++group) {
-        const std::span<const SolverPair2D> pair_span{pairs.data() + group_begin[group], group_count[group]};
-        const std::span<ContactImpulse2D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        const int position_iterations = std::max(1, world.ctx<Physics2DConfig>().position_iterations);
-        for (int iteration = 0; iteration < position_iterations; ++iteration) {
+    bool has_dynamic_hierarchy = false;
+    for (const SolverSlot& slot : slots) {
+        if (slot.depth > 0 && has_awake_dynamic_ancestor_2d(world, slot.entity)) {
+            has_dynamic_hierarchy = true;
+            break;
+        }
+    }
+
+    const int position_iterations = std::max(1, world.ctx<Physics2DConfig>().position_iterations);
+    const bool can_parallel = (jobs != nullptr && jobs->worker_count() > 0 && !has_dynamic_hierarchy);
+
+    for (int iteration = 0; iteration < position_iterations; ++iteration) {
+        if (has_dynamic_hierarchy && iteration > 0) {
             refresh_bodies();
-            solve_position_iteration_2d(bodies, shapes, pair_span, impulse_span);
-            for (int index : write_order) {
-                const std::size_t slot = static_cast<std::size_t>(index);
-                if (!bodies[slot].dynamic || slots[slot].frozen) {
-                    continue;
-                }
-                ecs::set_world_position(world, slots[slot].entity,
-                                        glm::vec3{bodies[slot].position.x, bodies[slot].position.y, world_z[slot]});
+        }
+        for (std::size_t color = 0; color < color_begin.size(); ++color) {
+            const std::size_t count = color_count[color];
+            const std::span<const SolverPair2D> pair_span{pairs.data() + color_begin[color], count};
+            const std::span<ContactImpulse2D> impulse_span{impulses.data() + color_begin[color], count};
+            if (can_parallel && count >= kMinParallelContacts2D) {
+                jobs->parallel_for(count, kParallelContactGrain2D, [&](std::size_t begin, std::size_t end) {
+                    solve_position_iteration_2d(bodies, shapes, pair_span.subspan(begin, end - begin),
+                                                impulse_span.subspan(begin, end - begin));
+                });
+            } else {
+                solve_position_iteration_2d(bodies, shapes, pair_span, impulse_span);
             }
         }
+        if (overflow_count > 0) {
+            const std::span<const SolverPair2D> overflow_pairs{pairs.data() + overflow_begin, overflow_count};
+            const std::span<ContactImpulse2D> overflow_impulses{impulses.data() + overflow_begin, overflow_count};
+            solve_position_iteration_2d(bodies, shapes, overflow_pairs, overflow_impulses);
+        }
+        if (has_dynamic_hierarchy) {
+            write_bodies();
+        }
+    }
+    if (!has_dynamic_hierarchy) {
+        write_bodies();
     }
 
     const glm::vec3 gravity_3d = world.ctx<Physics2DConfig>().gravity;

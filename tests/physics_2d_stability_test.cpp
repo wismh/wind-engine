@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
@@ -7,8 +8,12 @@
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 
+#include "ecs/contact_graph_coloring.h"
+#include "ecs/contact_islands.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 namespace {
@@ -32,9 +37,10 @@ void step_physics_n(engine::ecs::World& world, int steps) {
     return events;
 }
 
-[[nodiscard]] engine::ecs::World make_physics_world(glm::vec3 gravity = {0.f, -60.f, 0.f}) {
+[[nodiscard]] engine::ecs::World make_physics_world(glm::vec3 gravity = {0.f, -60.f, 0.f},
+                                                    engine::JobSystem* jobs = nullptr) {
     engine::ecs::World world;
-    engine::register_engine_systems(world);
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.jobs = jobs});
     world.ctx<engine::Physics2DConfig>().gravity = gravity;
     return world;
 }
@@ -212,4 +218,149 @@ TEST(Physics2DStability, SleepWakeupPropagation) {
     step_physics(world);
 
     EXPECT_FALSE(world.get<engine::RigidBody2D>(chain[0]).sleeping);
+}
+
+// LQ-17: Greedy graph coloring partitions contact constraints so no two constraints in the same
+// color share a writable dynamic body, while static/read-only bodies do not cause conflicts.
+TEST(Physics2DStability, GraphColoringPartitionIsConflictFreeAndComplete) {
+    // Body 0 is static (writable = 0); bodies 1..8 are dynamic (writable = 1).
+    constexpr int kBodyCount = 9;
+    std::vector<std::uint8_t> writable(kBodyCount, 1u);
+    writable[0] = 0u;
+
+    std::vector<engine::IslandBodyPair> constraints = {
+            // 4 dynamic bodies resting on the same static floor (body 0) -> should all share color 0
+            {0, 1},
+            {0, 2},
+            {0, 3},
+            {0, 4},
+            // Star on dynamic body 1 exceeding max_colors = 3 -> forces overflow
+            {1, 2},
+            {1, 3},
+            {1, 4},
+            {1, 5},
+            // Additional dynamic chain
+            {2, 3},
+            {5, 6},
+            {6, 7},
+            {7, 8},
+    };
+
+    const engine::ContactColorGraph graph =
+            engine::build_contact_color_graph(kBodyCount, writable, constraints, 3);
+
+    // All 4 floor contacts (0..3) have disjoint dynamic bodies (1, 2, 3, 4), so all 4 land in color 0.
+    ASSERT_FALSE(graph.colors.empty());
+    ASSERT_GE(graph.colors[0].size(), 4u);
+    EXPECT_EQ(graph.colors[0][0], 0);
+    EXPECT_EQ(graph.colors[0][1], 1);
+    EXPECT_EQ(graph.colors[0][2], 2);
+    EXPECT_EQ(graph.colors[0][3], 3);
+
+    // Body 1 has degree 5 (with 0, 2, 3, 4, 5), which exceeds max_colors = 3, so overflow must be non-empty.
+    EXPECT_FALSE(graph.overflow.empty());
+
+    std::vector<int> seen(constraints.size(), 0);
+    for (const auto& color : graph.colors) {
+        std::vector<int> writable_used(kBodyCount, 0);
+        int prev_idx = -1;
+        for (int c_idx : color) {
+            ASSERT_GE(c_idx, 0);
+            ASSERT_LT(c_idx, static_cast<int>(constraints.size()));
+            EXPECT_GT(c_idx, prev_idx);
+            prev_idx = c_idx;
+            ++seen[static_cast<std::size_t>(c_idx)];
+
+            const auto [a, b] = constraints[static_cast<std::size_t>(c_idx)];
+            if (writable[static_cast<std::size_t>(a)] != 0u) {
+                EXPECT_EQ(writable_used[static_cast<std::size_t>(a)], 0)
+                        << "Writable body " << a << " appears twice in the same color";
+                writable_used[static_cast<std::size_t>(a)] = 1;
+            }
+            if (writable[static_cast<std::size_t>(b)] != 0u) {
+                EXPECT_EQ(writable_used[static_cast<std::size_t>(b)], 0)
+                        << "Writable body " << b << " appears twice in the same color";
+                writable_used[static_cast<std::size_t>(b)] = 1;
+            }
+        }
+    }
+
+    int prev_overflow = -1;
+    for (int c_idx : graph.overflow) {
+        ASSERT_GE(c_idx, 0);
+        ASSERT_LT(c_idx, static_cast<int>(constraints.size()));
+        EXPECT_GT(c_idx, prev_overflow);
+        prev_overflow = c_idx;
+        ++seen[static_cast<std::size_t>(c_idx)];
+    }
+
+    for (std::size_t i = 0; i < constraints.size(); ++i) {
+        EXPECT_EQ(seen[i], 1) << "Constraint " << i << " must appear in exactly one bucket";
+    }
+}
+
+// LQ-17: Parallel 2D graph-colored solver produces bitwise identical results to serial execution.
+TEST(Physics2DStability, ParallelGraphColoringSolverIsBitDeterministic) {
+    auto build_and_run = [](std::uint32_t worker_count) {
+        engine::JobSystem jobs(worker_count);
+        engine::ecs::World world = make_physics_world({0.f, -60.f, 0.f}, &jobs);
+
+        (void)add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{60.f, 2.f, 1.f}, 0.5f);
+
+        constexpr int kRows = 10;
+        constexpr float kBoxSize = 1.f;
+        constexpr float kSpacing = 1.02f;
+
+        std::vector<engine::ecs::Entity> boxes;
+        for (int row = 0; row < kRows; ++row) {
+            const int count_in_row = kRows - row;
+            const float y = (kBoxSize * 0.5f) + static_cast<float>(row) * kBoxSize;
+            const float x_start = -0.5f * static_cast<float>(count_in_row - 1) * kSpacing;
+
+            for (int col = 0; col < count_in_row; ++col) {
+                const float x = x_start + static_cast<float>(col) * kSpacing;
+                const engine::ecs::Entity box =
+                        add_box(world, glm::vec3{x, y, 0.f}, glm::vec3{kBoxSize, kBoxSize, 1.f}, 0.5f);
+                make_dynamic(world, box, 1.f);
+                boxes.push_back(box);
+            }
+        }
+
+        step_physics_n(world, 120);
+
+        struct BodySnapshot {
+            glm::vec3 position{};
+            glm::quat rotation{};
+            glm::vec3 velocity{};
+            float angular_velocity{};
+            bool sleeping{};
+        };
+
+        std::vector<BodySnapshot> snapshots;
+        snapshots.reserve(boxes.size());
+        for (engine::ecs::Entity box : boxes) {
+            const auto& transform = world.get<engine::Transform>(box);
+            const auto& body = world.get<engine::RigidBody2D>(box);
+            snapshots.push_back(BodySnapshot{
+                    .position = transform.position,
+                    .rotation = transform.rotation,
+                    .velocity = body.velocity,
+                    .angular_velocity = body.angular_velocity,
+                    .sleeping = body.sleeping,
+            });
+        }
+        return snapshots;
+    };
+
+    const auto serial = build_and_run(0);
+    const auto parallel_4 = build_and_run(4);
+
+    ASSERT_EQ(serial.size(), parallel_4.size());
+    for (std::size_t i = 0; i < serial.size(); ++i) {
+        EXPECT_EQ(serial[i].position, parallel_4[i].position) << "Mismatch at body " << i;
+        EXPECT_EQ(serial[i].rotation, parallel_4[i].rotation) << "Mismatch at body " << i;
+        EXPECT_EQ(serial[i].velocity, parallel_4[i].velocity) << "Mismatch at body " << i;
+        EXPECT_EQ(serial[i].angular_velocity, parallel_4[i].angular_velocity) << "Mismatch at body " << i;
+        EXPECT_EQ(serial[i].sleeping, parallel_4[i].sleeping) << "Mismatch at body " << i;
+    }
 }
