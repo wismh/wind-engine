@@ -302,3 +302,39 @@ rigid_body_3d = { type = "dynamic" }
     EXPECT_FALSE(omitted.get<engine::RigidBody2D>(missing->by_id.at("crate")).sleeping);
     EXPECT_FALSE(omitted.get<engine::RigidBody3D>(missing->by_id.at("ball")).sleeping);
 }
+
+
+TEST(Physics2D, BroadphaseBalancesTreeOnMonotonicSortedInsertions) {
+    constexpr int kCount = 64;
+    std::vector<engine::Aabb> ascending;
+    ascending.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+        const float x = static_cast<float>(i) * 2.f;
+        // Adjacent boxes overlap (width 2.5, step 2.0)
+        ascending.push_back(engine::Aabb{.min = {x, 0.f, -1.f}, .max = {x + 2.5f, 1.f, 1.f}});
+    }
+
+    engine::Broadphase asc_tree;
+    asc_tree.rebuild(ascending);
+    // An unbalanced sequential insertion of 64 increasing boxes would have height 63.
+    // With Box2D AVL tree rotation, height is bounded by O(log2(N)).
+    EXPECT_LE(asc_tree.height(), 8);
+
+    std::vector<std::pair<int, int>> got_asc;
+    asc_tree.query_pairs(got_asc);
+    std::sort(got_asc.begin(), got_asc.end());
+    const std::vector<std::pair<int, int>> expected_asc = brute(ascending);
+    EXPECT_EQ(got_asc, expected_asc);
+    EXPECT_EQ(got_asc.size(), static_cast<std::size_t>(kCount - 1));
+
+    // Also test descending monotonic insertion order
+    std::vector<engine::Aabb> descending(ascending.rbegin(), ascending.rend());
+    engine::Broadphase desc_tree;
+    desc_tree.rebuild(descending);
+    EXPECT_LE(desc_tree.height(), 8);
+
+    std::vector<std::pair<int, int>> got_desc;
+    desc_tree.query_pairs(got_desc);
+    std::sort(got_desc.begin(), got_desc.end());
+    EXPECT_EQ(got_desc, brute(descending));
+}

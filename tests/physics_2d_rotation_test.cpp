@@ -257,3 +257,33 @@ TEST(Physics2D, PolygonInertiaMatchesTheRingFormula) {
     const glm::vec2 clockwise[3] = {{0.f, 0.f}, {0.f, 1.f}, {1.f, 0.f}};
     EXPECT_EQ(engine::inertia_2d_polygon(1.f, clockwise, 3), 0.f);
 }
+
+
+TEST(Physics2D, PolygonInertiaMatchesBox2DExactTriangleFanForRectangles) {
+    struct Case {
+        float mass;
+        float width;
+        float height;
+        float angle;
+    };
+    const Case cases[] = {
+            {1.f, 4.f, 2.f, 0.f},
+            {2.5f, 6.f, 1.5f, 0.37f},
+            {0.75f, 3.f, 5.f, 1.12f},
+            {10.f, 8.f, 2.f, glm::quarter_pi<float>()},
+    };
+    for (const Case& c : cases) {
+        const float hw = 0.5f * c.width;
+        const float hh = 0.5f * c.height;
+        const float cos_a = std::cos(c.angle);
+        const float sin_a = std::sin(c.angle);
+        const glm::vec2 local[4] = {{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}};
+        glm::vec2 rotated[4]{};
+        for (int i = 0; i < 4; ++i) {
+            rotated[i] = {cos_a * local[i].x - sin_a * local[i].y, sin_a * local[i].x + cos_a * local[i].y};
+        }
+        const float expected = engine::inertia_2d_box(c.mass, c.width, c.height);
+        const float got = engine::inertia_2d_polygon(c.mass, rotated, 4);
+        EXPECT_NEAR(got, expected, 1e-5f * expected);
+    }
+}
