@@ -353,9 +353,9 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
                         const glm::vec3 r_a = pt - bodies[static_cast<std::size_t>(body_a_idx)].position;
                         const glm::vec3 r_b = pt - bodies[static_cast<std::size_t>(body_b_idx)].position;
                         const glm::vec3 v_a = bodies[static_cast<std::size_t>(body_a_idx)].velocity +
-                                              glm::cross(bodies[static_cast<std::size_t>(body_a_idx)].angular_velocity, r_a);
+                                glm::cross(bodies[static_cast<std::size_t>(body_a_idx)].angular_velocity, r_a);
                         const glm::vec3 v_b = bodies[static_cast<std::size_t>(body_b_idx)].velocity +
-                                              glm::cross(bodies[static_cast<std::size_t>(body_b_idx)].angular_velocity, r_b);
+                                glm::cross(bodies[static_cast<std::size_t>(body_b_idx)].angular_velocity, r_b);
                         const float normal_speed = glm::dot(v_b - v_a, manifold.normal);
                         const float penetration = manifold.points[0].penetration;
                         if (normal_speed < -1e-4f || penetration > kContactSlop) {

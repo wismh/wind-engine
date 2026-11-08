@@ -232,7 +232,8 @@ TEST(Physics2D, StaticPolygonContactsABox) {
     polygon.vertices[2] = {4.f, 2.f};
     world.emplace<engine::PolygonCollider2D>(slope, polygon);
     // (2.2, 1.85) is tangent. This is the pose after one gravity step, still static.
-    const engine::ecs::Entity box = add_box(world, glm::vec3{2.2f, 1.85f - engine::kFixed, 0.f}, glm::vec3{1.f, 1.f, 1.f});
+    const engine::ecs::Entity box =
+            add_box(world, glm::vec3{2.2f, 1.85f - engine::kFixed, 0.f}, glm::vec3{1.f, 1.f, 1.f});
     world.emplace<engine::RigidBody2D>(box, engine::RigidBody2D{});
 
     step_physics(world);

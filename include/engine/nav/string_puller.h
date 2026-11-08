@@ -17,7 +17,8 @@ namespace engine::nav {
 [[nodiscard]] bool segment_clear_2d(
         glm::ivec2 from, glm::ivec2 to, CellPredicate<glm::ivec2> is_walkable);
 
-// Returns true if a walker can move straight from `from` to `to` across 3D cells on the same floor level (from.y == to.y).
+// Returns true if a walker can move straight from `from` to `to` across 3D cells on the same floor level
+// (from.y == to.y).
 // Checks walkability along the X-Z plane without cutting diagonal corners.
 [[nodiscard]] bool segment_clear_3d(
         glm::ivec3 from, glm::ivec3 to, CellPredicate<glm::ivec3> is_walkable);
