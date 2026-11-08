@@ -75,6 +75,7 @@ void Broadphase::insert_leaf(int leaf) {
     nodes_[static_cast<std::size_t>(parent)].parent = old_parent;
     const Aabb parent_box = combine_aabb(leaf_box, nodes_[static_cast<std::size_t>(sibling)].box);
     nodes_[static_cast<std::size_t>(parent)].box = parent_box;
+    nodes_[static_cast<std::size_t>(parent)].height = nodes_[static_cast<std::size_t>(sibling)].height + 1;
     nodes_[static_cast<std::size_t>(parent)].child1 = sibling;
     nodes_[static_cast<std::size_t>(parent)].child2 = leaf;
     nodes_[static_cast<std::size_t>(sibling)].parent = parent;
@@ -92,11 +93,114 @@ void Broadphase::insert_leaf(int leaf) {
 
     int walk = nodes_[static_cast<std::size_t>(leaf)].parent;
     while (walk >= 0) {
+        walk = balance(walk);
         Node& node = nodes_[static_cast<std::size_t>(walk)];
-        node.box = combine_aabb(nodes_[static_cast<std::size_t>(node.child1)].box,
-                                nodes_[static_cast<std::size_t>(node.child2)].box);
+        const Node& child1 = nodes_[static_cast<std::size_t>(node.child1)];
+        const Node& child2 = nodes_[static_cast<std::size_t>(node.child2)];
+        node.height = 1 + std::max(child1.height, child2.height);
+        node.box = combine_aabb(child1.box, child2.box);
         walk = node.parent;
     }
+}
+
+int Broadphase::balance(int i_a) {
+    Node& a = nodes_[static_cast<std::size_t>(i_a)];
+    if (a.child1 < 0 || a.height < 2) {
+        return i_a;
+    }
+
+    const int i_b = a.child1;
+    const int i_c = a.child2;
+    Node& b = nodes_[static_cast<std::size_t>(i_b)];
+    Node& c = nodes_[static_cast<std::size_t>(i_c)];
+
+    const int balance_factor = c.height - b.height;
+
+    if (balance_factor > 1) {
+        const int i_f = c.child1;
+        const int i_g = c.child2;
+        Node& f = nodes_[static_cast<std::size_t>(i_f)];
+        Node& g = nodes_[static_cast<std::size_t>(i_g)];
+
+        c.child1 = i_a;
+        c.parent = a.parent;
+        a.parent = i_c;
+
+        if (c.parent >= 0) {
+            Node& c_parent = nodes_[static_cast<std::size_t>(c.parent)];
+            if (c_parent.child1 == i_a) {
+                c_parent.child1 = i_c;
+            } else {
+                c_parent.child2 = i_c;
+            }
+        } else {
+            root_ = i_c;
+        }
+
+        if (f.height > g.height) {
+            c.child2 = i_f;
+            a.child2 = i_g;
+            g.parent = i_a;
+            a.box = combine_aabb(b.box, g.box);
+            c.box = combine_aabb(a.box, f.box);
+            a.height = 1 + std::max(b.height, g.height);
+            c.height = 1 + std::max(a.height, f.height);
+        } else {
+            c.child2 = i_g;
+            a.child2 = i_f;
+            f.parent = i_a;
+            a.box = combine_aabb(b.box, f.box);
+            c.box = combine_aabb(a.box, g.box);
+            a.height = 1 + std::max(b.height, f.height);
+            c.height = 1 + std::max(a.height, g.height);
+        }
+
+        return i_c;
+    }
+
+    if (balance_factor < -1) {
+        const int i_d = b.child1;
+        const int i_e = b.child2;
+        Node& d = nodes_[static_cast<std::size_t>(i_d)];
+        Node& e = nodes_[static_cast<std::size_t>(i_e)];
+
+        b.child1 = i_a;
+        b.parent = a.parent;
+        a.parent = i_b;
+
+        if (b.parent >= 0) {
+            Node& b_parent = nodes_[static_cast<std::size_t>(b.parent)];
+            if (b_parent.child1 == i_a) {
+                b_parent.child1 = i_b;
+            } else {
+                b_parent.child2 = i_b;
+            }
+        } else {
+            root_ = i_b;
+        }
+
+        if (d.height > e.height) {
+            b.child2 = i_d;
+            a.child1 = i_e;
+            e.parent = i_a;
+            a.box = combine_aabb(c.box, e.box);
+            b.box = combine_aabb(a.box, d.box);
+            a.height = 1 + std::max(c.height, e.height);
+            b.height = 1 + std::max(a.height, d.height);
+        } else {
+            b.child2 = i_e;
+            a.child1 = i_d;
+            d.parent = i_a;
+            a.box = combine_aabb(c.box, d.box);
+            b.box = combine_aabb(a.box, e.box);
+            a.height = 1 + std::max(c.height, d.height);
+            b.height = 1 + std::max(a.height, e.height);
+        }
+
+        return i_b;
+    }
+
+    return i_a;
 }
 
 void Broadphase::rebuild(std::span<const Aabb> boxes) {

@@ -26,6 +26,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
     std::vector<StaticColliderItem2D> static_items;
     std::vector<DynamicItem> dynamic_items;
     static_items.reserve(colliders.size());
+    dynamic_items.reserve(colliders.size());
 
     for (std::size_t i = 0; i < colliders.size(); ++i) {
         const ColliderItem2D& item = colliders[i];
@@ -93,6 +94,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
 
     std::vector<std::pair<int, int>> dyn_pairs;
     bp.dynamic_tree.query_pairs(dyn_pairs);
+    candidates.reserve(dyn_pairs.size() + dynamic_items.size());
     for (const auto& [d1, d2] : dyn_pairs) {
         const int idx_a = dynamic_items[static_cast<std::size_t>(d1)].collider_index;
         const int idx_b = dynamic_items[static_cast<std::size_t>(d2)].collider_index;
@@ -116,7 +118,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
     return candidates;
 }
 
-void run_physics_2d(ecs::World& world) {
+void run_physics_2d(ecs::World& world, JobSystem* jobs) {
     const float dt = world.ctx<Time>().fixed_delta_time;
 
     wake_sleepers_by_velocity_2d(world);
@@ -132,7 +134,7 @@ void run_physics_2d(ecs::World& world) {
     const std::vector<ColliderItem2D> colliders = gather_colliders_2d(world);
     if (colliders.empty()) {
         publish_collision_events_2d(world, colliders, {});
-        solve_physics_contacts_2d(world, colliders, {});
+        solve_physics_contacts_2d(world, colliders, {}, jobs);
         ecs::update_world_transforms(world);
         return;
     }
@@ -140,7 +142,7 @@ void run_physics_2d(ecs::World& world) {
     const std::vector<std::pair<int, int>> candidates = compute_broadphase_candidates_2d(world, colliders);
 
     publish_collision_events_2d(world, colliders, candidates);
-    solve_physics_contacts_2d(world, colliders, candidates);
+    solve_physics_contacts_2d(world, colliders, candidates, jobs);
     ecs::update_world_transforms(world);
 }
 

@@ -42,7 +42,7 @@
     },
     {
       "name": "vs-audio",
-      "displayName": "Windows MSVC + SDL3_mixer WAV backend",
+      "displayName": "Windows MSVC + miniaudio backend",
       "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build-audio",
       "cacheVariables": {
@@ -145,7 +145,7 @@
     },
     {
       "name": "web-audio",
-      "displayName": "Emscripten WebGL2 + SDL3_mixer WAV backend (configure with emcmake)",
+      "displayName": "Emscripten WebGL2 + miniaudio backend (configure with emcmake)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-web-audio",
       "cacheVariables": {

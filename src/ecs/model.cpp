@@ -141,6 +141,8 @@ std::expected<void, WorldLoadError> build_model(
     }
 
     const render::ModelAsset& asset = *animator.model;
+    animator.parts.reserve(asset.primitives.size());
+    driver_for_node.reserve(asset.primitives.size());
     for (std::size_t index = 0; index < asset.primitives.size(); ++index) {
         const render::ModelPrimitive& primitive = asset.primitives[index];
         std::shared_ptr<render::IMesh> mesh = factory.create_mesh(primitive.mesh);

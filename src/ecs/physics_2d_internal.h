@@ -138,6 +138,6 @@ void integrate_dynamic_2d(ecs::World& world, float dt);
 void publish_collision_events_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
                                  std::span<const std::pair<int, int>> candidate_pairs);
 void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
-                               std::span<const std::pair<int, int>> candidate_pairs);
+                               std::span<const std::pair<int, int>> candidate_pairs, JobSystem* jobs = nullptr);
 
 }

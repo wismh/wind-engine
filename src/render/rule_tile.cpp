@@ -54,6 +54,7 @@ std::optional<RuleNeighborCondition> parse_condition(std::string_view text) {
 RuleTileAsset RuleTileAsset::from_desc(RuleTileDesc desc) {
     RuleTileAsset asset;
     asset.desc = std::move(desc);
+    asset.member_tiles.reserve(asset.desc.rules.size() + 1);
     if (asset.desc.default_tile > 0) {
         asset.member_tiles.push_back(asset.desc.default_tile);
     }
@@ -88,6 +89,7 @@ std::optional<RuleTileDesc> parse_rule_tile(std::string_view toml_text) {
             if (rules_array == nullptr) {
                 return std::nullopt;
             }
+            desc.rules.reserve(rules_array->size());
             for (const toml::node& rule_node : *rules_array) {
                 const toml::table* const rule_table = rule_node.as_table();
                 if (rule_table == nullptr) {

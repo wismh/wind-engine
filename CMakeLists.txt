@@ -67,9 +67,9 @@ endif()
 # Same split as ENGINE_WITH_WINDOW: root stays silent (`engine_tests` never opens a mixer
 # device), a game gets sound without having to FORCE it on itself.
 if(_engine_is_root)
-    option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" OFF)
+    option(ENGINE_WITH_AUDIO "miniaudio audio backend" OFF)
 else()
-    option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" ON)
+    option(ENGINE_WITH_AUDIO "miniaudio audio backend" ON)
 endif()
 set(ENGINE_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "Wind engine source tree")
 
@@ -88,7 +88,7 @@ function(engine_require_file rel)
             "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
             "  git submodule update --init --recursive\n"
             "WINDOW deps: external/SDL3, external/glad.\n"
-            "AUDIO deps: external/SDL3, external/SDL_mixer.\n"
+            "AUDIO deps: external/miniaudio.\n"
             "See external/README.md")
     endif()
 endfunction()
@@ -642,30 +642,20 @@ if(ENGINE_WITH_GLES)
 endif()
 
 if(ENGINE_WITH_AUDIO)
-    engine_add_sdl3()
-    engine_require_submodule(SDL_mixer)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_VENDORED OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_WAVE ON CACHE BOOL "" FORCE)
-    set(SDLMIXER_AIFF OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_VOC OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_AU OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_FLAC OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_GME OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_MOD OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_MP3 OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_MIDI OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_OPUS OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_VORBIS_STB OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_VORBIS_VORBISFILE OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_VORBIS_TREMOR OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_WAVPACK OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_TESTS OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(SDLMIXER_INSTALL OFF CACHE BOOL "" FORCE)
-    add_subdirectory(external/SDL_mixer EXCLUDE_FROM_ALL)
+    engine_require_file(external/miniaudio/miniaudio.h)
+    add_library(wind_miniaudio STATIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/miniaudio/miniaudio.c")
+    target_include_directories(wind_miniaudio PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/miniaudio>")
+    set_target_properties(wind_miniaudio PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(MSVC)
+        target_compile_options(wind_miniaudio PRIVATE /W3)
+    endif()
+    if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+        target_link_libraries(wind_miniaudio PRIVATE pthread m dl)
+    endif()
     target_compile_definitions(engine PRIVATE ENGINE_WITH_AUDIO=1)
-    target_link_libraries(engine PRIVATE SDL3_mixer::SDL3_mixer SDL3::SDL3)
+    target_link_libraries(engine PRIVATE wind_miniaudio)
 endif()
 
 # The editor build installs GoogleTest into the SDK for a game's own tests.

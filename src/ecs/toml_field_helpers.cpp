@@ -62,6 +62,7 @@ void insert_field_into_array(const FieldValue& val, toml::array& arr) {
         arr.push_back(*s);
     } else if (const auto* sub_arr = val.as_array()) {
         toml::array child;
+        child.reserve(sub_arr->size());
         for (const FieldValue& elem : *sub_arr) {
             insert_field_into_array(elem, child);
         }
@@ -86,6 +87,7 @@ void field_to_toml_table(const FieldTable& src, toml::table& dst) {
             dst.insert_or_assign(k, *s);
         } else if (const auto* sub_arr = val.as_array()) {
             toml::array child;
+            child.reserve(sub_arr->size());
             for (const FieldValue& elem : *sub_arr) {
                 insert_field_into_array(elem, child);
             }

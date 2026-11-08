@@ -479,3 +479,94 @@ TEST(Physics2D, MultiPairEnterStayExitSequence) {
     step_physics(world);
     EXPECT_TRUE(read_collisions(world).empty());
 }
+
+
+TEST(Physics2D, PolygonSatReferenceFaceTieBreakingBias) {
+    // Two axis-aligned 2x2 polygon squares overlapping near a 45-degree corner.
+    // Polygon A is at (0, 0), Polygon B is at (1.5, 1.50005).
+    // On A's +X/+Y faces, separation is -0.5 (X) and -0.49995 (Y); best on A is -0.49995 (+Y).
+    // If B has a slightly tilted edge whose separation is within 0.1 * kContactSlop (1e-4) of A's best face,
+    // the Box2D reference-face bias keeps A as reference so the normal does not flip-flop.
+    engine::ecs::World world = physics_world();
+    const engine::ecs::Entity poly_a = world.create();
+    world.emplace<engine::Transform>(poly_a, engine::Transform{});
+    engine::PolygonCollider2D shape_a{};
+    shape_a.count = 4;
+    shape_a.vertices[0] = {-1.f, -1.f};
+    shape_a.vertices[1] = {1.f, -1.f};
+    shape_a.vertices[2] = {1.f, 1.f};
+    shape_a.vertices[3] = {-1.f, 1.f};
+    world.emplace<engine::PolygonCollider2D>(poly_a, shape_a);
+    world.emplace<engine::RigidBody2D>(poly_a, engine::RigidBody2D{});
+
+    // Polygon B is rotated by 90 degrees so its bottom face normal is (0, -1), but its separation
+    // against A is slightly less negative by 5e-5 (< 0.1 * kContactSlop = 1e-4) due to a beveled top vertex.
+    const engine::ecs::Entity poly_b = world.create();
+    world.emplace<engine::Transform>(poly_b, engine::Transform{.position = {0.f, 1.5f, 0.f}});
+    engine::PolygonCollider2D shape_b{};
+    shape_b.count = 4;
+    // Bottom edge of B at y = -1.0 (in B local) -> world y = 0.5 -> A's top face (y = 1.0) sees sep = -0.5.
+    // Left edge of B slightly slanted so B's best face separation is -0.49995 (within 1e-4 of -0.5).
+    const float angle = 1.0e-4f;
+    const float c = std::cos(angle);
+    const float s = std::sin(angle);
+    const glm::vec2 base[4] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
+    for (int i = 0; i < 4; ++i) {
+        shape_b.vertices[i] = {c * base[i].x - s * base[i].y, s * base[i].x + c * base[i].y};
+    }
+    world.emplace<engine::PolygonCollider2D>(poly_b, shape_b);
+
+    step_physics(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    // Reference face stays on A's top edge with exact normal (0, 1) rather than flipping to B's rotated normal.
+    EXPECT_NEAR(events[0].normal.x, 0.f, 1e-6f);
+    EXPECT_NEAR(events[0].normal.y, 1.f, 1e-6f);
+}
+
+TEST(Physics2D, PolygonCircleDeepCenterAndVoronoiRegions) {
+    // 1. Circle center deeply inside a PolygonCollider2D rectangle (4x2, half-extents 2x1):
+    //    Circle at (0.5, 0.2) with radius 0.25 -> nearest face is top (+Y at y = 1.0, distance 0.8).
+    {
+        engine::ecs::World world = physics_world();
+        const engine::ecs::Entity poly = world.create();
+        world.emplace<engine::Transform>(poly, engine::Transform{});
+        engine::PolygonCollider2D rect{};
+        rect.count = 4;
+        rect.vertices[0] = {-2.f, -1.f};
+        rect.vertices[1] = {2.f, -1.f};
+        rect.vertices[2] = {2.f, 1.f};
+        rect.vertices[3] = {-2.f, 1.f};
+        world.emplace<engine::PolygonCollider2D>(poly, rect);
+        world.emplace<engine::RigidBody2D>(poly, engine::RigidBody2D{});
+        add_circle(world, glm::vec3{0.5f, 0.2f, 0.f}, 0.25f);
+
+        step_physics(world);
+        const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
+        ASSERT_EQ(events.size(), 1u);
+        expect_contact(events[0], glm::vec2{0.f, 1.f}, 1.05f, glm::vec2{0.5f, 0.475f});
+    }
+
+    // 2. Circle center in vertex Voronoi region of PolygonCollider2D (outside corner (1, 1) at (2, 2), radius 2):
+    {
+        engine::ecs::World world = physics_world();
+        const engine::ecs::Entity poly = world.create();
+        world.emplace<engine::Transform>(poly, engine::Transform{});
+        engine::PolygonCollider2D square{};
+        square.count = 4;
+        square.vertices[0] = {-1.f, -1.f};
+        square.vertices[1] = {1.f, -1.f};
+        square.vertices[2] = {1.f, 1.f};
+        square.vertices[3] = {-1.f, 1.f};
+        world.emplace<engine::PolygonCollider2D>(poly, square);
+        world.emplace<engine::RigidBody2D>(poly, engine::RigidBody2D{});
+        add_circle(world, glm::vec3{2.f, 2.f, 0.f}, 2.f);
+
+        step_physics(world);
+        const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
+        ASSERT_EQ(events.size(), 1u);
+        const float root = std::sqrt(2.f);
+        expect_contact(events[0], glm::vec2{1.f / root, 1.f / root}, 2.f - root,
+                       glm::vec2{1.5f - root * 0.5f, 1.5f - root * 0.5f});
+    }
+}

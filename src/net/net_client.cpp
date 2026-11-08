@@ -537,6 +537,7 @@ void run_net_client_send_input(ecs::World& world) {
         }
         encoded.push_back(std::move(inputs));
         InputMessage::Entity entity{.id = id};
+        entity.inputs.reserve(encoded.back().size());
         for (const auto& input : encoded.back()) {
             entity.inputs.emplace_back(input);
         }

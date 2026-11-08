@@ -1,5 +1,7 @@
 #include "contact_2d.h"
 
+#include <engine/ecs/physics.h>
+
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -7,6 +9,11 @@
 
 namespace engine {
 namespace {
+
+// Bias toward polygon A (matching Box2D's 0.1 * linearSlop) so near-equal SAT separations
+// do not flip the reference face and normal direction across frames.
+inline constexpr float kReferenceFaceBias = 0.1f * kContactSlop;
+inline constexpr float kEqualPenetrationEps = 1.0e-6f;
 
 struct Poly2D {
     glm::vec2 vertices[kContactPolygonCapacity]{};
@@ -104,21 +111,20 @@ struct Face2D {
     bool found = false;
     for (int i = 0; i < poly.count; ++i) {
         glm::vec2 normal{0.f};
-        if (!outward_normal(poly.vertices[i], poly.vertices[(i + 1) % poly.count], normal)) {
+        const glm::vec2 v0 = poly.vertices[i];
+        if (!outward_normal(v0, poly.vertices[(i + 1) % poly.count], normal)) {
             return false;
         }
-        const float offset = glm::dot(normal, poly.vertices[i]);
-        float support = glm::dot(normal, other.vertices[0]);
+        float separation = glm::dot(normal, other.vertices[0] - v0);
         for (int j = 1; j < other.count; ++j) {
-            support = std::min(support, glm::dot(normal, other.vertices[j]));
+            separation = std::min(separation, glm::dot(normal, other.vertices[j] - v0));
         }
-        const float separation = support - offset;
         if (!found || separation > face.separation) {
             found = true;
             face.separation = separation;
             face.index = i;
             face.normal = normal;
-            face.offset = offset;
+            face.offset = glm::dot(normal, v0);
         }
     }
     return found;
@@ -157,7 +163,7 @@ int clip_segment(glm::vec2 p0, glm::vec2 p1, glm::vec2 normal, float offset, glm
         return empty_manifold();
     }
 
-    const bool a_is_reference = face_a.separation >= face_b.separation;
+    const bool a_is_reference = face_a.separation + kReferenceFaceBias >= face_b.separation;
     const Face2D& reference = a_is_reference ? face_a : face_b;
     const Poly2D& ref_poly = a_is_reference ? a : b;
     const Poly2D& incident_poly = a_is_reference ? b : a;
@@ -212,7 +218,7 @@ int clip_segment(glm::vec2 p0, glm::vec2 p1, glm::vec2 normal, float offset, glm
     ContactPoint2D kept[2];
     int kept_count = 0;
     for (int i = 0; i < clipped_count; ++i) {
-        const float separation = glm::dot(reference.normal, clipped[i]) - reference.offset;
+        const float separation = glm::dot(reference.normal, clipped[i] - r0);
         if (separation <= 0.f && kept_count < 2) {
             kept[kept_count].point = clipped[i];
             kept[kept_count].penetration = -separation;
@@ -225,10 +231,10 @@ int clip_segment(glm::vec2 p0, glm::vec2 p1, glm::vec2 normal, float offset, glm
 
     ContactManifold2D manifold;
     manifold.normal = a_is_reference ? reference.normal : -reference.normal;
-    if (kept_count == 2 && kept[0].penetration == kept[1].penetration) {
+    if (kept_count == 2 && std::abs(kept[0].penetration - kept[1].penetration) <= kEqualPenetrationEps) {
         manifold.count = 1;
         manifold.points[0].point = 0.5f * (kept[0].point + kept[1].point);
-        manifold.points[0].penetration = kept[0].penetration;
+        manifold.points[0].penetration = 0.5f * (kept[0].penetration + kept[1].penetration);
         return manifold;
     }
     if (kept_count == 2 && kept[1].penetration > kept[0].penetration) {
@@ -270,7 +276,7 @@ int clip_segment(glm::vec2 p0, glm::vec2 p1, glm::vec2 normal, float offset, glm
         if (!outward_normal(poly.vertices[i], poly.vertices[(i + 1) % poly.count], normal)) {
             return empty_manifold();
         }
-        const float signed_dist = glm::dot(normal, circle.center) - glm::dot(normal, poly.vertices[i]);
+        const float signed_dist = glm::dot(normal, circle.center - poly.vertices[i]);
         if (signed_dist > 0.f) {
             inside = false;
         }

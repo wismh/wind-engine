@@ -13,6 +13,8 @@
 
 namespace engine {
 
+class JobSystem;
+
 struct RigidBody2D {
     glm::vec3 velocity{0};  // Kinematic: parent space. Dynamic: world XY; z is world z.
     BodyType type{BodyType::Kinematic};
@@ -77,6 +79,6 @@ struct CollisionEvent2D {
     constexpr bool operator==(const CollisionEvent2D&) const noexcept = default;
 };
 
-void run_physics_2d(ecs::World& world);
+void run_physics_2d(ecs::World& world, JobSystem* jobs = nullptr);
 
 }

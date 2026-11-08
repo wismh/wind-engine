@@ -1,9 +1,11 @@
 #include "physics_3d_internal.h"
 
+#include <engine/core/job_system.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 
 #include "broadphase.h"
+#include "contact_graph_coloring.h"
 #include "contact_islands.h"
 #include "inertia_3d.h"
 #include "solver_3d.h"
@@ -22,6 +24,10 @@
 namespace engine {
 namespace {
 
+inline constexpr int kLargeIslandBodyThreshold3D = 100;
+inline constexpr std::size_t kMinParallelContacts3D = 16;
+inline constexpr std::size_t kParallelContactGrain3D = 8;
+
 struct SolverSlot {
     ecs::Entity entity{};
     SolverBody3D body{};
@@ -34,8 +40,34 @@ struct ItemPair {
     int item_b{0};
 };
 
+struct IslandSolvePlan3D {
+    std::size_t begin{0};
+    std::size_t count{0};
+    bool use_graph_coloring{false};
+    std::vector<std::size_t> color_begin{};
+    std::vector<std::size_t> color_count{};
+    std::size_t overflow_begin{0};
+    std::size_t overflow_count{0};
+};
+
 [[nodiscard]] bool is_dynamic(const RigidBody3D* body) {
     return body != nullptr && body->type == BodyType::Dynamic;
+}
+
+[[nodiscard]] bool has_awake_dynamic_ancestor_3d(const ecs::World& world, ecs::Entity entity) {
+    ecs::Entity current = entity;
+    for (int step = 0; step < ecs::kMaxHierarchyDepth; ++step) {
+        const Parent* parent = world.try_get<Parent>(current);
+        if (parent == nullptr || !world.valid(parent->entity)) {
+            break;
+        }
+        current = parent->entity;
+        const RigidBody3D* rigid = world.try_get<RigidBody3D>(current);
+        if (is_dynamic(rigid) && !rigid->sleeping) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] float dynamic_mass(const RigidBody3D& body) {
@@ -145,7 +177,7 @@ std::vector<ColliderItem3D> gather_colliders_3d(ecs::World& world) {
     return colliders;
 }
 
-void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders) {
+void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders, JobSystem* jobs) {
     std::vector<Aabb> bounds(colliders.size());
     for (std::size_t i = 0; i < colliders.size(); ++i) {
         bounds[i] = aabb_of_3d(colliders[i]);
@@ -156,6 +188,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     tree.query_pairs(candidates);
 
     std::vector<ItemPair> item_pairs;
+    item_pairs.reserve(candidates.size());
     for (const auto& [index_a, index_b] : candidates) {
         const ColliderItem3D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem3D& b = colliders[static_cast<std::size_t>(index_b)];
@@ -204,6 +237,9 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
 
     std::unordered_map<ecs::Entity, int> body_of;
     std::vector<SolverSlot> slots;
+    const std::size_t max_touched = std::min(colliders.size(), item_pairs.size() * 2);
+    body_of.reserve(max_touched);
+    slots.reserve(max_touched);
     auto body_for = [&](ecs::Entity entity) {
         const auto found = body_of.find(entity);
         if (found != body_of.end()) {
@@ -240,6 +276,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
 
     std::vector<int> shape_of(colliders.size(), -1);
     std::vector<SolverShape3D> shapes;
+    shapes.reserve(max_touched);
     auto shape_for = [&](int item) {
         const std::size_t index = static_cast<std::size_t>(item);
         if (shape_of[index] >= 0) {
@@ -275,6 +312,15 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         ecs::update_world_transforms(world);
         for (std::size_t i = 0; i < slots.size(); ++i) {
             bodies[i].position = ecs::world_position(world, slots[i].entity);
+        }
+    };
+    auto write_bodies = [&] {
+        for (int index : write_order) {
+            const std::size_t slot = static_cast<std::size_t>(index);
+            if (!bodies[slot].dynamic || slots[slot].frozen) {
+                continue;
+            }
+            ecs::set_world_position(world, slots[slot].entity, bodies[slot].position);
         }
     };
     auto cache_key_for = [&](const SolverPair3D& pair) {
@@ -373,22 +419,70 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
             }
         }
     }
-    const std::vector<std::vector<int>> islands = group_contact_islands(entities, links, overlapping);
+
+    std::vector<std::uint8_t> dynamic_mask(slots.size(), 0);
+    std::vector<std::uint8_t> writable_mask(slots.size(), 0);
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        dynamic_mask[i] = bodies[i].dynamic ? 1 : 0;
+        writable_mask[i] = (bodies[i].dynamic && !slots[i].frozen && bodies[i].inverse_mass > 0.f) ? 1 : 0;
+    }
+
+    const std::vector<ContactIsland> islands = build_contact_islands(entities, links, overlapping, dynamic_mask);
     if (islands.empty()) {
         world.ctx<PhysicsContactCache3D>().impulses.clear();
         update_sleep_3d(world, {});
         return;
     }
+
     std::vector<SolverPair3D> ordered;
-    std::vector<std::size_t> group_begin;
-    std::vector<std::size_t> group_count;
+    std::vector<IslandSolvePlan3D> plans;
     ordered.reserve(pairs.size());
-    for (const std::vector<int>& island : islands) {
-        group_begin.push_back(ordered.size());
-        for (int index : island) {
-            ordered.push_back(pairs[static_cast<std::size_t>(index)]);
+    plans.reserve(islands.size());
+    std::vector<SolverPair3D> island_pairs;
+    std::vector<IslandBodyPair> island_links;
+
+    for (const ContactIsland& island : islands) {
+        IslandSolvePlan3D plan;
+        plan.begin = ordered.size();
+        if (island.dynamic_body_count > kLargeIslandBodyThreshold3D) {
+            plan.use_graph_coloring = true;
+            island_pairs.clear();
+            island_links.clear();
+            island_pairs.reserve(island.pairs.size());
+            island_links.reserve(island.pairs.size());
+            for (int index : island.pairs) {
+                const SolverPair3D& p = pairs[static_cast<std::size_t>(index)];
+                island_pairs.push_back(p);
+                const SolverShape3D& shape_a = shapes[static_cast<std::size_t>(p.shape_a)];
+                const SolverShape3D& shape_b = shapes[static_cast<std::size_t>(p.shape_b)];
+                island_links.push_back(IslandBodyPair{shape_a.body, shape_b.body});
+            }
+            const ContactColorGraph color_graph =
+                    build_contact_color_graph(static_cast<int>(slots.size()), writable_mask, island_links);
+            plan.color_begin.reserve(color_graph.colors.size());
+            plan.color_count.reserve(color_graph.colors.size());
+            for (const std::vector<int>& bucket : color_graph.colors) {
+                if (bucket.empty()) {
+                    continue;
+                }
+                plan.color_begin.push_back(ordered.size());
+                for (int idx : bucket) {
+                    ordered.push_back(island_pairs[static_cast<std::size_t>(idx)]);
+                }
+                plan.color_count.push_back(ordered.size() - plan.color_begin.back());
+            }
+            plan.overflow_begin = ordered.size();
+            for (int idx : color_graph.overflow) {
+                ordered.push_back(island_pairs[static_cast<std::size_t>(idx)]);
+            }
+            plan.overflow_count = ordered.size() - plan.overflow_begin;
+        } else {
+            for (int index : island.pairs) {
+                ordered.push_back(pairs[static_cast<std::size_t>(index)]);
+            }
         }
-        group_count.push_back(ordered.size() - group_begin.back());
+        plan.count = ordered.size() - plan.begin;
+        plans.push_back(std::move(plan));
     }
     pairs = std::move(ordered);
 
@@ -418,21 +512,90 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         impulses[i].point.tangent[1] = found->second.tangent[1];
     }
 
-    for (std::size_t group = 0; group < group_begin.size(); ++group) {
-        const std::span<const SolverPair3D> pair_span{pairs.data() + group_begin[group], group_count[group]};
-        const std::span<ContactImpulse3D> impulse_span{impulses.data() + group_begin[group], group_count[group]};
-        const int position_iterations = std::max(1, world.ctx<Physics3DConfig>().position_iterations);
-        for (int iteration = 0; iteration < position_iterations; ++iteration) {
-            refresh_bodies();
-            solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
-            for (int index : write_order) {
-                const std::size_t slot = static_cast<std::size_t>(index);
-                if (!bodies[slot].dynamic || slots[slot].frozen) {
-                    continue;
-                }
-                ecs::set_world_position(world, slots[slot].entity, bodies[slot].position);
+    bool has_dynamic_hierarchy = false;
+    for (const SolverSlot& slot : slots) {
+        if (slot.depth > 0 && has_awake_dynamic_ancestor_3d(world, slot.entity)) {
+            has_dynamic_hierarchy = true;
+            break;
+        }
+    }
+
+    const int position_iterations = std::max(1, world.ctx<Physics3DConfig>().position_iterations);
+    const bool can_parallel = (jobs != nullptr && jobs->worker_count() > 0 && !has_dynamic_hierarchy);
+
+    if (has_dynamic_hierarchy) {
+        for (const IslandSolvePlan3D& plan : plans) {
+            const std::span<const SolverPair3D> pair_span{pairs.data() + plan.begin, plan.count};
+            const std::span<ContactImpulse3D> impulse_span{impulses.data() + plan.begin, plan.count};
+            for (int iteration = 0; iteration < position_iterations; ++iteration) {
+                refresh_bodies();
+                solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
+                write_bodies();
             }
         }
+    } else {
+        std::vector<std::size_t> small_island_indices;
+        std::vector<std::size_t> large_island_indices;
+        small_island_indices.reserve(plans.size());
+        large_island_indices.reserve(plans.size());
+        for (std::size_t i = 0; i < plans.size(); ++i) {
+            if (plans[i].use_graph_coloring) {
+                large_island_indices.push_back(i);
+            } else {
+                small_island_indices.push_back(i);
+            }
+        }
+
+        auto solve_small_island = [&](std::size_t plan_index) {
+            const IslandSolvePlan3D& plan = plans[plan_index];
+            const std::span<const SolverPair3D> pair_span{pairs.data() + plan.begin, plan.count};
+            const std::span<ContactImpulse3D> impulse_span{impulses.data() + plan.begin, plan.count};
+            for (int iteration = 0; iteration < position_iterations; ++iteration) {
+                solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
+            }
+        };
+
+        // 1. Macro-Level: Independent small/medium islands (<= 100 dynamic bodies) execute in parallel.
+        if (can_parallel && small_island_indices.size() >= 2) {
+            jobs->parallel_for(small_island_indices.size(), 1, [&](std::size_t begin, std::size_t end) {
+                for (std::size_t i = begin; i < end; ++i) {
+                    solve_small_island(small_island_indices[i]);
+                }
+            });
+        } else {
+            for (std::size_t plan_index : small_island_indices) {
+                solve_small_island(plan_index);
+            }
+        }
+
+        // 2. Micro-Level: Large monolithic islands (> 100 dynamic bodies) use graph coloring per iteration.
+        for (std::size_t plan_index : large_island_indices) {
+            const IslandSolvePlan3D& plan = plans[plan_index];
+            for (int iteration = 0; iteration < position_iterations; ++iteration) {
+                for (std::size_t color = 0; color < plan.color_begin.size(); ++color) {
+                    const std::size_t count = plan.color_count[color];
+                    const std::span<const SolverPair3D> pair_span{pairs.data() + plan.color_begin[color], count};
+                    const std::span<ContactImpulse3D> impulse_span{impulses.data() + plan.color_begin[color], count};
+                    if (can_parallel && count >= kMinParallelContacts3D) {
+                        jobs->parallel_for(count, kParallelContactGrain3D, [&](std::size_t begin, std::size_t end) {
+                            solve_position_iteration_3d(bodies, shapes, pair_span.subspan(begin, end - begin),
+                                                        impulse_span.subspan(begin, end - begin));
+                        });
+                    } else {
+                        solve_position_iteration_3d(bodies, shapes, pair_span, impulse_span);
+                    }
+                }
+                if (plan.overflow_count > 0) {
+                    const std::span<const SolverPair3D> overflow_pairs{pairs.data() + plan.overflow_begin,
+                                                                       plan.overflow_count};
+                    const std::span<ContactImpulse3D> overflow_impulses{impulses.data() + plan.overflow_begin,
+                                                                        plan.overflow_count};
+                    solve_position_iteration_3d(bodies, shapes, overflow_pairs, overflow_impulses);
+                }
+            }
+        }
+
+        write_bodies();
     }
 
     const glm::vec3 gravity = world.ctx<Physics3DConfig>().gravity;

@@ -19,9 +19,6 @@
 [submodule "external/SDL3"]
 	path = external/SDL3
 	url = https://github.com/wismh/SDL.git
-[submodule "external/SDL_mixer"]
-	path = external/SDL_mixer
-	url = https://github.com/libsdl-org/SDL_mixer.git
 [submodule "external/lz4"]
 	path = external/lz4
 	url = https://github.com/lz4/lz4.git
@@ -32,3 +29,6 @@
 [submodule "external/cgltf"]
 	path = external/cgltf
 	url = https://github.com/jkuhlmann/cgltf.git
+[submodule "external/miniaudio"]
+	path = external/miniaudio
+	url = https://github.com/mackron/miniaudio.git

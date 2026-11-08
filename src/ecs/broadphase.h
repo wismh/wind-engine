@@ -4,6 +4,7 @@
 
 #include <glm/vec3.hpp>
 
+#include <array>
 #include <cmath>
 #include <span>
 #include <utility>
@@ -53,12 +54,27 @@ public:
         if (root_ < 0 || !aabb_valid(box)) {
             return;
         }
-        std::vector<int> stack;
-        stack.reserve(32);
-        stack.push_back(root_);
-        while (!stack.empty()) {
-            const int node_index = stack.back();
-            stack.pop_back();
+        std::array<int, 64> inline_stack;
+        std::vector<int> overflow_stack;
+        int top = 0;
+        inline_stack[static_cast<std::size_t>(top++)] = root_;
+        auto push_node = [&](int index) {
+            if (top < static_cast<int>(inline_stack.size())) {
+                inline_stack[static_cast<std::size_t>(top++)] = index;
+            } else {
+                overflow_stack.push_back(index);
+            }
+        };
+        auto pop_node = [&]() {
+            if (!overflow_stack.empty()) {
+                const int index = overflow_stack.back();
+                overflow_stack.pop_back();
+                return index;
+            }
+            return inline_stack[static_cast<std::size_t>(--top)];
+        };
+        while (top > 0 || !overflow_stack.empty()) {
+            const int node_index = pop_node();
             const Node& node = nodes_[static_cast<std::size_t>(node_index)];
             if (!aabb_overlaps(box, node.box)) {
                 continue;
@@ -67,13 +83,17 @@ public:
                 callback(node.leaf);
                 continue;
             }
-            stack.push_back(node.child2);
-            stack.push_back(node.child1);
+            push_node(node.child2);
+            push_node(node.child1);
         }
     }
 
     [[nodiscard]] bool empty() const noexcept {
         return root_ < 0;
+    }
+
+    [[nodiscard]] int height() const noexcept {
+        return root_ < 0 ? 0 : nodes_[static_cast<std::size_t>(root_)].height;
     }
 
 private:
@@ -84,10 +104,12 @@ private:
         int child2{-1};
         int leaf{-1};
         int next{-1};
+        int height{0};
     };
 
     [[nodiscard]] int allocate_node();
     void insert_leaf(int leaf);
+    [[nodiscard]] int balance(int index);
     [[nodiscard]] float leaf_cost(const Aabb& leaf_box, int child, float inheritance) const;
 
     std::vector<Node> nodes_{};

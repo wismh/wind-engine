@@ -1,5 +1,7 @@
 #include <engine/ecs/systems.h>
 
+#include <engine/audio/audio_listener.h>
+#include <engine/audio/audio_source_3d.h>
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
@@ -325,17 +327,74 @@ namespace engine {
             }
         }
 
-        // Registered only with deps.assets and deps.audio. Without them PlaySfxEvent and PlayMusicEvent are never read.
+        // Registered only with deps.assets and deps.audio. Without them sound events are never read.
         void run_audio(ecs::World &world, AssetsDb &assets, IAudioSystem &audio) {
+            for (const ecs::Entity entity : world.view<AudioListener>()) {
+                const auto &listener = world.get<AudioListener>(entity);
+                if (!listener.active) {
+                    continue;
+                }
+                glm::vec3 pos{0.f};
+                glm::vec3 forward{0.f, 0.f, -1.f};
+                glm::vec3 up{0.f, 1.f, 0.f};
+                if (const auto *wt = world.try_get<WorldTransform>(entity)) {
+                    pos = glm::vec3(wt->matrix[3]);
+                    const glm::vec3 col2 = glm::vec3(wt->matrix[2]);
+                    if (glm::length(col2) > 1e-4f) {
+                        forward = -glm::normalize(col2);
+                    }
+                    const glm::vec3 col1 = glm::vec3(wt->matrix[1]);
+                    if (glm::length(col1) > 1e-4f) {
+                        up = glm::normalize(col1);
+                    }
+                } else if (const auto *t = world.try_get<Transform>(entity)) {
+                    pos = t->position;
+                    forward = t->rotation * glm::vec3(0.f, 0.f, -1.f);
+                    up = t->rotation * glm::vec3(0.f, 1.f, 0.f);
+                }
+                audio.set_listener(pos, forward, up, listener.velocity);
+                break;
+            }
+
             for (const PlaySfxEvent &event:
                  ecs::EventReader<PlaySfxEvent>{world, world.ctx<ecs::EventCursor<PlaySfxEvent>>()}) {
                 auto sound = assets.get<Sound>(event.id);
                 audio.play_sfx(*sound, event.volume_scale);
             }
+
+            for (const PlaySpatialSfxEvent &event:
+                 ecs::EventReader<PlaySpatialSfxEvent>{world, world.ctx<ecs::EventCursor<PlaySpatialSfxEvent>>()}) {
+                auto sound = assets.get<Sound>(event.id);
+                audio.play_spatial_sfx(*sound, event.params, event.volume_scale);
+            }
+
             for (const PlayMusicEvent &event:
                  ecs::EventReader<PlayMusicEvent>{world, world.ctx<ecs::EventCursor<PlayMusicEvent>>()}) {
                 auto sound = assets.get<Sound>(event.id);
                 audio.play_music(*sound, event.loop, event.fade_seconds);
+            }
+
+            for (const ecs::Entity entity : world.view<AudioSource3D>()) {
+                auto &source = world.get<AudioSource3D>(entity);
+                if (!source.playing) {
+                    if (source.handle.valid()) {
+                        audio.stop_looping_sfx(source.handle);
+                        audio.release_looping_sfx(source.handle);
+                        source.handle = {};
+                    }
+                    continue;
+                }
+                if (const auto *wt = world.try_get<WorldTransform>(entity)) {
+                    source.params.position = glm::vec3(wt->matrix[3]);
+                } else if (const auto *t = world.try_get<Transform>(entity)) {
+                    source.params.position = t->position;
+                }
+                if (!source.handle.valid()) {
+                    source.handle = audio.create_looping_sfx();
+                    auto sound = assets.get<Sound>(source.sound);
+                    audio.play_looping_sfx(source.handle, *sound);
+                }
+                audio.set_looping_sfx_spatial(source.handle, source.params);
             }
         }
 
@@ -1297,8 +1356,10 @@ namespace engine {
             return;
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_3d(w); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                         [jobs = deps.jobs](ecs::World &w) { run_physics_2d(w, jobs); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                         [jobs = deps.jobs](ecs::World &w) { run_physics_3d(w, jobs); });
         nav::register_nav_systems(world);
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });

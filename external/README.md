@@ -24,7 +24,7 @@ Git submodules. Engine CMake owns these targets.
 
 | Dir | Repo |
 | --- | --- |
-| `SDL_mixer` | https://github.com/libsdl-org/SDL_mixer.git (`release-3.2.4`) |
+| `miniaudio` | https://github.com/mackron/miniaudio.git (MIT-0 / Public Domain) |
 
 ## GameNetworkingSockets
 

@@ -94,6 +94,9 @@ std::expected<WorldAsset, WorldLoadError> parse_world_asset(std::string_view tom
                     WorldLoadError{WorldErrorKind::InvalidEntity, "entities must be an array of tables"});
         }
         std::size_t index = 0;
+        asset.entities.reserve(arr->size());
+        ids.reserve(arr->size());
+        parent_by_id.reserve(arr->size());
         for (const toml::node& elem : *arr) {
             const toml::table* ent_tab = elem.as_table();
             if (ent_tab == nullptr) {
@@ -217,6 +220,7 @@ std::string serialize_world_asset(const WorldAsset& asset) {
 
     if (!asset.entities.empty()) {
         toml::array entities_arr;
+        entities_arr.reserve(asset.entities.size());
         for (const EntityRecord& record : asset.entities) {
             toml::table ent_tab;
             ent_tab.insert("id", record.id);

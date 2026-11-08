@@ -417,3 +417,36 @@ TEST(Physics2D, FirstSolidColliderSuppliesInertia) {
     EXPECT_NEAR(rigid.angular_velocity, -1.4867501f, 1e-4f);
     ASSERT_EQ(read_collisions(world).size(), 1u);
 }
+
+
+TEST(Physics2D, RestitutionBelowBounceThresholdIsClampedToZero) {
+    // Gravity is 0 so approach speed is controlled purely by initial velocity.
+    // At normal_speed == -kBounceThreshold (-1.0f), restitution is clamped to 0 (no bounce).
+    {
+        engine::ecs::World world = physics_world();
+        const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+        world.get<engine::BoxCollider2D>(floor).restitution = 1.f;
+        const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, 1.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+        world.get<engine::BoxCollider2D>(crate).restitution = 1.f;
+        make_dynamic(world, crate, glm::vec3{0.f, -engine::kBounceThreshold, 0.f}, 1.f);
+
+        step_physics(world);
+
+        const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+        EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-5f);
+    }
+    // Just above the threshold (-1.5f < -kBounceThreshold), full restitution bounce occurs.
+    {
+        engine::ecs::World world = physics_world();
+        const engine::ecs::Entity floor = add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{8.f, 2.f, 1.f});
+        world.get<engine::BoxCollider2D>(floor).restitution = 0.8f;
+        const engine::ecs::Entity crate = add_box(world, glm::vec3{0.f, 1.f, 0.f}, glm::vec3{2.f, 2.f, 1.f});
+        world.get<engine::BoxCollider2D>(crate).restitution = 0.8f;
+        make_dynamic(world, crate, glm::vec3{0.f, -1.5f, 0.f}, 1.f);
+
+        step_physics(world);
+
+        const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
+        EXPECT_NEAR(rigid.velocity.y, 1.5f * 0.8f, 1e-4f);
+    }
+}
