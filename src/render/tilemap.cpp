@@ -74,6 +74,7 @@ std::optional<TilemapDesc> parse_tilemap(std::string_view toml_text) {
 
         if (const toml::node* anims_node = table.get("animations")) {
             if (const toml::array* anims = anims_node->as_array()) {
+                desc.animations.reserve(anims->size());
                 for (const toml::node& anim_node : *anims) {
                     const toml::table* const anim_table = anim_node.as_table();
                     if (anim_table == nullptr) {
@@ -110,6 +111,7 @@ std::optional<TilemapDesc> parse_tilemap(std::string_view toml_text) {
             return std::nullopt;
         }
         const std::size_t cells = static_cast<std::size_t>(desc.width) * static_cast<std::size_t>(desc.height);
+        desc.layers.reserve(layers->size());
         for (const toml::node& layer_node : *layers) {
             const toml::table* const layer_table = layer_node.as_table();
             if (layer_table == nullptr) {
@@ -260,6 +262,7 @@ std::vector<TilemapChunkDraw> visible_tilemap_chunks(Tilemap& map, IGraphicFacto
     const int cy_count = map.chunks_y();
     const std::size_t per_layer = static_cast<std::size_t>(cx_count) * static_cast<std::size_t>(cy_count);
     map.chunks.resize(per_layer * map.layers.size());
+    draws.reserve(per_layer * map.layers.size());
 
     const glm::vec2 cell = map.asset->cell_size();
     for (std::size_t layer = 0; layer < map.layers.size(); ++layer) {

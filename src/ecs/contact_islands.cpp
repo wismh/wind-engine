@@ -126,6 +126,9 @@ std::vector<ContactIsland> build_contact_islands(std::span<const ecs::Entity> en
 
     std::unordered_map<int, int> island_of;
     std::vector<IslandBuilder> islands;
+    const std::size_t max_islands = std::min(entities.size(), links.size());
+    island_of.reserve(max_islands);
+    islands.reserve(max_islands);
 
     auto get_or_create_island = [&](int root) {
         const auto found = island_of.find(root);

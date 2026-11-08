@@ -188,6 +188,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     tree.query_pairs(candidates);
 
     std::vector<ItemPair> item_pairs;
+    item_pairs.reserve(candidates.size());
     for (const auto& [index_a, index_b] : candidates) {
         const ColliderItem3D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem3D& b = colliders[static_cast<std::size_t>(index_b)];
@@ -236,6 +237,9 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
 
     std::unordered_map<ecs::Entity, int> body_of;
     std::vector<SolverSlot> slots;
+    const std::size_t max_touched = std::min(colliders.size(), item_pairs.size() * 2);
+    body_of.reserve(max_touched);
+    slots.reserve(max_touched);
     auto body_for = [&](ecs::Entity entity) {
         const auto found = body_of.find(entity);
         if (found != body_of.end()) {
@@ -272,6 +276,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
 
     std::vector<int> shape_of(colliders.size(), -1);
     std::vector<SolverShape3D> shapes;
+    shapes.reserve(max_touched);
     auto shape_for = [&](int item) {
         const std::size_t index = static_cast<std::size_t>(item);
         if (shape_of[index] >= 0) {
@@ -433,14 +438,16 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
     std::vector<IslandSolvePlan3D> plans;
     ordered.reserve(pairs.size());
     plans.reserve(islands.size());
+    std::vector<SolverPair3D> island_pairs;
+    std::vector<IslandBodyPair> island_links;
 
     for (const ContactIsland& island : islands) {
         IslandSolvePlan3D plan;
         plan.begin = ordered.size();
         if (island.dynamic_body_count > kLargeIslandBodyThreshold3D) {
             plan.use_graph_coloring = true;
-            std::vector<SolverPair3D> island_pairs;
-            std::vector<IslandBodyPair> island_links;
+            island_pairs.clear();
+            island_links.clear();
             island_pairs.reserve(island.pairs.size());
             island_links.reserve(island.pairs.size());
             for (int index : island.pairs) {
@@ -452,6 +459,8 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
             }
             const ContactColorGraph color_graph =
                     build_contact_color_graph(static_cast<int>(slots.size()), writable_mask, island_links);
+            plan.color_begin.reserve(color_graph.colors.size());
+            plan.color_count.reserve(color_graph.colors.size());
             for (const std::vector<int>& bucket : color_graph.colors) {
                 if (bucket.empty()) {
                     continue;
@@ -528,6 +537,7 @@ void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem
         std::vector<std::size_t> small_island_indices;
         std::vector<std::size_t> large_island_indices;
         small_island_indices.reserve(plans.size());
+        large_island_indices.reserve(plans.size());
         for (std::size_t i = 0; i < plans.size(); ++i) {
             if (plans[i].use_graph_coloring) {
                 large_island_indices.push_back(i);

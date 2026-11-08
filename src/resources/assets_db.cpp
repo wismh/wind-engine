@@ -456,6 +456,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_animation(
     clip->loop = desc->loop;
     const float default_duration = 1.0f / desc->fps;
 
+    clip->frames.reserve(desc->frames.size());
     for (const auto& frame_desc : desc->frames) {
         auto sprite_res = db.try_get_sprite(frame_desc.texture, frame_desc.sprite);
         if (!sprite_res) {
@@ -548,6 +549,7 @@ void AssetsDb::unload_catalog(const std::filesystem::path& files_root) {
         return;
     }
     std::unordered_set<std::string_view> gone;
+    gone.reserve(removed.size());
     for (const AssetId& id : removed) {
         gone.insert(id.hex());
     }

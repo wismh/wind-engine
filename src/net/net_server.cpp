@@ -453,6 +453,7 @@ void capture_world(ecs::World& world, NetServer::Impl& server) {
 [[nodiscard]] std::vector<glm::ivec3> peer_focus_cells(const NetServer::Impl& server, const NetServer::Impl::Peer& client,
         PeerId peer) {
     std::vector<glm::ivec3> cells;
+    cells.reserve(client.focuses.size() + 4);
     const float cell_size = server.config.interest.cell_size;
     for (std::size_t i = 0; i < server.capture.entities.size(); ++i) {
         if (server.capture.entities[i].owner == peer && server.capture_info[i].spatial) {
@@ -521,6 +522,7 @@ void capture_world(ecs::World& world, NetServer::Impl& server) {
     // Whatever the filter said: what the peer owns, what is always relevant, and everything those hang from, without
     // which the client would place a child in the wrong space.
     std::vector<RelevantEntity> relevant;
+    relevant.reserve(entities.size());
     for (std::size_t i = 0; i < entities.size(); ++i) {
         if (entities[i].owner == peer || server.capture_info[i].always) {
             marks[i] = 1;

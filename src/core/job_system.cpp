@@ -198,6 +198,7 @@ struct JobSystem::Impl {
     void cancel_all() {
         std::vector<DoomedSlot> doomed;
         std::unique_lock lock(mutex);
+        doomed.reserve(queue.size() + finished.size());
         for (const Queued& entry : queue) {
             doomed.push_back(drop(*entry.state));
         }
@@ -405,6 +406,7 @@ void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* co
     }
 
     auto job = std::make_shared<Impl::Batch>();
+    job->ranges.reserve((count + span - 1) / span);
     for (std::size_t begin = 0; begin < count; begin += span) {
         job->ranges.push_back(Impl::Range{.begin = begin, .end = std::min(begin + span, count)});
     }

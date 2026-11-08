@@ -694,6 +694,7 @@ void register_builtin_components(
                     in.fail("post_stack effects is not an array");
                     return;
                 }
+                component.effects.reserve(effects->size());
                 for (const FieldValue& element : *effects) {
                     const FieldTable* table = element.as_table();
                     if (table == nullptr) {
@@ -976,6 +977,7 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
     expanded_entities.reserve(asset.entities.size());
 
     std::unordered_map<std::string, const EntityRecord*> explicit_entity_overrides;
+    explicit_entity_overrides.reserve(asset.entities.size());
     for (const EntityRecord& record : asset.entities) {
         explicit_entity_overrides.emplace(record.id, &record);
     }
@@ -1085,6 +1087,7 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
 
     InstantiatedWorld result;
     result.entities.reserve(expanded_entities.size());
+    result.by_id.reserve(expanded_entities.size());
     for (const EntityRecord& record : expanded_entities) {
         const Entity entity = world.create();
         world.emplace<EntityName>(entity, EntityName{record.id});
@@ -1203,6 +1206,7 @@ WorldAsset capture_world_asset(const World& world, const WorldSerializer* serial
     std::unordered_map<std::uint32_t, std::string> id_by_index;
     std::unordered_set<std::string> used_ids;
     id_by_index.reserve(entities.size());
+    used_ids.reserve(entities.size());
 
     for (const Entity entity : entities) {
         if (world.try_get<ModelPartTag>(entity) != nullptr) {

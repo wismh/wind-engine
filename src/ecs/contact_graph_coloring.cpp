@@ -16,6 +16,7 @@ ContactColorGraph build_contact_color_graph(int body_count,
     }
 
     const int capped_colors = std::clamp(max_colors, 1, 64);
+    graph.colors.reserve(static_cast<std::size_t>(std::min(capped_colors, 16)));
     const bool has_writable_mask = (static_cast<int>(writable_body.size()) == body_count);
 
     auto is_writable = [&](int body) noexcept {
