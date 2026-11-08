@@ -1,5 +1,6 @@
 #include "bench_3d.h"
 
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
@@ -21,9 +22,9 @@ void step_physics(ecs::World& world) {
     world.run(ecs::Schedule::Fixed);
 }
 
-[[nodiscard]] ecs::World make_physics_world(glm::vec3 gravity = {0.f, -60.f, 0.f}) {
+[[nodiscard]] ecs::World make_physics_world(JobSystem* jobs, glm::vec3 gravity = {0.f, -60.f, 0.f}) {
     ecs::World world;
-    register_engine_systems(world);
+    register_engine_systems(world, EngineSystemDeps{.jobs = jobs});
     world.ctx<Physics3DConfig>().gravity = gravity;
     return world;
 }
@@ -106,8 +107,8 @@ struct StepTiming {
 }
 
 // 1. Vertical Stack of 10 Boxes in 3D
-BenchResult bench_box_stack_10(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_box_stack_10(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
     add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{10.f, 2.f, 10.f}, 0.5f);
 
     constexpr int kBoxes = 10;
@@ -142,8 +143,8 @@ BenchResult bench_box_stack_10(int total_steps) {
 }
 
 // 2. Massive Static Voxel Grid: 20x20x3 = 1200 static cubes + 20 dynamic spheres
-BenchResult bench_massive_voxel_grid(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_massive_voxel_grid(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
 
     constexpr int kDimX = 20;
     constexpr int kDimZ = 20;
@@ -189,8 +190,8 @@ BenchResult bench_massive_voxel_grid(int total_steps) {
 }
 
 // 3. 3D Sphere Funnel / Pit (80 spheres falling into an enclosed container)
-BenchResult bench_sphere_funnel(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_sphere_funnel(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
 
     // 4 walls and floor
     add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{10.f, 2.f, 10.f}, 0.3f);
@@ -226,9 +227,86 @@ BenchResult bench_sphere_funnel(int total_steps) {
     };
 }
 
-// 4. 3D Zero-G Broadphase: 500 moving dynamic boxes
-BenchResult bench_broadphase_zero_g_3d(int total_steps) {
-    ecs::World world = make_physics_world(glm::vec3{0.f});
+// 4. 3D Multi-Island Stacks (8 stacks x 8 boxes = 64 dynamic boxes on shared floor)
+BenchResult bench_multi_island_stacks(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
+    add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{80.f, 2.f, 80.f}, 0.5f);
+
+    constexpr int kStacks = 8;
+    constexpr int kHeight = 8;
+    constexpr float kBoxSize = 1.f;
+    for (int s = 0; s < kStacks; ++s) {
+        const float x = (static_cast<float>(s) - 3.5f) * 6.f;
+        for (int i = 0; i < kHeight; ++i) {
+            const float y = (kBoxSize * 0.5f) + static_cast<float>(i) * kBoxSize;
+            const ecs::Entity box =
+                    add_box(world, glm::vec3{x, y, 0.f}, glm::vec3{kBoxSize, kBoxSize, kBoxSize}, 0.5f);
+            make_dynamic(world, box, 1.f);
+        }
+    }
+
+    const StepTiming timing = measure_steps(world, total_steps);
+    const int sleeping = count_sleeping(world);
+
+    return BenchResult{
+            .name = "3D Multi-Island (8x8 = 64 boxes)",
+            .steps = total_steps,
+            .total_entities = (kStacks * kHeight) + 1,
+            .dynamic_bodies = kStacks * kHeight,
+            .static_bodies = 1,
+            .total_ms = timing.total_ms,
+            .mean_us = timing.mean_us,
+            .min_us = timing.min_us,
+            .max_us = timing.max_us,
+            .sleeping_at_end = sleeping,
+            .passed_stability = true,
+            .notes = "Tests macro-level parallel 3D island solver",
+    };
+}
+
+// 5. 3D Large Island Pile (5x5x5 = 125 touching dynamic boxes > 100 threshold)
+BenchResult bench_large_island_pile(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
+    add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{30.f, 2.f, 30.f}, 0.5f);
+
+    constexpr int kDim = 5;
+    constexpr float kBoxSize = 1.f;
+    constexpr float kPitch = 0.99f;
+    for (int y = 0; y < kDim; ++y) {
+        for (int z = 0; z < kDim; ++z) {
+            for (int x = 0; x < kDim; ++x) {
+                const float px = (static_cast<float>(x) - 2.f) * kPitch;
+                const float py = (kBoxSize * 0.5f) + static_cast<float>(y) * kPitch;
+                const float pz = (static_cast<float>(z) - 2.f) * kPitch;
+                const ecs::Entity box =
+                        add_box(world, glm::vec3{px, py, pz}, glm::vec3{kBoxSize, kBoxSize, kBoxSize}, 0.5f);
+                make_dynamic(world, box, 1.f);
+            }
+        }
+    }
+
+    const StepTiming timing = measure_steps(world, total_steps);
+    constexpr int kTotal = kDim * kDim * kDim;
+
+    return BenchResult{
+            .name = "3D Large Island (125 dynamic boxes)",
+            .steps = total_steps,
+            .total_entities = kTotal + 1,
+            .dynamic_bodies = kTotal,
+            .static_bodies = 1,
+            .total_ms = timing.total_ms,
+            .mean_us = timing.mean_us,
+            .min_us = timing.min_us,
+            .max_us = timing.max_us,
+            .sleeping_at_end = count_sleeping(world),
+            .passed_stability = true,
+            .notes = "Tests micro-level graph coloring for >100 body island",
+    };
+}
+
+// 6. 3D Zero-G Broadphase: 500 moving dynamic boxes
+BenchResult bench_broadphase_zero_g_3d(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs, glm::vec3{0.f});
 
     constexpr int kCount = 500;
     for (int i = 0; i < kCount; ++i) {
@@ -263,15 +341,18 @@ BenchResult bench_broadphase_zero_g_3d(int total_steps) {
 
 }
 
-std::vector<BenchResult> run_all_3d_benchmarks(int steps_override) {
+std::vector<BenchResult> run_all_3d_benchmarks(int steps_override, std::uint32_t worker_threads) {
+    JobSystem jobs(worker_threads);
     const int stack_steps = steps_override > 0 ? steps_override : 240;
     const int general_steps = steps_override > 0 ? steps_override : 180;
 
     return {
-            bench_box_stack_10(stack_steps),
-            bench_massive_voxel_grid(general_steps),
-            bench_sphere_funnel(general_steps),
-            bench_broadphase_zero_g_3d(general_steps),
+            bench_box_stack_10(stack_steps, &jobs),
+            bench_massive_voxel_grid(general_steps, &jobs),
+            bench_sphere_funnel(general_steps, &jobs),
+            bench_multi_island_stacks(general_steps, &jobs),
+            bench_large_island_pile(general_steps, &jobs),
+            bench_broadphase_zero_g_3d(general_steps, &jobs),
     };
 }
 

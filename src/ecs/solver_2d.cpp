@@ -41,7 +41,7 @@ float combined_restitution(float a, float b) {
 }
 
 void apply_impulse(SolverBody2D& body, glm::vec2 direction, float scalar, float lever_arm) {
-    if (!body.dynamic || scalar == 0.f) {
+    if (!body.dynamic || body.inverse_mass <= 0.f || scalar == 0.f) {
         return;
     }
     body.velocity += direction * (scalar * body.inverse_mass);
@@ -107,10 +107,10 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
                 pos_dir = glm::vec2{std::copysign(1.f, pos_dir.x), 0.f};
             }
             const float correction = depth / inverse;
-            if (body_a.dynamic) {
+            if (body_a.dynamic && body_a.inverse_mass > 0.f) {
                 body_a.position -= pos_dir * (correction * body_a.inverse_mass);
             }
-            if (body_b.dynamic) {
+            if (body_b.dynamic && body_b.inverse_mass > 0.f) {
                 body_b.position += pos_dir * (correction * body_b.inverse_mass);
             }
         }

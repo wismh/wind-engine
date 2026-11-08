@@ -58,7 +58,7 @@ void tangent_basis(glm::vec3 normal, glm::vec3& tangent, glm::vec3& bitangent) {
 }
 
 void apply_impulse(SolverBody3D& body, glm::vec3 direction, float scalar, glm::vec3 lever) {
-    if (!body.dynamic || scalar == 0.f) {
+    if (!body.dynamic || body.inverse_mass <= 0.f || scalar == 0.f) {
         return;
     }
     body.velocity += direction * (scalar * body.inverse_mass);
@@ -106,10 +106,10 @@ void solve_position_iteration_3d(std::span<SolverBody3D> bodies, std::span<const
         const float inverse = body_a.inverse_mass + body_b.inverse_mass;
         if (inverse != 0.f && depth != 0.f) {
             const float correction = depth / inverse;
-            if (body_a.dynamic) {
+            if (body_a.dynamic && body_a.inverse_mass > 0.f) {
                 body_a.position -= normal * (correction * body_a.inverse_mass);
             }
-            if (body_b.dynamic) {
+            if (body_b.dynamic && body_b.inverse_mass > 0.f) {
                 body_b.position += normal * (correction * body_b.inverse_mass);
             }
         }

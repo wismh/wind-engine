@@ -1297,8 +1297,10 @@ namespace engine {
             return;
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_3d(w); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                         [jobs = deps.jobs](ecs::World &w) { run_physics_2d(w, jobs); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                         [jobs = deps.jobs](ecs::World &w) { run_physics_3d(w, jobs); });
         nav::register_nav_systems(world);
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });

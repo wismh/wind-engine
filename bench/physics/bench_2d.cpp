@@ -1,5 +1,6 @@
 #include "bench_2d.h"
 
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
@@ -21,9 +22,9 @@ void step_physics(ecs::World& world) {
     world.run(ecs::Schedule::Fixed);
 }
 
-[[nodiscard]] ecs::World make_physics_world(glm::vec3 gravity = {0.f, -60.f, 0.f}) {
+[[nodiscard]] ecs::World make_physics_world(JobSystem* jobs, glm::vec3 gravity = {0.f, -60.f, 0.f}) {
     ecs::World world;
-    register_engine_systems(world);
+    register_engine_systems(world, EngineSystemDeps{.jobs = jobs});
     world.ctx<Physics2DConfig>().gravity = gravity;
     return world;
 }
@@ -94,8 +95,8 @@ struct StepTiming {
 }
 
 // 1. Box2D Classic Pyramid (10 rows = 55 boxes)
-BenchResult bench_pyramid_10(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_pyramid_10(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
     add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{40.f, 2.f, 1.f}, 0.5f);
 
     constexpr int kRows = 10;
@@ -143,8 +144,8 @@ BenchResult bench_pyramid_10(int total_steps) {
 }
 
 // 2. Box2D Classic Pyramid 20 rows (210 boxes)
-BenchResult bench_pyramid_20(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_pyramid_20(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
     world.ctx<Physics2DConfig>().position_iterations = 16;
     add_box(world, glm::vec3{0.f, -1.f, 0.f}, glm::vec3{80.f, 2.f, 1.f}, 0.5f);
 
@@ -193,8 +194,8 @@ BenchResult bench_pyramid_20(int total_steps) {
 }
 
 // 3. Massive Static Tilemap with Movers: 50x50 = 2500 static blocks + 20 dynamic boxes
-BenchResult bench_massive_tilemap(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_massive_tilemap(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
 
     constexpr int kGridW = 50;
     constexpr int kGridH = 50;
@@ -234,8 +235,8 @@ BenchResult bench_massive_tilemap(int total_steps) {
 }
 
 // 4. Clustered Avalanche / Funnel (150 dynamic boxes into V-funnel)
-BenchResult bench_funnel(int total_steps) {
-    ecs::World world = make_physics_world();
+BenchResult bench_funnel(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs);
 
     // Left ramp, right ramp and floor
     add_box(world, glm::vec3{-10.f, 10.f, 0.f}, glm::vec3{25.f, 1.f, 1.f}, 0.3f);
@@ -269,8 +270,8 @@ BenchResult bench_funnel(int total_steps) {
 }
 
 // 5. Broadphase Zero-G: 1000 dynamic boxes moving in closed arena
-BenchResult bench_broadphase_zero_g(int total_steps) {
-    ecs::World world = make_physics_world(glm::vec3{0.f});
+BenchResult bench_broadphase_zero_g(int total_steps, JobSystem* jobs) {
+    ecs::World world = make_physics_world(jobs, glm::vec3{0.f});
 
     constexpr int kCount = 1000;
     for (int i = 0; i < kCount; ++i) {
@@ -302,16 +303,17 @@ BenchResult bench_broadphase_zero_g(int total_steps) {
 
 }
 
-std::vector<BenchResult> run_all_2d_benchmarks(int steps_override) {
+std::vector<BenchResult> run_all_2d_benchmarks(int steps_override, std::uint32_t worker_threads) {
+    JobSystem jobs(worker_threads);
     const int pyramid_steps = steps_override > 0 ? steps_override : 300;
     const int general_steps = steps_override > 0 ? steps_override : 180;
 
     return {
-            bench_pyramid_10(pyramid_steps),
-            bench_pyramid_20(pyramid_steps),
-            bench_massive_tilemap(general_steps),
-            bench_funnel(general_steps),
-            bench_broadphase_zero_g(general_steps),
+            bench_pyramid_10(pyramid_steps, &jobs),
+            bench_pyramid_20(pyramid_steps, &jobs),
+            bench_massive_tilemap(general_steps, &jobs),
+            bench_funnel(general_steps, &jobs),
+            bench_broadphase_zero_g(general_steps, &jobs),
     };
 }
 

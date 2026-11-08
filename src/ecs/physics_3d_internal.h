@@ -107,6 +107,7 @@ void integrate_dynamic_3d(ecs::World& world, float dt);
 
 [[nodiscard]] std::vector<ColliderItem3D> gather_colliders_3d(ecs::World& world);
 void publish_collision_events_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders);
-void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders);
+void solve_physics_contacts_3d(ecs::World& world, const std::vector<ColliderItem3D>& colliders,
+                               JobSystem* jobs = nullptr);
 
 }

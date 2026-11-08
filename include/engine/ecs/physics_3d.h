@@ -13,6 +13,8 @@
 
 namespace engine {
 
+class JobSystem;
+
 struct RigidBody3D {
     glm::vec3 velocity{0.f};          // Kinematic: parent space. Dynamic: world space.
     glm::vec3 angular_velocity{0.f};  // radians/sec about world axes. Kinematic and static are not integrated
@@ -76,6 +78,6 @@ struct CollisionEvent3D {
     constexpr bool operator==(const CollisionEvent3D&) const noexcept = default;
 };
 
-void run_physics_3d(ecs::World& world);
+void run_physics_3d(ecs::World& world, JobSystem* jobs = nullptr);
 
 }
