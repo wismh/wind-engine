@@ -4,30 +4,22 @@
 
 #include <string>
 
-#ifdef ENGINE_WITH_AUDIO
-struct MIX_Audio;
-struct MIX_Mixer;
-#endif
-
 namespace engine {
-
-struct Audio::Impl {
-    std::string path;
-#ifdef ENGINE_WITH_AUDIO
-    MIX_Audio* mix = nullptr;
-#endif
-};
 
 struct AudioAccess {
     static Audio::Impl& get(Audio& audio) {
         return *audio.impl_;
     }
+    static const Audio::Impl& get(const Audio& audio) {
+        return *audio.impl_;
+    }
+};
+
+struct Audio::Impl {
+    std::string path;
 };
 
 void audio_set_path(Audio& audio, std::string path);
+[[nodiscard]] const std::string& audio_get_path(const Audio& audio);
 
-#ifdef ENGINE_WITH_AUDIO
-[[nodiscard]] MIX_Audio* audio_decoded(Audio& audio, MIX_Mixer* mixer);
-#endif
-
-}
+} // namespace engine

@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <engine/audio/audio_listener.h>
+#include <engine/audio/audio_source_3d.h>
 #include <engine/audio/audio_system.h>
+#include <engine/audio/events.h>
 #include <engine/audio/sound.h>
+#include <engine/audio/spatial.h>
 
 #include <memory>
 
@@ -169,4 +173,68 @@ TEST(Audio, StopAllSilencesEverythingAndKeepsVolumes) {
     EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.5f);
     audio.play_sfx(sound);
     EXPECT_EQ(audio.sfx_playing_count(), 1);
+}
+
+TEST(Audio, AttenuationFormula) {
+    using namespace engine;
+    using namespace engine::audio;
+
+    // Linear attenuation: min=10, max=100
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Linear, 5.f, 10.f, 100.f, 1.f), 1.f);
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Linear, 10.f, 10.f, 100.f, 1.f), 1.f);
+    EXPECT_NEAR(calculate_attenuation(AttenuationModel::Linear, 55.f, 10.f, 100.f, 1.f), 0.5f, 1e-4f);
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Linear, 100.f, 10.f, 100.f, 1.f), 0.f);
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Linear, 150.f, 10.f, 100.f, 1.f), 0.f);
+
+    // Inverse attenuation: min=1, rolloff=1, dist=2 -> 1 / (1 + 1 * (2 - 1)) = 0.5
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Inverse, 1.f, 1.f, 100.f, 1.f), 1.f);
+    EXPECT_FLOAT_EQ(calculate_attenuation(AttenuationModel::Inverse, 2.f, 1.f, 100.f, 1.f), 0.5f);
+}
+
+TEST(Audio, SpatialSfxPositionAndListener) {
+    engine::AudioSystem audio;
+    audio.set_listener({0.f, 0.f, 0.f}, {0.f, 0.f, -1.f}, {0.f, 1.f, 0.f});
+
+    EXPECT_FLOAT_EQ(audio.listener_position().x, 0.f);
+    EXPECT_FLOAT_EQ(audio.listener_forward().z, -1.f);
+
+    const engine::Sound sound = make_sound(1.f);
+
+    // Sound at listener position: full volume
+    engine::SpatialAudioParams params;
+    params.position = {0.f, 0.f, 0.f};
+    params.min_distance = 1.f;
+    params.max_distance = 100.f;
+    params.attenuation = engine::AttenuationModel::Linear;
+
+    audio.play_spatial_sfx(sound, params);
+    EXPECT_FLOAT_EQ(audio.last_sfx_gain(), 1.f);
+
+    // Sound 50.5 units away with Linear model: gain should be ~0.5
+    params.position = {50.5f, 0.f, 0.f};
+    audio.play_spatial_sfx(sound, params);
+    EXPECT_NEAR(audio.last_sfx_gain(), 0.5f, 0.01f);
+
+    // Moving listener to sound position restores full volume
+    audio.set_listener({50.5f, 0.f, 0.f});
+    audio.play_spatial_sfx(sound, params);
+    EXPECT_FLOAT_EQ(audio.last_sfx_gain(), 1.f);
+}
+
+TEST(Audio, SpatialLoopingSfxParams) {
+    engine::AudioSystem audio;
+    const engine::LoopingSfxHandle handle = audio.create_looping_sfx();
+    ASSERT_TRUE(handle.valid());
+
+    audio.play_looping_sfx(handle, make_sound(1.f));
+    EXPECT_EQ(audio.looping_track_count(), 1);
+
+    engine::SpatialAudioParams params;
+    params.position = {15.f, 0.f, -5.f};
+    params.min_distance = 2.f;
+    audio.set_looping_sfx_spatial(handle, params);
+
+    audio.stop_looping_sfx(handle);
+    audio.release_looping_sfx(handle);
+    EXPECT_EQ(audio.looping_track_count(), 0);
 }
