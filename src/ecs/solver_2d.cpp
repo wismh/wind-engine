@@ -99,7 +99,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
         const glm::vec2 origin_b = body_b.position;
         const float depth = std::max(0.f, manifold.points[0].penetration - kContactSlop);
         const float inverse = body_a.inverse_mass + body_b.inverse_mass;
-        if (inverse != 0.f && depth != 0.f) {
+        if (inverse > 0.f && depth > 0.f && std::isfinite(depth)) {
             glm::vec2 pos_dir = normal;
             if (std::abs(pos_dir.x) < 0.2f) {
                 pos_dir = glm::vec2{0.f, std::copysign(1.f, pos_dir.y)};
@@ -114,7 +114,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
                 body_b.position += pos_dir * (correction * body_b.inverse_mass);
             }
         }
-        if (inverse == 0.f) {
+        if (inverse <= 0.f) {
             continue;
         }
 
@@ -134,7 +134,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
                                 rn_b * rn_b * body_b.inverse_inertia;
             const float inv_t = body_a.inverse_mass + body_b.inverse_mass + rt_a * rt_a * body_a.inverse_inertia +
                                 rt_b * rt_b * body_b.inverse_inertia;
-            if (inv_n == 0.f && inv_t == 0.f) {
+            if (inv_n <= 0.f && inv_t <= 0.f) {
                 continue;
             }
 
@@ -145,7 +145,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
 
             ContactPointImpulse2D& point_impulse = accumulated.points[point_index];
             float normal_delta = 0.f;
-            if (inv_n != 0.f && (normal_speed < 0.f || base_restitution == 0.f)) {
+            if (inv_n > 0.f && (normal_speed < 0.f || base_restitution == 0.f)) {
                 normal_delta = -(1.f + restitution) * normal_speed / inv_n;
             }
             if (point_impulse.normal + normal_delta < 0.f) {
@@ -155,7 +155,7 @@ void solve_position_iteration_2d(std::span<SolverBody2D> bodies, std::span<const
 
             const float tangent_limit = friction * point_impulse.normal;
             float tangent_candidate = point_impulse.tangent;
-            if (inv_t != 0.f) {
+            if (inv_t > 0.f) {
                 tangent_candidate = point_impulse.tangent + (-tangent_speed / inv_t);
             }
             const float clamped_tangent = std::clamp(tangent_candidate, -tangent_limit, tangent_limit);

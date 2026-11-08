@@ -76,6 +76,10 @@ public:
         return root_ < 0;
     }
 
+    [[nodiscard]] int height() const noexcept {
+        return root_ < 0 ? 0 : nodes_[static_cast<std::size_t>(root_)].height;
+    }
+
 private:
     struct Node {
         Aabb box{};
@@ -84,10 +88,12 @@ private:
         int child2{-1};
         int leaf{-1};
         int next{-1};
+        int height{0};
     };
 
     [[nodiscard]] int allocate_node();
     void insert_leaf(int leaf);
+    [[nodiscard]] int balance(int index);
     [[nodiscard]] float leaf_cost(const Aabb& leaf_box, int child, float inheritance) const;
 
     std::vector<Node> nodes_{};
