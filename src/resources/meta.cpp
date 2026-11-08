@@ -201,6 +201,7 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
         if (arr == nullptr) {
             return std::unexpected(MetaError::InvalidField);
         }
+        texture.sprites.reserve(arr->size());
         for (const toml::node& sprite_elem : *arr) {
             const toml::table* const sprite_tab = sprite_elem.as_table();
             if (sprite_tab == nullptr) {
@@ -304,6 +305,7 @@ std::expected<void, MetaError> apply_optional_model(
     if (arr == nullptr) {
         return std::unexpected(MetaError::InvalidField);
     }
+    model.markers.reserve(arr->size());
     for (const toml::node& marker_elem : *arr) {
         const toml::table* const marker_tab = marker_elem.as_table();
         if (marker_tab == nullptr) {

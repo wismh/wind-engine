@@ -36,9 +36,10 @@ bool World::valid(Entity entity) const {
 
 std::vector<Entity> World::alive_entities() const {
     std::vector<Entity> out;
+    out.reserve(alive_.size() >= free_list_.size() ? alive_.size() - free_list_.size() : alive_.size());
     for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(alive_.size()); ++i) {
         if (alive_[i] != 0) {
-            out.push_back(Entity{i, generations_[i]});
+            out.emplace_back(i, generations_[i]);
         }
     }
     return out;
@@ -70,7 +71,11 @@ void World::destroy_immediate(Entity entity) {
             }
         }
     }
-    std::vector<Entity> doomed{entity};
+    std::vector<Entity> doomed;
+    if (const Children* root_children = try_get<Children>(entity)) {
+        doomed.reserve(1 + root_children->entities.size());
+    }
+    doomed.push_back(entity);
     for (std::size_t i = 0; i < doomed.size(); ++i) {
         const Children* children = try_get<Children>(doomed[i]);
         if (children == nullptr) {

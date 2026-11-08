@@ -71,8 +71,9 @@ namespace engine::ui {
                 return glm::vec2{origin_x + (point.x - picture.min_x) * scale,
                                  origin_y + (point.y - picture.min_y) * scale};
             };
+            std::vector<PathSegment> mapped;
             for (const SvgShape &shape : picture.shapes) {
-                std::vector<PathSegment> mapped;
+                mapped.clear();
                 mapped.reserve(shape.segments.size());
                 for (const PathSegment &segment : shape.segments) {
                     PathSegment out = segment;
@@ -1309,6 +1310,7 @@ namespace engine::ui {
             cache.pseudo = pseudo_state_bits(element);
             cache.custom_properties = element.custom_properties;
             cache.ancestors.clear();
+            cache.ancestors.reserve(ancestors.size());
             for (const Element *ancestor : ancestors) {
                 cache.ancestors.push_back(ancestor->handle);
             }

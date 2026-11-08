@@ -62,7 +62,7 @@ ModelNodePose sample_key(const ModelClip& clip, int node, float time, bool loop,
 }
 
 void emit_cue(std::vector<ModelAnimCue>& cues, std::string_view clip, std::string_view name) {
-    cues.push_back(ModelAnimCue{std::string(clip), std::string(name)});
+    cues.emplace_back(std::string(clip), std::string(name));
 }
 
 void emit_window(std::vector<ModelAnimCue>& cues, const ModelClip& clip, float begin, float end, bool include_zero) {
@@ -75,6 +75,7 @@ void emit_window(std::vector<ModelAnimCue>& cues, const ModelClip& clip, float b
 }
 
 void emit_all(std::vector<ModelAnimCue>& cues, const ModelClip& clip) {
+    cues.reserve(cues.size() + clip.markers.size());
     for (const ModelMarker& marker : clip.markers) {
         emit_cue(cues, clip.name, marker.name);
     }

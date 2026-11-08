@@ -210,6 +210,7 @@ std::optional<SnapshotDelta> decode_snapshot(ByteReader& reader, Tick tick, std:
                 (record.changed & record.lost) != 0) {
             return std::nullopt;
         }
+        record.blobs.reserve(static_cast<std::size_t>(std::popcount(record.changed)));
         for (std::uint32_t bits = record.changed; bits != 0; bits &= bits - 1u) {
             const auto size = reader.read_u16();
             if (!size.has_value()) {

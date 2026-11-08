@@ -208,6 +208,7 @@ std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world) {
 void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
                                std::span<const std::pair<int, int>> candidate_pairs, JobSystem* jobs) {
     std::vector<ItemPair> item_pairs;
+    item_pairs.reserve(candidate_pairs.size());
     for (const auto& [index_a, index_b] : candidate_pairs) {
         const ColliderItem2D& a = colliders[static_cast<std::size_t>(index_a)];
         const ColliderItem2D& b = colliders[static_cast<std::size_t>(index_b)];
@@ -259,6 +260,9 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
 
     std::unordered_map<ecs::Entity, int> body_of;
     std::vector<SolverSlot> slots;
+    const std::size_t max_touched = std::min(colliders.size(), item_pairs.size() * 2);
+    body_of.reserve(max_touched);
+    slots.reserve(max_touched);
     auto body_for = [&](ecs::Entity entity) {
         const auto found = body_of.find(entity);
         if (found != body_of.end()) {
@@ -295,6 +299,7 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
 
     std::vector<int> shape_of(colliders.size(), -1);
     std::vector<SolverShape2D> shapes;
+    shapes.reserve(max_touched);
     auto shape_for = [&](int item) {
         const std::size_t index = static_cast<std::size_t>(item);
         if (shape_of[index] >= 0) {

@@ -26,6 +26,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
     std::vector<StaticColliderItem2D> static_items;
     std::vector<DynamicItem> dynamic_items;
     static_items.reserve(colliders.size());
+    dynamic_items.reserve(colliders.size());
 
     for (std::size_t i = 0; i < colliders.size(); ++i) {
         const ColliderItem2D& item = colliders[i];
@@ -93,6 +94,7 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
 
     std::vector<std::pair<int, int>> dyn_pairs;
     bp.dynamic_tree.query_pairs(dyn_pairs);
+    candidates.reserve(dyn_pairs.size() + dynamic_items.size());
     for (const auto& [d1, d2] : dyn_pairs) {
         const int idx_a = dynamic_items[static_cast<std::size_t>(d1)].collider_index;
         const int idx_b = dynamic_items[static_cast<std::size_t>(d2)].collider_index;

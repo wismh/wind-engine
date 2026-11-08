@@ -79,6 +79,9 @@ std::expected<PrototypeAsset, PrototypeLoadError> parse_prototype_asset(std::str
                     PrototypeErrorKind::InvalidEntity, "entities must be an array of tables"});
         }
         std::size_t index = 0;
+        asset.entities.reserve(arr->size());
+        ids.reserve(arr->size());
+        parent_by_id.reserve(arr->size());
         for (const toml::node& elem : *arr) {
             const toml::table* ent_tab = elem.as_table();
             if (ent_tab == nullptr) {
@@ -199,6 +202,7 @@ std::string serialize_prototype_asset(const PrototypeAsset& asset) {
 
     if (!asset.entities.empty()) {
         toml::array entities_arr;
+        entities_arr.reserve(asset.entities.size());
         for (const EntityRecord& record : asset.entities) {
             toml::table ent_tab;
             ent_tab.insert("id", record.id);
@@ -265,6 +269,8 @@ std::expected<PrototypeAsset, PrototypeLoadError> resolve_prototype_asset(
 
         PrototypeAsset merged = std::move(*resolved_base);
         std::unordered_map<std::string, std::size_t> entity_index_by_id;
+        entity_index_by_id.reserve(merged.entities.size() + current.entities.size());
+        merged.entities.reserve(merged.entities.size() + current.entities.size());
         for (std::size_t i = 0; i < merged.entities.size(); ++i) {
             entity_index_by_id.emplace(merged.entities[i].id, i);
         }
