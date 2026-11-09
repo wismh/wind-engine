@@ -32,7 +32,8 @@ inline constexpr std::uint64_t kModeBits = (1ull << 24) | (3ull << 22) | (1ull <
 }
 
 #if defined(_M_ARM64)
-inline constexpr int kFpcr = ARM64_SYSREG(3, 3, 4, 4, 0);
+// ARM64_SYSREG(3, 3, 4, 4, 0), spelled out: not every intrin.h defines the macro.
+inline constexpr int kFpcr = (1 << 14) | (3 << 11) | (4 << 7) | (4 << 3) | 0;
 
 [[nodiscard]] std::uint64_t read_fpcr() noexcept {
     return static_cast<std::uint64_t>(_ReadStatusReg(kFpcr));
