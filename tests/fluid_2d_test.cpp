@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/core/det_math.h>
 #include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/fluid_2d.h>
@@ -524,4 +525,112 @@ TEST(Fluid2D, StepsAfterPhysicsWhereverInstalled) {
     const engine::ecs::Entity b = order_probe(late);
     step(late);
     EXPECT_NE(late.get<engine::Fluid2D>(b).positions()[0], glm::vec2(1.f, 0.5f));
+}
+
+// LQ-59: swept boundaries. A particle that moves much farther than a wall is thick in one substep stops at the wall
+// instead of crossing it.
+
+namespace {
+
+// Particles in a column at x = 0, `spacing` apart (beyond the kernel, so they do not interact), all moving at
+// `velocity`.
+void fire_column(engine::Fluid2D& fluid, glm::vec2 velocity, int count = 9, float spacing = 0.4f) {
+    for (int i = 0; i < count; ++i) {
+        ASSERT_TRUE(fluid.spawn({0.f, (static_cast<float>(i) - static_cast<float>(count / 2)) * spacing}, velocity));
+    }
+}
+
+float max_x(const engine::Fluid2D& fluid) {
+    float highest = -1.0e9f;
+    for (const glm::vec2 p : fluid.positions()) {
+        highest = std::max(highest, p.x);
+    }
+    return highest;
+}
+
+}
+
+TEST(Fluid2DSweep, FastParticlesDoNotCrossAHalfCellSdfWall) {
+    // A wall half a cell (0.05) thick at x in [0.975, 1.025], over the sample column x = 1 (a sampled field holds a
+    // wall that thin only across a sample); particles at 60 units/s move 0.5 a substep, ten times that.
+    engine::SdfField2D field{engine::SdfField2DDesc{.cell_size = kCell, .band = kBand}};
+    const std::array<glm::vec2, 4> wall{glm::vec2{0.975f, -3.f}, glm::vec2{1.025f, -3.f}, glm::vec2{1.025f, 3.f},
+                                        glm::vec2{0.975f, 3.f}};
+    (void)field.fill_polygon(wall);
+    ASSERT_LT(field.sample({1.f, 0.f}), 0.f) << "the wall must be solid at its middle";
+
+    for (const float speed : {20.f, 60.f, 200.f}) {
+        engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+        (void)add_terrain(world, field);
+        const engine::ecs::Entity entity = add_fluid(world);
+        fire_column(world.get<engine::Fluid2D>(entity), {speed, speed * 0.1f});
+        step(world, 30);
+        const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+        ASSERT_TRUE(all_finite(fluid));
+        EXPECT_LT(max_x(fluid), 1.f) << "a particle crossed the wall at speed " << speed;
+    }
+}
+
+TEST(Fluid2DSweep, FastParticlesDoNotCrossAThinRotatedBox) {
+    for (const float speed : {30.f, 120.f}) {
+        engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+        const engine::ecs::Entity wall = world.create();
+        world.emplace<engine::Transform>(wall, engine::Transform{.position = {1.5f, 0.f, 0.f},
+                                                                 .rotation = engine::rotation_z(0.3f)});
+        // Long enough that nothing slides off its end within the test.
+        world.emplace<engine::BoxCollider2D>(wall, engine::BoxCollider2D{.size = {0.02f, 100.f, 1.f}});
+        const engine::ecs::Entity entity = add_fluid(world);
+        fire_column(world.get<engine::Fluid2D>(entity), {speed, 0.f});
+        step(world, 30);
+        // Every particle stays on the near side of the wall's center line.
+        const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+        const engine::SinCos turn = engine::det_sin_cos(0.3f);
+        for (const glm::vec2 p : fluid.positions()) {
+            const float side = (p.x - 1.5f) * turn.cos + p.y * turn.sin;
+            EXPECT_LT(side, 0.f) << "speed " << speed << " particle at " << p.x << ", " << p.y;
+        }
+    }
+}
+
+TEST(Fluid2DSweep, FastParticleDoesNotCrossASmallCircle) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity peg = world.create();
+    world.emplace<engine::Transform>(peg, engine::Transform{.position = {2.f, 0.f, 0.f}});
+    world.emplace<engine::CircleCollider2D>(peg, engine::CircleCollider2D{.radius = 0.03f});
+    const engine::ecs::Entity entity = add_fluid(world);
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({0.f, 0.f}, {150.f, 0.f}));
+    step(world, 10);
+    EXPECT_LT(world.get<engine::Fluid2D>(entity).positions()[0].x, 2.f);
+}
+
+TEST(Fluid2DSweep, ParticleTouchingAWallIsStoppedWhenFiredIntoIt) {
+    // Resting on the wall's face (one radius off), then fired straight into it.
+    engine::SdfField2D field{engine::SdfField2DDesc{.cell_size = kCell, .band = kBand}};
+    const std::array<glm::vec2, 4> wall{glm::vec2{0.975f, -3.f}, glm::vec2{1.025f, -3.f}, glm::vec2{1.025f, 3.f},
+                                        glm::vec2{0.975f, 3.f}};
+    (void)field.fill_polygon(wall);
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    (void)add_terrain(world, field);
+    const engine::ecs::Entity entity = add_fluid(world);
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({0.975f - kRadius, 0.f}, {80.f, 0.f}));
+    step(world, 20);
+    EXPECT_LT(world.get<engine::Fluid2D>(entity).positions()[0].x, 1.f);
+}
+
+TEST(Fluid2DSweep, SweptParticleKeepsSlidingAlongTheWall) {
+    // A glancing hit loses its normal speed, not its tangential one (friction 0).
+    engine::SdfField2D field{engine::SdfField2DDesc{.cell_size = kCell, .band = kBand}};
+    const std::array<glm::vec2, 4> wall{glm::vec2{0.975f, -30.f}, glm::vec2{1.025f, -30.f}, glm::vec2{1.025f, 30.f},
+                                        glm::vec2{0.975f, 30.f}};
+    (void)field.fill_polygon(wall);
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    (void)add_terrain(world, field);
+    const engine::ecs::Entity entity =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .viscosity = 0.f, .friction = 0.f});
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({0.f, 0.f}, {60.f, 10.f}));
+    step(world, 5);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    EXPECT_LT(fluid.positions()[0].x, 1.f);
+    EXPECT_GT(fluid.velocities()[0].y, 5.f);
+    EXPECT_LT(std::abs(fluid.velocities()[0].x), 1.f);
 }
