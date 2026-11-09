@@ -56,10 +56,11 @@ Read `positions()` every frame and draw them with your own sprites, a particle e
 ## 4. What holds the fluid
 
 - `SdfCollider2D` terrain, static or on a Kinematic body. Carve a hole and the water drains through it; no mark is needed for the fluid (mark the collider for rigid bodies as usual).
-- `BoxCollider2D` and `CircleCollider2D` on anything: static walls, a kinematic paddle that sweeps water ahead of it, a dynamic crate that sinks and pushes water aside.
+- `BoxCollider2D`, `CircleCollider2D` and `PolygonCollider2D` on anything: static walls, a kinematic paddle that sweeps water ahead of it, a dynamic crate that sinks and pushes water aside.
+- `CompoundCollider2D` terrain (tiles, marching-squares cells), static or on a Kinematic body. Only the parts near the water cost anything.
 - The usual layer rule: the fluid's `mask` must include the collider's `layer`, and the collider's `mask` the fluid's `layer`.
 
-Coupling is one way: colliders push the fluid, the fluid never pushes back. A crate does not float and gets no `CollisionEvent2D` from the water. `PolygonCollider2D` and `CompoundCollider2D` do not hold a fluid; use SDF terrain for level geometry. Two fluids pass through each other.
+Coupling is one way: colliders push the fluid, the fluid never pushes back. A crate does not float and gets no `CollisionEvent2D` from the water. Two fluids pass through each other.
 
 ## 5. Tuning
 
