@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <array>
+#include <type_traits>
 #include <cmath>
+#include <span>
 
 // docs/tech/modules/ECS.md (SDF colliders). A body against one chunk of an SdfCollider2D field.
 
@@ -111,11 +113,13 @@ struct FieldFrame {
     return area > 0.f;
 }
 
+// Trivial, so the per-call scratch arrays below are not zero-filled (16 KB a call otherwise).
 struct Penetration {
-    glm::vec2 point{0.f};  // world, on the body
-    glm::vec2 local{0.f};  // the same point in the field's frame
-    float distance{0.f};   // <= 0
+    glm::vec2 point;  // world, on the body
+    glm::vec2 local;  // the same point in the field's frame
+    float distance;   // <= 0
 };
+static_assert(std::is_trivially_default_constructible_v<Penetration>);
 
 [[nodiscard]] ContactManifold2D ring_against(const ContactShape2D& body, const SdfField2D& field,
                                              const FieldFrame& frame, glm::ivec2 chunk) {
@@ -125,10 +129,12 @@ struct Penetration {
     if (!body_ring(body, ring, count)) {
         return manifold;
     }
-    // Vertices and points along each edge, at most one cell apart. Only penetrating samples are kept.
-    std::array<Penetration, kMaxSamples> hits{};
-    int hit_count = 0;
-    int deepest = -1;
+    // Vertices and points along each edge, at most one cell apart, that this chunk owns; then one batched read of the
+    // field. Only penetrating samples are kept, in outline order.
+    std::array<Penetration, kMaxSamples> hits;
+    std::array<glm::vec2, kMaxSamples> locals;
+    std::array<float, kMaxSamples> distances;
+    int sample_count = 0;
     const float cell = field.cell_size();
     for (int i = 0; i < count; ++i) {
         const glm::vec2 a = ring[static_cast<std::size_t>(i)];
@@ -141,16 +147,27 @@ struct Penetration {
             if (!owned_by(field, chunk, local)) {
                 continue;
             }
-            const float distance = field.sample(local);
-            if (!(distance <= 0.f)) {
-                continue;
-            }
-            hits[static_cast<std::size_t>(hit_count)] = Penetration{point, local, distance};
-            if (deepest < 0 || distance < hits[static_cast<std::size_t>(deepest)].distance) {
-                deepest = hit_count;
-            }
-            ++hit_count;
+            hits[static_cast<std::size_t>(sample_count)] = Penetration{point, local, 0.f};
+            locals[static_cast<std::size_t>(sample_count)] = local;
+            ++sample_count;
         }
+    }
+    const auto used = static_cast<std::size_t>(sample_count);
+    field.sample_many(std::span(locals).first(used), std::span(distances).first(used));
+    int hit_count = 0;
+    int deepest = -1;
+    for (int i = 0; i < sample_count; ++i) {
+        const float distance = distances[static_cast<std::size_t>(i)];
+        if (!(distance <= 0.f)) {
+            continue;
+        }
+        Penetration& hit = hits[static_cast<std::size_t>(hit_count)];
+        hit = hits[static_cast<std::size_t>(i)];
+        hit.distance = distance;
+        if (deepest < 0 || distance < hits[static_cast<std::size_t>(deepest)].distance) {
+            deepest = hit_count;
+        }
+        ++hit_count;
     }
     if (deepest < 0) {
         return manifold;

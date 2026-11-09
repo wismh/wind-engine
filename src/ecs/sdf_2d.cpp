@@ -376,6 +376,14 @@ float SdfField2D::sample(glm::vec2 p) const {
     return Cursor{*this}.sample(p);
 }
 
+void SdfField2D::sample_many(std::span<const glm::vec2> points, std::span<float> out) const {
+    Cursor cursor{*this};
+    const std::size_t count = std::min(points.size(), out.size());
+    for (std::size_t i = 0; i < count; ++i) {
+        out[i] = cursor.sample(points[i]);
+    }
+}
+
 glm::vec2 SdfField2D::gradient(glm::vec2 p) const {
     return Cursor{*this}.gradient(p);
 }

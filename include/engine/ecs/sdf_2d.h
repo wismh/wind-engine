@@ -107,6 +107,10 @@ public:
     [[nodiscard]] float sample_at(glm::ivec2 index) const;
     // Bilinear distance at world position `p`.
     [[nodiscard]] float sample(glm::vec2 p) const;
+    // `sample` at each of `points` into `out` (the first `min(points.size(), out.size())`), bit-identical to calling
+    // it per point, but a run of points in one chunk finds the chunk once: for many nearby points (a collider's
+    // outline).
+    void sample_many(std::span<const glm::vec2> points, std::span<float> out) const;
     // Unit normal at `p`: the analytic gradient of the bilinear cell, or central differences half a cell to each side
     // when that is degenerate (a saddle or a flat cell); zero when both are flat.
     [[nodiscard]] glm::vec2 gradient(glm::vec2 p) const;
