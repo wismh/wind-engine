@@ -12,6 +12,7 @@
 #include <engine/ecs/world_serializer.h>
 
 #include "ecs/fluid_2d_internal.h"
+#include "ecs/physics_2d_internal.h"
 
 #include <glm/geometric.hpp>
 
@@ -20,6 +21,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -633,4 +635,203 @@ TEST(Fluid2DSweep, SweptParticleKeepsSlidingAlongTheWall) {
     EXPECT_LT(fluid.positions()[0].x, 1.f);
     EXPECT_GT(fluid.velocities()[0].y, 5.f);
     EXPECT_LT(std::abs(fluid.velocities()[0].x), 1.f);
+}
+
+// LQ-57: PolygonCollider2D and CompoundCollider2D bound a fluid.
+
+namespace {
+
+engine::CompoundShape2D quad(glm::vec2 lo, glm::vec2 hi) {
+    engine::CompoundShape2D shape;
+    shape.count = 4;
+    shape.vertices[0] = lo;
+    shape.vertices[1] = {hi.x, lo.y};
+    shape.vertices[2] = hi;
+    shape.vertices[3] = {lo.x, hi.y};
+    return shape;
+}
+
+// A tank of compound parts: a floor of 0.25-unit tiles, walls of tiles, and a ramp triangle on the floor.
+engine::CompoundCollider2D compound_tank(float width, float height, uint32_t layer = 1) {
+    engine::CompoundCollider2D compound{.layer = layer};
+    for (float x = -0.5f; x < width + 0.5f; x += 0.25f) {
+        compound.shapes.push_back(quad({x, -0.5f}, {x + 0.25f, 0.f}));
+    }
+    for (float y = 0.f; y < height; y += 0.25f) {
+        compound.shapes.push_back(quad({-0.5f, y}, {0.f, y + 0.25f}));
+        compound.shapes.push_back(quad({width, y}, {width + 0.5f, y + 0.25f}));
+    }
+    engine::CompoundShape2D ramp;
+    ramp.count = 3;
+    ramp.vertices[0] = {width * 0.5f, 0.f};
+    ramp.vertices[1] = {width, 0.f};
+    ramp.vertices[2] = {width, 0.8f};
+    compound.shapes.push_back(ramp);
+    return compound;
+}
+
+// Signed distance from `p` to the convex CCW polygon (negative inside).
+float polygon_distance(glm::vec2 p, std::span<const glm::vec2> v) {
+    float inside = -1.0e9f;
+    float outside = 1.0e9f;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const glm::vec2 a = v[i];
+        const glm::vec2 b = v[(i + 1) % v.size()];
+        const glm::vec2 e = b - a;
+        const glm::vec2 n = glm::normalize(glm::vec2{e.y, -e.x});
+        inside = std::max(inside, glm::dot(p - a, n));
+        const float t = std::clamp(glm::dot(p - a, e) / glm::dot(e, e), 0.f, 1.f);
+        outside = std::min(outside, glm::length(p - (a + e * t)));
+    }
+    return inside <= 0.f ? inside : outside;
+}
+
+float min_compound_distance(const engine::Fluid2D& fluid, const engine::CompoundCollider2D& compound) {
+    float lowest = 1.0e9f;
+    for (const glm::vec2 p : fluid.positions()) {
+        for (const engine::CompoundShape2D& shape : compound.shapes) {
+            lowest = std::min(lowest, polygon_distance(p, std::span<const glm::vec2>{shape.vertices, shape.count}));
+        }
+    }
+    return lowest;
+}
+
+struct CompoundDam {
+    std::uint64_t hash = 0;
+    float clearance = 0.f;
+    std::size_t count = 0;
+};
+
+// A dam break in the compound tank. With `physics` the engine systems run (static parts come from the 2D solver's
+// cache); without, run_fluid_2d alone reads the components.
+CompoundDam compound_dam(bool physics, engine::JobSystem* jobs = nullptr) {
+    engine::ecs::World world;
+    if (physics) {
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.jobs = jobs});
+        engine::install_fluid_2d(world, jobs);
+    }
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
+    world.ctx<engine::Time>().fixed_delta_time = engine::kFixed;
+    const engine::ecs::Entity tank = world.create();
+    world.emplace<engine::Transform>(tank, engine::Transform{});
+    world.emplace<engine::CompoundCollider2D>(tank, compound_tank(4.f, 3.f));
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.2f, 2.f});
+    for (int i = 0; i < 240; ++i) {
+        if (physics) {
+            world.run(engine::ecs::Schedule::Fixed);
+        } else {
+            engine::run_fluid_2d(world, jobs);
+        }
+    }
+    if (physics) {
+        // The static parts came from the solver's cache, not from the views.
+        const engine::PhysicsBroadphase2D* cache = world.try_ctx<engine::PhysicsBroadphase2D>();
+        EXPECT_TRUE(cache != nullptr && !cache->dirty);
+    }
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    return {fluid.state_hash(), min_compound_distance(fluid, world.get<engine::CompoundCollider2D>(tank)),
+            fluid.count()};
+}
+
+}
+
+TEST(Fluid2DPolygon, DamBreakInACompoundTankStaysOutsideEveryPart) {
+    const CompoundDam dam = compound_dam(true);
+    EXPECT_EQ(dam.count, 240u);
+    EXPECT_GT(dam.clearance, kRadius * 0.5f) << "a particle is inside or deep against a compound part";
+}
+
+TEST(Fluid2DPolygon, StaticCacheAndComponentViewsGiveTheSameFluid) {
+    // The engine path reads the static parts from the solver's AABB tree; run_fluid_2d alone reads the components.
+    const CompoundDam cached = compound_dam(true);
+    const CompoundDam viewed = compound_dam(false);
+    EXPECT_EQ(cached.hash, viewed.hash);
+    engine::JobSystem jobs{3};
+    EXPECT_EQ(compound_dam(true, &jobs).hash, cached.hash);
+}
+
+TEST(Fluid2DPolygon, StaticPolygonColliderBoundsIt) {
+    engine::ecs::World world = fluid_world();
+    const engine::ecs::Entity slab = world.create();
+    world.emplace<engine::Transform>(
+            slab, engine::Transform{.position = {1.f, 0.f, 0.f}, .rotation = engine::rotation_z(0.2f)});
+    engine::PolygonCollider2D polygon{};
+    polygon.count = 4;
+    polygon.vertices[0] = {-2.f, -0.5f};
+    polygon.vertices[1] = {2.f, -0.5f};
+    polygon.vertices[2] = {2.f, 0.f};
+    polygon.vertices[3] = {-2.f, 0.f};
+    world.emplace<engine::PolygonCollider2D>(slab, polygon);
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.5f, 0.5f}, {1.5f, 1.f});
+    step(world, 120);
+    // The slab tilts 0.2 rad: the fluid rests on it or runs off its end, never through it.
+    const engine::SinCos turn = engine::det_sin_cos(0.2f);
+    for (const glm::vec2 p : world.get<engine::Fluid2D>(entity).positions()) {
+        const glm::vec2 local{(p.x - 1.f) * turn.cos + p.y * turn.sin, -(p.x - 1.f) * turn.sin + p.y * turn.cos};
+        if (std::abs(local.x) < 1.9f) {
+            EXPECT_GT(local.y, kRadius * 0.5f) << p.x << ", " << p.y;
+        }
+    }
+}
+
+TEST(Fluid2DPolygon, DynamicPolygonPushesFluidOneWay) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity body = world.create();
+    world.emplace<engine::Transform>(body, engine::Transform{.position = {-0.5f, 0.5f, 0.f}});
+    world.emplace<engine::RigidBody2D>(
+            body, engine::RigidBody2D{.velocity = {2.f, 0.f, 0.f}, .type = engine::BodyType::Dynamic});
+    engine::PolygonCollider2D polygon{};
+    polygon.count = 3;
+    polygon.vertices[0] = {-0.2f, -0.2f};
+    polygon.vertices[1] = {0.2f, 0.f};
+    polygon.vertices[2] = {-0.2f, 0.2f};
+    world.emplace<engine::PolygonCollider2D>(body, polygon);
+    const engine::ecs::Entity entity = add_fluid(world);
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({0.5f, 0.5f}));
+    step(world, 60);
+    EXPECT_GT(world.get<engine::Fluid2D>(entity).positions()[0].x, 0.6f) << "the wedge pushed the particle";
+    EXPECT_FLOAT_EQ(world.get<engine::RigidBody2D>(body).velocity.x, 2.f) << "and the fluid did not push back";
+}
+
+TEST(Fluid2DPolygon, CompoundLayerMaskAndDynamicParentRules) {
+    // A compound tank on layer 2 does not bound a fluid whose mask leaves layer 2 out.
+    {
+        engine::ecs::World world = fluid_world();
+        const engine::ecs::Entity tank = world.create();
+        world.emplace<engine::Transform>(tank, engine::Transform{});
+        world.emplace<engine::CompoundCollider2D>(tank, compound_tank(2.f, 1.f, 2u));
+        const engine::ecs::Entity entity =
+                add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .mask = 0xFFFFFFFFu & ~2u});
+        ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({1.f, 0.5f}));
+        step(world, 60);
+        EXPECT_LT(world.get<engine::Fluid2D>(entity).positions()[0].y, -1.f) << "fell through the masked tank";
+    }
+    // A compound under a Dynamic body is ignored, as the 2D solver ignores it.
+    {
+        engine::ecs::World world = fluid_world();
+        const engine::ecs::Entity tank = world.create();
+        world.emplace<engine::Transform>(tank, engine::Transform{});
+        world.emplace<engine::RigidBody2D>(
+                tank, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .gravity_scale = 0.f});
+        world.emplace<engine::CompoundCollider2D>(tank, compound_tank(2.f, 1.f));
+        const engine::ecs::Entity entity = add_fluid(world);
+        ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({1.f, 0.5f}));
+        step(world, 60);
+        EXPECT_LT(world.get<engine::Fluid2D>(entity).positions()[0].y, -1.f);
+    }
+}
+
+TEST(Fluid2DPolygon, FastParticlesDoNotCrossAThinCompoundPart) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity wall = world.create();
+    world.emplace<engine::Transform>(wall, engine::Transform{});
+    engine::CompoundCollider2D compound;
+    compound.shapes.push_back(quad({1.f, -50.f}, {1.02f, 50.f}));
+    world.emplace<engine::CompoundCollider2D>(wall, compound);
+    const engine::ecs::Entity entity = add_fluid(world);
+    fire_column(world.get<engine::Fluid2D>(entity), {120.f, 20.f});
+    step(world, 30);
+    EXPECT_LT(max_x(world.get<engine::Fluid2D>(entity)), 1.f);
 }
