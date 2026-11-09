@@ -40,6 +40,7 @@ void step(engine::ecs::World& world, int steps = 1) {
 engine::ecs::World fluid_world(engine::JobSystem* jobs = nullptr, glm::vec3 gravity = {0.f, -10.f, 0.f}) {
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.jobs = jobs});
+    engine::install_fluid_2d(world, jobs);
     world.ctx<engine::Physics2DConfig>().gravity = gravity;
     return world;
 }
@@ -78,6 +79,21 @@ engine::ecs::Entity add_fluid(engine::ecs::World& world,
                               engine::Fluid2DParams params = engine::Fluid2DParams{.radius = kRadius}) {
     const engine::ecs::Entity entity = world.create();
     world.emplace<engine::Fluid2D>(entity, params);
+    return entity;
+}
+
+// A floating particle at (1, 0.5) and a kinematic paddle at x = 0.5 that run_physics_2d moves to x = 1 on the first
+// tick. A fluid step after physics sees the paddle on the particle and pushes it; one before physics does not.
+engine::ecs::Entity order_probe(engine::ecs::World& world) {
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, 0.f, 0.f};
+    const engine::ecs::Entity paddle = world.create();
+    world.emplace<engine::Transform>(paddle, engine::Transform{.position = {0.5f, 0.5f, 0.f}});
+    world.emplace<engine::BoxCollider2D>(paddle, engine::BoxCollider2D{.size = {0.2f, 0.8f, 1.f}});
+    world.emplace<engine::RigidBody2D>(
+            paddle, engine::RigidBody2D{.velocity = {0.5f / engine::kFixed, 0.f, 0.f},
+                                        .type = engine::BodyType::Kinematic});
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn({1.f, 0.5f});
     return entity;
 }
 
@@ -428,4 +444,84 @@ TEST(Fluid2D, SerializerRoundTripsParametersOnly) {
     EXPECT_EQ(c.params.mask, 0x0Fu);
     // Particles are transient.
     EXPECT_EQ(c.count(), 0u);
+}
+
+TEST(Fluid2D, NotInstalledDoesNotStep) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
+    const engine::ecs::Entity entity = add_fluid(world);
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({1.f, 2.f}, {0.5f, 0.f}));
+    step(world, 10);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    EXPECT_EQ(fluid.positions()[0], glm::vec2(1.f, 2.f));
+    EXPECT_EQ(fluid.velocities()[0], glm::vec2(0.5f, 0.f));
+}
+
+TEST(Fluid2D, InstalledStepsThroughTheSchedule) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+    engine::install_fluid_2d(world);
+    world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
+    const engine::ecs::Entity entity = add_fluid(world);
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({1.f, 2.f}));
+    step(world);
+    EXPECT_LT(world.get<engine::Fluid2D>(entity).positions()[0].y, 2.f);
+}
+
+TEST(Fluid2D, SecondInstallAddsNoSecondSystem) {
+    engine::JobSystem jobs(2);
+    engine::ecs::World once = fluid_world();
+    engine::ecs::World twice = fluid_world();
+    engine::install_fluid_2d(twice, &jobs);
+    engine::install_fluid_2d(twice);
+    const engine::ecs::Entity a = add_fluid(once);
+    const engine::ecs::Entity b = add_fluid(twice);
+    ASSERT_TRUE(once.get<engine::Fluid2D>(a).spawn({1.f, 2.f}));
+    ASSERT_TRUE(twice.get<engine::Fluid2D>(b).spawn({1.f, 2.f}));
+    step(once, 5);
+    step(twice, 5);
+    EXPECT_EQ(once.get<engine::Fluid2D>(a).positions()[0], twice.get<engine::Fluid2D>(b).positions()[0]);
+    EXPECT_EQ(once.get<engine::Fluid2D>(a).velocities()[0], twice.get<engine::Fluid2D>(b).velocities()[0]);
+}
+
+TEST(Fluid2D, InstallBeforeEngineSystemsStillStepsOnce) {
+    engine::ecs::World early;
+    engine::install_fluid_2d(early);
+    engine::register_engine_systems(early);
+    early.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
+    engine::ecs::World late = fluid_world();
+    const engine::ecs::Entity a = add_fluid(early);
+    const engine::ecs::Entity b = add_fluid(late);
+    ASSERT_TRUE(early.get<engine::Fluid2D>(a).spawn({1.f, 2.f}));
+    ASSERT_TRUE(late.get<engine::Fluid2D>(b).spawn({1.f, 2.f}));
+    step(early, 5);
+    step(late, 5);
+    EXPECT_LT(early.get<engine::Fluid2D>(a).positions()[0].y, 2.f);
+    EXPECT_EQ(early.get<engine::Fluid2D>(a).positions()[0], late.get<engine::Fluid2D>(b).positions()[0]);
+}
+
+TEST(Fluid2D, StepsAfterPhysicsWhereverInstalled) {
+    // Control: a fluid step registered ahead of the engine's physics misses the paddle's move.
+    engine::ecs::World before;
+    before.add_system(engine::ecs::Schedule::Fixed, engine::ecs::Phase::Physics,
+                      [](engine::ecs::World& w) { engine::run_fluid_2d(w); });
+    engine::register_engine_systems(before);
+    const engine::ecs::Entity control = order_probe(before);
+    step(before);
+    EXPECT_EQ(before.get<engine::Fluid2D>(control).positions()[0], glm::vec2(1.f, 0.5f));
+
+    engine::ecs::World early;
+    engine::install_fluid_2d(early);
+    engine::register_engine_systems(early);
+    const engine::ecs::Entity a = order_probe(early);
+    step(early);
+    EXPECT_NE(early.get<engine::Fluid2D>(a).positions()[0], glm::vec2(1.f, 0.5f));
+
+    engine::ecs::World late;
+    engine::register_engine_systems(late);
+    engine::install_fluid_2d(late);
+    const engine::ecs::Entity b = order_probe(late);
+    step(late);
+    EXPECT_NE(late.get<engine::Fluid2D>(b).positions()[0], glm::vec2(1.f, 0.5f));
 }
