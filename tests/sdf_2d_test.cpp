@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -552,4 +553,21 @@ TEST(SdfField2D, AssignChunkCopiesSamplesAndDirtiesNeighbours) {
     EXPECT_EQ(copy.assign_chunk({-4, 2}, empty), std::vector<glm::ivec2>{glm::ivec2(-4, 2)});
     EXPECT_TRUE(copy.has_chunk({-4, 2}));
     EXPECT_EQ(copy.revision({-4, 2}), 1u);
+}
+
+TEST(SdfField2D, SampleManyMatchesSample) {
+    SdfField2D field = make_field(3.0f, SdfOutside::Solid, 0.5f);
+    (void)field.carve_circle({15.0f, 15.0f}, 9.0f);
+    std::vector<glm::vec2> points;
+    for (int i = 0; i < 200; ++i) {
+        const float t = static_cast<float>(i);
+        points.push_back({0.37f * t - 10.0f, 15.0f + 6.0f * std::sin(0.1f * t)});
+    }
+    points.push_back({std::numeric_limits<float>::quiet_NaN(), 0.0f});
+    std::vector<float> out(points.size() + 3, -7.0f);
+    field.sample_many(points, out);
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        EXPECT_EQ(std::bit_cast<std::uint32_t>(out[i]), std::bit_cast<std::uint32_t>(field.sample(points[i]))) << i;
+    }
+    EXPECT_EQ(out.back(), -7.0f);
 }
