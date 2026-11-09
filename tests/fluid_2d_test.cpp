@@ -4,6 +4,7 @@
 #include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/fluid_2d.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/sdf_2d.h>
 #include <engine/ecs/systems.h>
@@ -21,6 +22,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <tuple>
@@ -1604,4 +1606,136 @@ TEST(Fluid2DMultiple, BitIdenticalAcrossWorkerCounts) {
               parallel.world.get<engine::Fluid2D>(parallel.light).state_hash());
     EXPECT_EQ(serial.world.get<engine::Fluid2D>(serial.heavy).state_hash(),
               parallel.world.get<engine::Fluid2D>(parallel.heavy).state_hash());
+}
+
+// LQ-61: fluid state in saves, and pools authored with FluidBox2D.
+
+namespace {
+
+// A tank with a dam break, a tap, a drain and a sensor, stepped a while: every kind of fluid state is non-trivial.
+engine::ecs::Entity busy_fluid(engine::ecs::World& world) {
+    (void)add_terrain(world, tank_field());
+    const engine::ecs::Entity entity = add_fluid(world);
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    (void)fluid.spawn_box({0.f, 0.f}, {1.f, 1.5f});
+    fluid.sources.push_back(engine::FluidSource2D{
+            .region = {.center = {3.f, 2.5f}, .half_extents = {0.3f, 0.05f}}, .rate = 37.f, .velocity = {0.f, -1.f}});
+    fluid.drains.push_back(engine::FluidDrain2D{.region = {.center = {3.9f, 0.1f}, .half_extents = {0.1f, 0.1f}}});
+    fluid.sensors.push_back(engine::FluidSensor2D{.region = {.center = {1.f, 0.2f}, .half_extents = {1.f, 0.2f}}});
+    fluid.save_particles = true;
+    return entity;
+}
+
+const engine::Fluid2D* only_fluid(engine::ecs::World& world) {
+    const engine::Fluid2D* found = nullptr;
+    world.view<engine::Fluid2D>().each([&](const engine::Fluid2D& fluid) { found = &fluid; });
+    return found;
+}
+
+}
+
+TEST(Fluid2DSave, SavedParticlesLoadAsTheSameStateAndKeepStepping) {
+    engine::ecs::World world = fluid_world();
+    const engine::ecs::Entity entity = busy_fluid(world);
+    step(world, 47);
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    EXPECT_NE(saved.find("state"), std::string::npos);
+
+    engine::ecs::World loaded = fluid_world();
+    auto result = engine::ecs::load_world_from_toml(loaded, saved);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const engine::Fluid2D* copy = only_fluid(loaded);
+    ASSERT_NE(copy, nullptr);
+    const engine::Fluid2D& original = world.get<engine::Fluid2D>(entity);
+    ASSERT_EQ(copy->count(), original.count());
+    EXPECT_EQ(copy->state_hash(), original.state_hash());
+    EXPECT_EQ(copy->sources[0].emitted, original.sources[0].emitted);
+    EXPECT_EQ(copy->drains[0].drained, original.drains[0].drained);
+    EXPECT_EQ(copy->sensors[0].full, original.sensors[0].full);
+    for (std::size_t i = 0; i < original.count(); ++i) {
+        ASSERT_EQ(std::bit_cast<std::uint32_t>(copy->densities()[i]), std::bit_cast<std::uint32_t>(original.densities()[i]));
+    }
+
+    // Both go on the same: the save holds everything the next steps read.
+    step(world, 30);
+    step(loaded, 30);
+    EXPECT_EQ(only_fluid(loaded)->state_hash(), world.get<engine::Fluid2D>(entity).state_hash());
+}
+
+TEST(Fluid2DSave, WithoutTheFlagNoStateIsWritten) {
+    engine::ecs::World world = fluid_world();
+    const engine::ecs::Entity entity = busy_fluid(world);
+    world.get<engine::Fluid2D>(entity).save_particles = false;
+    step(world, 5);
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    EXPECT_EQ(saved.find("state ="), std::string::npos);
+    engine::ecs::World loaded;
+    ASSERT_TRUE(engine::ecs::load_world_from_toml(loaded, saved).has_value());
+    EXPECT_EQ(only_fluid(loaded)->count(), 0u);
+}
+
+TEST(Fluid2DSave, LoadStateRefusesWhatIsNotAState) {
+    engine::Fluid2D fluid{engine::Fluid2DParams{.max_particles = 10}};
+    ASSERT_TRUE(fluid.spawn({1.f, 2.f}, {3.f, 4.f}));
+    const std::vector<std::uint8_t> good = fluid.save_state();
+    const std::uint64_t hash = fluid.state_hash();
+
+    engine::Fluid2D target{engine::Fluid2DParams{.max_particles = 10}};
+    std::vector<std::uint8_t> bad = good;
+    bad.pop_back();
+    EXPECT_FALSE(target.load_state(bad)) << "truncated";
+    bad = good;
+    bad[0] ^= 0xFF;
+    EXPECT_FALSE(target.load_state(bad)) << "wrong magic";
+    bad = good;
+    bad.push_back(0);
+    EXPECT_FALSE(target.load_state(bad)) << "trailing bytes";
+    bad = good;
+    const std::uint32_t nan = std::bit_cast<std::uint32_t>(std::numeric_limits<float>::quiet_NaN());
+    for (int k = 0; k < 4; ++k) {
+        bad[16 + k] = static_cast<std::uint8_t>(nan >> (8 * k));  // the first position's x
+    }
+    EXPECT_FALSE(target.load_state(bad)) << "non-finite";
+    engine::Fluid2D small{engine::Fluid2DParams{.max_particles = 0}};
+    EXPECT_FALSE(small.load_state(good)) << "over max_particles";
+    EXPECT_EQ(target.count(), 0u) << "a refused state changes nothing";
+
+    EXPECT_TRUE(target.load_state(good));
+    EXPECT_EQ(target.state_hash(), hash);
+}
+
+TEST(Fluid2DBox, FillsItsParentFluidOnceAndRoundTrips) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity fluid = add_fluid(world);
+    const engine::ecs::Entity box = world.create();
+    world.emplace<engine::Transform>(box, engine::Transform{.position = {1.f, 1.f, 0.f}});
+    world.emplace<engine::FluidBox2D>(box, engine::FluidBox2D{.size = {0.4f, 0.4f}, .velocity = {0.5f, 0.f}});
+    // A box without a fluid parent waits.
+    step(world, 1);
+    EXPECT_FALSE(world.get<engine::FluidBox2D>(box).filled);
+    EXPECT_EQ(world.get<engine::Fluid2D>(fluid).count(), 0u);
+
+    engine::ecs::set_parent(world, box, fluid);
+    step(world, 1);
+    EXPECT_TRUE(world.get<engine::FluidBox2D>(box).filled);
+    const engine::Fluid2D& filled = world.get<engine::Fluid2D>(fluid);
+    ASSERT_EQ(filled.count(), 16u) << "a 0.4 box holds 4 x 4 at the rest spacing";
+    for (const glm::vec2 p : filled.positions()) {
+        EXPECT_NEAR(p.x, 1.f, 0.3f);
+        EXPECT_NEAR(p.y, 1.f, 0.3f);
+    }
+    step(world, 10);
+    EXPECT_EQ(world.get<engine::Fluid2D>(fluid).count(), 16u) << "once";
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World loaded;
+    ASSERT_TRUE(engine::ecs::load_world_from_toml(loaded, saved).has_value());
+    bool found = false;
+    loaded.view<engine::FluidBox2D>().each([&](const engine::FluidBox2D& b) {
+        found = true;
+        EXPECT_TRUE(b.filled);
+        EXPECT_FLOAT_EQ(b.size.x, 0.4f);
+        EXPECT_FLOAT_EQ(b.velocity.x, 0.5f);
+    });
+    EXPECT_TRUE(found);
 }

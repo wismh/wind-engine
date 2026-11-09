@@ -1089,6 +1089,10 @@ void register_builtin_components(
                     w.field("threshold", sensor.threshold);
                     w.field("hysteresis", sensor.hysteresis);
                 });
+                out.field("save_particles", c.save_particles);
+                if (c.save_particles) {
+                    out.field("state", base64_encode(c.save_state()));
+                }
             },
             [](ComponentReader& in, Fluid2D& c) {
                 (void)in.field("radius", c.params.radius);
@@ -1123,6 +1127,27 @@ void register_builtin_components(
                     (void)r.field("threshold", sensor.threshold);
                     (void)r.field("hysteresis", sensor.hysteresis);
                 });
+                (void)in.field("save_particles", c.save_particles);
+                std::string state;
+                if (in.field("state", state) && !state.empty()) {
+                    const std::optional<std::vector<std::uint8_t>> bytes = base64_decode(state);
+                    if (!bytes || !c.load_state(*bytes)) {
+                        in.fail("fluid_2d state is not a fluid state (Fluid2D::save_state as base64)");
+                    }
+                }
+            });
+
+    serializer.register_component<FluidBox2D>(
+            "fluid_box_2d",
+            [](ComponentWriter& out, const FluidBox2D& c) {
+                out.field("size", c.size);
+                out.field("velocity", c.velocity);
+                out.field("filled", c.filled);
+            },
+            [](ComponentReader& in, FluidBox2D& c) {
+                (void)in.field("size", c.size);
+                (void)in.field("velocity", c.velocity);
+                (void)in.field("filled", c.filled);
             });
 
     serializer.register_component<CircleCollider2D>(

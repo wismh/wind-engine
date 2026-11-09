@@ -166,6 +166,9 @@ private:
     [[nodiscard]] float compute_axis_param(
             glm::vec2 local_screen_pt, GizmoAxis axis, const engine::render::Rect& viewport) const;
     void ensure_gizmo_meshes(engine::render::IGraphicFactory& factory);
+    // Fluids in the edit world (LQ-61): every Fluid2D's particles as small unlit cards and its box, and every
+    // FluidBox2D's outline with, until it has filled, the lattice it will fill. Drawn whether or not selected.
+    void render_fluids(engine::render::CommandBuffer& buffer, engine::AssetsDb* assets);
     void render_gizmo_and_outline(
             engine::render::CommandBuffer& buffer, const engine::render::Rect& viewport, engine::AssetsDb* assets);
 
@@ -231,6 +234,7 @@ private:
     std::shared_ptr<engine::render::IMesh> gizmo_cylinder_;
     std::shared_ptr<engine::render::IMesh> gizmo_cone_;
     std::shared_ptr<engine::render::IMesh> gizmo_cube_;
+    std::shared_ptr<engine::render::IMesh> fluid_quad_;
     std::shared_ptr<engine::render::IMesh> gizmo_torus_;
 };
 

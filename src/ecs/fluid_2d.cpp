@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -2002,6 +2003,200 @@ bool Fluid2D::is_wet(glm::vec2 point) const {
     return wet;
 }
 
+namespace {
+
+// The state's byte layout: magic, version, then the arrays. Every value little-endian; floats by their bits.
+constexpr std::uint32_t kStateMagic = 0x31464C57u;  // "WLF1"
+constexpr std::uint32_t kStateVersion = 1;
+
+class StateWriter {
+public:
+    void u8(std::uint8_t value) {
+        bytes_.push_back(value);
+    }
+    void u32(std::uint32_t value) {
+        for (int shift = 0; shift < 32; shift += 8) {
+            bytes_.push_back(static_cast<std::uint8_t>(value >> shift));
+        }
+    }
+    void u64(std::uint64_t value) {
+        u32(static_cast<std::uint32_t>(value));
+        u32(static_cast<std::uint32_t>(value >> 32));
+    }
+    void f32(float value) {
+        u32(std::bit_cast<std::uint32_t>(value));
+    }
+    void vec2(glm::vec2 value) {
+        f32(value.x);
+        f32(value.y);
+    }
+    [[nodiscard]] std::vector<std::uint8_t> take() {
+        return std::move(bytes_);
+    }
+
+private:
+    std::vector<std::uint8_t> bytes_;
+};
+
+class StateReader {
+public:
+    explicit StateReader(std::span<const std::uint8_t> bytes) : bytes_(bytes) {}
+
+    [[nodiscard]] bool u8(std::uint8_t& value) {
+        if (at_ + 1 > bytes_.size()) {
+            return false;
+        }
+        value = bytes_[at_++];
+        return true;
+    }
+    [[nodiscard]] bool u32(std::uint32_t& value) {
+        if (at_ + 4 > bytes_.size()) {
+            return false;
+        }
+        value = 0;
+        for (int k = 0; k < 4; ++k) {
+            value |= static_cast<std::uint32_t>(bytes_[at_++]) << (8 * k);
+        }
+        return true;
+    }
+    [[nodiscard]] bool u64(std::uint64_t& value) {
+        std::uint32_t lo = 0;
+        std::uint32_t hi = 0;
+        if (!u32(lo) || !u32(hi)) {
+            return false;
+        }
+        value = static_cast<std::uint64_t>(lo) | (static_cast<std::uint64_t>(hi) << 32);
+        return true;
+    }
+    [[nodiscard]] bool f32(float& value) {
+        std::uint32_t bits = 0;
+        if (!u32(bits)) {
+            return false;
+        }
+        value = std::bit_cast<float>(bits);
+        return std::isfinite(value);
+    }
+    [[nodiscard]] bool vec2(glm::vec2& value) {
+        return f32(value.x) && f32(value.y);
+    }
+    [[nodiscard]] std::size_t left() const {
+        return bytes_.size() - at_;
+    }
+
+private:
+    std::span<const std::uint8_t> bytes_;
+    std::size_t at_ = 0;
+};
+
+}
+
+std::vector<std::uint8_t> Fluid2D::save_state() const {
+    StateWriter out;
+    out.u32(kStateMagic);
+    out.u32(kStateVersion);
+    out.u64(positions_.size());
+    for (std::size_t i = 0; i < positions_.size(); ++i) {
+        out.vec2(positions_[i]);
+        out.vec2(velocities_[i]);
+        out.f32(i < densities_.size() ? densities_[i] : 0.0f);
+    }
+    out.u64(sources.size());
+    for (const FluidSource2D& source : sources) {
+        out.f32(source.carry);
+        out.u64(source.emitted);
+    }
+    out.u64(drains.size());
+    for (const FluidDrain2D& drain : drains) {
+        out.u64(drain.drained);
+    }
+    out.u64(sensors.size());
+    for (const FluidSensor2D& sensor : sensors) {
+        out.f32(sensor.fill);
+        out.u8(sensor.full ? 1 : 0);
+    }
+    return out.take();
+}
+
+bool Fluid2D::load_state(std::span<const std::uint8_t> bytes) {
+    StateReader in{bytes};
+    std::uint32_t magic = 0;
+    std::uint32_t version = 0;
+    std::uint64_t count = 0;
+    if (!in.u32(magic) || !in.u32(version) || magic != kStateMagic || version != kStateVersion || !in.u64(count) ||
+        count > params.max_particles || count > in.left() / 20) {
+        return false;
+    }
+    std::vector<glm::vec2> positions(static_cast<std::size_t>(count));
+    std::vector<glm::vec2> velocities(static_cast<std::size_t>(count));
+    std::vector<float> densities(static_cast<std::size_t>(count));
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        if (!in.vec2(positions[i]) || !in.vec2(velocities[i]) || !in.f32(densities[i])) {
+            return false;
+        }
+    }
+    struct SourceState {
+        float carry = 0.0f;
+        std::uint64_t emitted = 0;
+    };
+    std::uint64_t source_count = 0;
+    if (!in.u64(source_count) || source_count > in.left() / 12) {
+        return false;
+    }
+    std::vector<SourceState> source_state(static_cast<std::size_t>(source_count));
+    for (SourceState& state : source_state) {
+        if (!in.f32(state.carry) || !in.u64(state.emitted)) {
+            return false;
+        }
+    }
+    std::uint64_t drain_count = 0;
+    if (!in.u64(drain_count) || drain_count > in.left() / 8) {
+        return false;
+    }
+    std::vector<std::uint64_t> drained(static_cast<std::size_t>(drain_count));
+    for (std::uint64_t& value : drained) {
+        if (!in.u64(value)) {
+            return false;
+        }
+    }
+    std::uint64_t sensor_count = 0;
+    if (!in.u64(sensor_count) || sensor_count > in.left() / 5) {
+        return false;
+    }
+    std::vector<std::pair<float, bool>> sensor_state(static_cast<std::size_t>(sensor_count));
+    for (auto& [fill, full] : sensor_state) {
+        std::uint8_t flag = 0;
+        if (!in.f32(fill) || !in.u8(flag) || flag > 1) {
+            return false;
+        }
+        full = flag != 0;
+    }
+    if (in.left() != 0) {
+        return false;
+    }
+    positions_ = std::move(positions);
+    velocities_ = std::move(velocities);
+    densities_ = std::move(densities);
+    query_valid_ = false;
+    if (source_state.size() == sources.size()) {
+        for (std::size_t k = 0; k < sources.size(); ++k) {
+            sources[k].carry = source_state[k].carry;
+            sources[k].emitted = source_state[k].emitted;
+        }
+    }
+    if (drained.size() == drains.size()) {
+        for (std::size_t k = 0; k < drains.size(); ++k) {
+            drains[k].drained = drained[k];
+        }
+    }
+    if (sensor_state.size() == sensors.size()) {
+        for (std::size_t k = 0; k < sensors.size(); ++k) {
+            sensors[k].fill = sensor_state[k].first;
+            sensors[k].full = sensor_state[k].second;
+        }
+    }
+    return true;
+}
+
 std::uint64_t Fluid2D::state_hash() const {
     StateHasher hasher;
     hasher.u64(positions_.size());
@@ -2022,6 +2217,31 @@ std::uint64_t Fluid2D::state_hash() const {
 }
 
 namespace {
+
+// Fills every FluidBox2D not filled yet into the Fluid2D on its parent, in view order, and marks it filled. A box whose
+// parent has no Fluid2D waits.
+void fill_fluid_boxes(ecs::World& world) {
+    std::vector<ecs::Entity> boxes;
+    for (const ecs::Entity entity : world.view<FluidBox2D>()) {
+        if (!world.get<FluidBox2D>(entity).filled) {
+            boxes.push_back(entity);
+        }
+    }
+    for (const ecs::Entity entity : boxes) {
+        const Parent* parent = world.try_get<Parent>(entity);
+        Fluid2D* fluid = parent != nullptr && world.valid(parent->entity) ? world.try_get<Fluid2D>(parent->entity)
+                                                                           : nullptr;
+        if (fluid == nullptr) {
+            continue;
+        }
+        FluidBox2D& box = world.get<FluidBox2D>(entity);
+        const glm::mat4 matrix = ecs::world_matrix(world, entity);
+        const glm::vec2 center{matrix[3][0], matrix[3][1]};
+        const glm::vec2 half = glm::abs(box.size) * 0.5f;
+        (void)fluid->spawn_box(center - half, center + half, box.velocity);
+        box.filled = true;
+    }
+}
 
 // Fluids that are stepped together (LQ-62): two fluids join when their particles' boxes, grown by each one's kernel
 // support, overlap and each one's mask takes the other's layer. Joined transitively, in view order (union-find on
@@ -2104,6 +2324,7 @@ namespace {
 }
 
 void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
+    fill_fluid_boxes(world);
     auto view = world.view<Fluid2D>();
     bool any = false;
     for (ecs::Entity entity : view) {

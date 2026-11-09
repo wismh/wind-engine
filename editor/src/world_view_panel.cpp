@@ -6,12 +6,14 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/ray.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/particles.h>
 #include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
@@ -893,7 +895,99 @@ void WorldViewPanel::render(
             .assets = assets,
             .fatal = nullptr,
     });
+    render_fluids(*buffer, assets);
     render_gizmo_and_outline(*buffer, viewport, assets);
+}
+
+void WorldViewPanel::render_fluids(engine::render::CommandBuffer& buffer, engine::AssetsDb* assets) {
+    if (assets != nullptr && assets->graphic_factory() != nullptr) {
+        ensure_gizmo_meshes(*assets->graphic_factory());
+        if (!fluid_quad_) {
+            fluid_quad_ = assets->graphic_factory()->create_mesh(engine::render::make_quad());
+        }
+    }
+    if (!fluid_quad_ || !gizmo_cube_) {
+        return;
+    }
+    std::shared_ptr<engine::render::IMaterial> unlit;
+    if (assets != nullptr) {
+        if (auto found = assets->try_get<engine::render::IMaterial>(engine::builtin::material_unlit)) {
+            unlit = *found;
+        }
+    }
+    constexpr glm::vec4 kParticleColor{0.25f, 0.6f, 1.0f, 0.85f};
+    constexpr glm::vec4 kPreviewColor{0.5f, 0.85f, 1.0f, 0.35f};
+    constexpr glm::vec4 kFluidBoxColor{0.25f, 0.6f, 1.0f, 1.0f};
+    constexpr glm::vec4 kFillBoxColor{0.5f, 0.85f, 1.0f, 1.0f};
+    const float thickness = 0.01f * std::max(gizmo_scale_, 1.0f);
+
+    const auto edge = [&](glm::vec2 a, glm::vec2 b, glm::vec4 color) {
+        const glm::vec2 v = b - a;
+        const float length = glm::length(v);
+        if (length < 1.0e-5f) {
+            return;
+        }
+        const glm::vec2 mid = (a + b) * 0.5f;
+        const float angle = std::atan2(v.x, v.y);  // the cube's +Y onto the edge (editor drawing, not simulation)
+        const glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3{mid, 0.0f}) *
+                glm::rotate(glm::mat4(1.0f), -angle, glm::vec3{0.0f, 0.0f, 1.0f}) *
+                glm::scale(glm::mat4(1.0f), glm::vec3(thickness, length, thickness));
+        buffer.push(engine::render::CmdDrawMesh{.mesh = gizmo_cube_, .material = unlit, .model = model, .color = color});
+    };
+    const auto rectangle = [&](glm::vec2 lo, glm::vec2 hi, glm::vec4 color) {
+        edge(lo, {hi.x, lo.y}, color);
+        edge({hi.x, lo.y}, hi, color);
+        edge(hi, {lo.x, hi.y}, color);
+        edge({lo.x, hi.y}, lo, color);
+    };
+    const auto cards = [&](std::span<const glm::vec2> positions, float radius, glm::vec4 color) {
+        if (positions.empty()) {
+            return;
+        }
+        engine::render::CmdDrawParticles cmd;
+        cmd.mesh = fluid_quad_;
+        cmd.material = unlit;
+        cmd.blend = engine::render::BlendMode::Alpha;
+        cmd.draw = engine::render::ParticleDraw::Plane;
+        cmd.instances.reserve(positions.size());
+        for (const glm::vec2 p : positions) {
+            cmd.instances.push_back(engine::render::ParticleInstance{
+                    .position = glm::vec3{p, 0.0f}, .size = glm::vec2{2.0f * radius}, .color = color});
+        }
+        buffer.push(std::move(cmd));
+    };
+
+    edit_world_.view<engine::Fluid2D>().each([&](const engine::Fluid2D& fluid) {
+        const float radius = fluid.params.radius > 0.0f ? fluid.params.radius : 0.05f;
+        cards(fluid.positions(), radius, kParticleColor);
+        if (fluid.count() == 0) {
+            return;
+        }
+        glm::vec2 lo{std::numeric_limits<float>::max()};
+        glm::vec2 hi{-std::numeric_limits<float>::max()};
+        for (const glm::vec2 p : fluid.positions()) {
+            lo = glm::min(lo, p);
+            hi = glm::max(hi, p);
+        }
+        rectangle(lo - glm::vec2{radius}, hi + glm::vec2{radius}, kFluidBoxColor);
+    });
+    edit_world_.view<engine::FluidBox2D>().each([&](engine::ecs::Entity entity, const engine::FluidBox2D& box) {
+        const glm::mat4 matrix = engine::ecs::world_matrix(edit_world_, entity);
+        const glm::vec2 center{matrix[3][0], matrix[3][1]};
+        const glm::vec2 half = glm::abs(box.size) * 0.5f;
+        rectangle(center - half, center + half, kFillBoxColor);
+        if (box.filled) {
+            return;
+        }
+        // The lattice the box will fill: the parent fluid's spawn_box into a copy with its parameters.
+        const engine::Parent* parent = edit_world_.try_get<engine::Parent>(entity);
+        const engine::Fluid2D* owner = parent != nullptr && edit_world_.valid(parent->entity)
+                ? edit_world_.try_get<engine::Fluid2D>(parent->entity)
+                : nullptr;
+        engine::Fluid2D preview{owner != nullptr ? owner->params : engine::Fluid2DParams{}};
+        (void)preview.spawn_box(center - half, center + half);
+        cards(preview.positions(), preview.params.radius > 0.0f ? preview.params.radius : 0.05f, kPreviewColor);
+    });
 }
 
 glm::quat WorldViewPanel::camera_rotation() const {

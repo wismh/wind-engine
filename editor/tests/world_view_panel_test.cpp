@@ -1307,3 +1307,52 @@ TEST_F(WorldViewPanelTest, PerspectiveClickSelectsRenderableBox) {
 }
 
 } // namespace
+
+TEST_F(WorldViewPanelTest, FluidsDrawTheirParticlesAndBoxesPreviewTheirPool) {
+    const std::filesystem::path scene = write_world("fluid.world", R"(
+version = 1
+
+[[entities]]
+id = "water"
+fluid_2d = { radius = 0.05 }
+
+[[entities]]
+id = "pool"
+parent = "water"
+transform = { position = [1.0, 1.0, 0.0] }
+fluid_box_2d = { size = [0.4, 0.4] }
+)");
+    ASSERT_TRUE(panel.open_world(scene));
+    QuietFatal fatal;
+    engine::AssetsDb assets(fatal);
+    StubGraphicFactory factory;
+    assets.set_graphic_factory(&factory);
+    panel.set_assets(&assets);
+    engine::render::CommandBuffer window_commands;
+    const engine::EngineSystemDeps deps{
+            .assets = &assets,
+            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+                return id == kEditorWindow ? &window_commands : nullptr;
+            },
+    };
+    panel.render(editor_world, canvas, deps);
+
+    // The box's lattice preview: one card batch of 4 x 4 at the rest spacing, inside the box.
+    std::size_t batches = 0;
+    std::size_t edges = 0;
+    for (std::size_t i = 0; i < window_commands.size(); ++i) {
+        if (const auto* cards = std::get_if<engine::render::CmdDrawParticles>(&window_commands[i])) {
+            ++batches;
+            EXPECT_EQ(cards->instances.size(), 16u);
+            for (const engine::render::ParticleInstance& card : cards->instances) {
+                EXPECT_NEAR(card.position.x, 1.0f, 0.2f);
+                EXPECT_NEAR(card.position.y, 1.0f, 0.2f);
+                EXPECT_FLOAT_EQ(card.size.x, 0.1f);
+            }
+        } else if (std::get_if<engine::render::CmdDrawMesh>(&window_commands[i]) != nullptr) {
+            ++edges;
+        }
+    }
+    EXPECT_EQ(batches, 1u) << "the empty fluid draws nothing, the unfilled box its preview";
+    EXPECT_EQ(edges, 4u) << "the box outline";
+}
