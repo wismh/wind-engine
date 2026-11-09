@@ -52,6 +52,13 @@ struct Fluid2DParams {
     // than that per area floats, a heavier one sinks. A particle weighs `density` times its lattice cell, (2 radius)^2.
     // 0 (or negative, or non-finite) turns the reaction on bodies off: coupling one way again.
     float density = 1.0f;
+    // Cohesion (Akinci et al. 2013, the cohesion term): pulls particles toward their neighbours at the free surface,
+    // a surface tension that holds a blob together as a drop and rounds it. 0 is off; see docs/manual/ecs/Fluids.md
+    // for the tested range.
+    float cohesion = 0.0f;
+    // Vorticity confinement (Macklin and Mueller 2013) strength: puts back the swirl the solver and viscosity damp,
+    // so eddies live longer. 0 is off; see docs/manual/ecs/Fluids.md for the tested range.
+    float vorticity = 0.0f;
     uint32_t layer = 1;           // what the fluid is, for the colliders' masks
     uint32_t mask = 0xFFFFFFFFu;  // which collider layers bound it
 };

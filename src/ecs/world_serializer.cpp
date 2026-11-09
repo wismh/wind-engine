@@ -1070,6 +1070,8 @@ void register_builtin_components(
                 out.field("friction", c.params.friction);
                 out.field("restitution", c.params.restitution);
                 out.field("density", c.params.density);
+                out.field("cohesion", c.params.cohesion);
+                out.field("vorticity", c.params.vorticity);
                 out.field("layer", c.params.layer);
                 out.field("mask", c.params.mask);
                 write_fluid_list(out, "sources", c.sources, [](ComponentWriter& w, const FluidSource2D& source) {
@@ -1102,6 +1104,8 @@ void register_builtin_components(
                 (void)in.field("friction", c.params.friction);
                 (void)in.field("restitution", c.params.restitution);
                 (void)in.field("density", c.params.density);
+                (void)in.field("cohesion", c.params.cohesion);
+                (void)in.field("vorticity", c.params.vorticity);
                 (void)in.field("layer", c.params.layer);
                 (void)in.field("mask", c.params.mask);
                 read_fluid_list(in, "sources", c.sources, [](ComponentReader& r, FluidSource2D& source) {

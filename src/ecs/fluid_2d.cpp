@@ -43,6 +43,8 @@ constexpr float kPi = 3.14159265358979f;
 constexpr float kPoly6 = 4.0f / kPi;
 // 2D spiky gradient, grad W(r) = -30 / (pi h^5) (h - r)^2 r_hat, at h = 1.
 constexpr float kSpikyGrad = -30.0f / kPi;
+// Akinci et al. 2013 cohesion spline C(q) at h = 1, its 32 / (pi h^9) factor: largest, about 0.16, at q = 0.5.
+constexpr float kCohesionSpline = 32.0f / kPi;
 // s_corr reference distance dq (in h) and exponent n of the paper.
 constexpr float kTensileDq = 0.2f;
 // Neighbours kept per particle, in cell order. About 24 at rest; the cap only bites under heavy compression.
@@ -79,6 +81,15 @@ constexpr std::size_t kCouplingSlots = 2;
     }
     const float t = 1.0f - r;
     return d * (kSpikyGrad * t * t / r);
+}
+
+// Akinci's cohesion spline C(q), q = r / h in (0, 1]: attraction beyond q = 0.5, a slight repulsion closer.
+[[nodiscard]] float cohesion_spline(float q) {
+    if (!(q > 0.0f) || q >= 1.0f) {
+        return 0.0f;
+    }
+    const float a = (1.0f - q) * (1.0f - q) * (1.0f - q) * q * q * q;
+    return kCohesionSpline * (q > 0.5f ? a : 2.0f * a - 1.0f / 64.0f);
 }
 
 [[nodiscard]] bool finite(glm::vec2 v) {
@@ -429,6 +440,8 @@ struct Params {
     float restitution = 0.0f;
     float max_delta = 0.05f;
     float density = 1.0f;  // world mass per unit area, for two-way coupling
+    float cohesion = 0.0f;
+    float vorticity = 0.0f;
 };
 
 // Poly6 density (self included) of a square lattice at `spacing` (in h).
@@ -462,6 +475,8 @@ struct Params {
     p.restitution = clamp01(fluid.restitution);
     p.max_delta = kMaxDeltaRadii * p.radius;
     p.density = std::isfinite(fluid.density) ? std::max(fluid.density, 0.0f) : 0.0f;
+    p.cohesion = std::isfinite(fluid.cohesion) ? std::max(fluid.cohesion, 0.0f) : 0.0f;
+    p.vorticity = std::isfinite(fluid.vorticity) ? std::max(fluid.vorticity, 0.0f) : 0.0f;
     return p;
 }
 
@@ -543,6 +558,8 @@ struct Fluid2DScratch {
     std::vector<glm::vec2> normal;  // last boundary normal this substep; zero when none
     std::vector<glm::vec2> velocity;
     std::vector<float> lambda;
+    // Vorticity confinement: each particle's curl of velocity (1/s).
+    std::vector<float> curl;
     std::vector<glm::ivec2> cell;
     std::vector<std::uint32_t> bucket_start;
     std::vector<std::uint32_t> sorted;
@@ -1243,19 +1260,70 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                 s.velocity[i] = vel;
             }
         });
-        for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-            for (std::size_t i = begin; i < end; ++i) {
-                glm::vec2 vel = s.velocity[i];
-                if (p.viscosity > 0.0f) {
+        // Vorticity confinement needs every neighbour's curl first: w_i = sum_j grad_i W_ij x (v_j - v_i) / rho_0 / h,
+        // the SPH curl (1/s; 2 omega for a rigid rotation at omega). grad_i W_ij points toward j.
+        const bool cohesive = p.cohesion > 0.0f;
+        const bool swirling = p.vorticity > 0.0f;
+        if (swirling) {
+            s.curl.resize(n);
+            for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+                for (std::size_t i = begin; i < end; ++i) {
                     const glm::vec2 pi = s.predicted[i];
                     const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
-                    glm::vec2 blend{0.0f};
+                    float curl = 0.0f;
                     for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
                         const std::uint32_t j = nb[k];
                         const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
-                        blend += (s.velocity[j] - s.velocity[i]) * poly6(glm::dot(d, d));
+                        const glm::vec2 grad = spiky_grad(d, std::sqrt(glm::dot(d, d)));
+                        const glm::vec2 dv = s.velocity[j] - s.velocity[i];
+                        curl += grad.x * dv.y - grad.y * dv.x;
+                    }
+                    s.curl[i] = curl * p.inv_rest * p.inv_h;
+                }
+            });
+        }
+        for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                glm::vec2 vel = s.velocity[i];
+                if (p.viscosity > 0.0f || cohesive || swirling) {
+                    const glm::vec2 pi = s.predicted[i];
+                    const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+                    glm::vec2 blend{0.0f};
+                    glm::vec2 pull{0.0f};
+                    glm::vec2 eta{0.0f};
+                    const float rho_i = density[i] > 0.0f ? density[i] : 1.0f;
+                    for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
+                        const std::uint32_t j = nb[k];
+                        const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
+                        const float r2 = glm::dot(d, d);
+                        blend += (s.velocity[j] - s.velocity[i]) * poly6(r2);
+                        if (cohesive) {
+                            // Akinci's cohesion K_ij C(r) r_hat, K_ij = 2 rho_0 / (rho_i + rho_j): pulls i toward its
+                            // neighbours where it has fewer of them, at the free surface. Akinci's curvature term
+                            // (n_i - n_j) is left out: explicit in this solver it throws out the corners of a blob.
+                            const float r = std::sqrt(r2);
+                            const float rho_j = density[j] > 0.0f ? density[j] : 1.0f;
+                            const float k_ij = 2.0f / (rho_i + rho_j);
+                            const glm::vec2 r_hat = r > 1.0e-6f ? d / r : glm::vec2{0.0f};
+                            pull += (k_ij * cohesion_spline(r)) * r_hat;
+                        }
+                        if (swirling) {
+                            eta += (std::abs(s.curl[j]) - std::abs(s.curl[i])) * spiky_grad(d, std::sqrt(r2));
+                        }
                     }
                     vel += blend * (p.viscosity * p.inv_rest);
+                    // Accelerations in world units: cohesion in h per second squared per unit of `cohesion`.
+                    vel -= pull * (p.cohesion * p.h * sub_dt);
+                    if (swirling) {
+                        // Confinement: f = eps (N x w), N the unit gradient of |w| (the SPH gradient
+                        // sum_j (|w_j| - |w_i|) grad_i W_ij), toward the vortex center.
+                        const float length = std::sqrt(glm::dot(eta, eta));
+                        if (length > 1.0e-6f) {
+                            const glm::vec2 normal = eta / length;
+                            const float w = s.curl[i];
+                            vel += glm::vec2{normal.y * w, -normal.x * w} * (p.vorticity * sub_dt);
+                        }
+                    }
                 }
                 v[i] = vel;
                 x[i] = s.predicted[i];
