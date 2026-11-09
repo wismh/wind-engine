@@ -5,6 +5,7 @@
 #include <glm/geometric.hpp>
 
 #include <cmath>
+#include <span>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -71,14 +72,14 @@ void wake_sleepers_by_velocity_2d(ecs::World& world) {
     return has_sleeping;
 }
 
-void wake_sleepers_by_overlap_2d(ecs::World& world) {
+void wake_sleepers_by_overlap_2d(ecs::World& world, std::span<const ColliderItem2D> active) {
     if (!has_sleeping_dynamic_2d(world)) {
         return;
     }
-    const std::vector<ColliderItem2D> all_colliders = gather_colliders_2d(world);
+    // Only colliders on a body's own entity take part, and those are all active: no static needs gathering.
     std::vector<ColliderItem2D> colliders;
-    colliders.reserve(all_colliders.size());
-    for (const ColliderItem2D& item : all_colliders) {
+    colliders.reserve(active.size());
+    for (const ColliderItem2D& item : active) {
         const RigidBody2D* body = world.try_get<RigidBody2D>(item.entity);
         if (is_sleeping_dynamic(body) || is_awake_dynamic(body) || is_moving_kinematic(body)) {
             colliders.push_back(item);

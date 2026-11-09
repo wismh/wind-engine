@@ -35,6 +35,22 @@ void rotate_polygon(const ColliderItem2D& item, ContactShape2D& shape) {
 
 }
 
+CompoundShape2D box_shape_2d(glm::vec2 center, glm::vec2 size, float angle) {
+    const glm::vec2 half = size * 0.5f;
+    const glm::vec2 corners[4] = {{-half.x, -half.y}, {half.x, -half.y}, {half.x, half.y}, {-half.x, half.y}};
+    const float cosine = std::cos(angle);
+    const float sine = std::sin(angle);
+    CompoundShape2D shape;
+    shape.count = 4;
+    for (int i = 0; i < 4; ++i) {
+        const glm::vec2 corner = corners[i];
+        const glm::vec2 rotated{cosine * corner.x - sine * corner.y, sine * corner.x + cosine * corner.y};
+        shape.vertices[i] = center + rotated;
+    }
+    return shape;
+}
+
+// ColliderShape2D::Compound is a polygon in every function below: the final else branch.
 bool layers_match_2d(const ColliderItem2D& a, const ColliderItem2D& b) {
     return (a.layer & b.mask) != 0 && (b.layer & a.mask) != 0;
 }

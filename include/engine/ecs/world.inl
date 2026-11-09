@@ -30,9 +30,9 @@ const T* World::Pool<T>::try_get(Entity entity) const {
 }
 
 template<typename T>
-void World::Pool<T>::remove(Entity entity) {
+bool World::Pool<T>::remove(Entity entity) {
     if (!contains(entity)) {
-        return;
+        return false;
     }
     const std::uint32_t packed_index = sparse_[entity.index];
     const std::uint32_t last = static_cast<std::uint32_t>(packed_.size() - 1);
@@ -44,6 +44,7 @@ void World::Pool<T>::remove(Entity entity) {
     packed_.pop_back();
     dense_.pop_back();
     sparse_[entity.index] = kTombstone;
+    return true;
 }
 
 template<typename T>
@@ -78,7 +79,10 @@ void World::Pool<T>::ensure_sparse(std::uint32_t index) {
 template<typename T, typename... Args>
 T& World::emplace(Entity entity, Args&&... args) {
     assert(valid(entity));
-    return assure_pool<T>().emplace(entity, std::forward<Args>(args)...);
+    Pool<T>& pool = assure_pool<T>();
+    T& component = pool.emplace(entity, std::forward<Args>(args)...);
+    pool.stamp_ = ++structure_counter_;
+    return component;
 }
 
 template<typename T>
@@ -110,8 +114,16 @@ const T* World::try_get(Entity entity) const {
 template<typename T>
 void World::remove(Entity entity) {
     if (Pool<T>* pool = pool_or_null<T>()) {
-        pool->remove(entity);
+        if (pool->remove(entity)) {
+            pool->stamp_ = ++structure_counter_;
+        }
     }
+}
+
+template<typename T>
+std::uint64_t World::structure_version() const noexcept {
+    const Pool<T>* pool = pool_or_null<T>();
+    return pool == nullptr ? 0 : pool->stamp_;
 }
 
 template<typename... Ts>

@@ -32,10 +32,14 @@ class World {
     class IPool {
     public:
         virtual ~IPool() = default;
-        virtual void remove(Entity entity) = 0;
+        // True when the entity had a component here.
+        virtual bool remove(Entity entity) = 0;
         virtual bool contains(Entity entity) const = 0;
         virtual std::size_t size() const = 0;
         virtual const Entity* packed() const = 0;
+
+        // World::structure_version. Written only by World.
+        std::uint64_t stamp_ = 0;
     };
 
     template<typename T>
@@ -47,7 +51,7 @@ class World {
         T* try_get(Entity entity);
         const T* try_get(Entity entity) const;
 
-        void remove(Entity entity) override;
+        bool remove(Entity entity) override;
         bool contains(Entity entity) const override;
         std::size_t size() const override;
         const Entity* packed() const override;
@@ -86,6 +90,12 @@ public:
 
     template<typename T>
     void remove(Entity entity);
+
+    // Changes whenever a T is added to or removed from any entity (destroy included). Every pool is stamped from one
+    // counter per World, so a value never repeats within a World, and 0 means no T was ever added. Editing a T in
+    // place does not change it: this is a structural signal, not change detection.
+    template<typename T>
+    [[nodiscard]] std::uint64_t structure_version() const noexcept;
 
     template<typename... Ts>
     [[nodiscard]] View<Ts...> view();
@@ -143,6 +153,7 @@ private:
     std::vector<std::function<void()>> event_queues_;
     std::vector<Entity> pending_destroy_;
     int view_depth_ = 0;
+    std::uint64_t structure_counter_ = 0;
     std::array<std::array<std::vector<SystemFn>, kPhaseCount>, kScheduleCount> systems_{};
 };
 

@@ -2,6 +2,8 @@
 
 #include <engine/ecs/world.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <vector>
 
 namespace {
@@ -119,4 +121,60 @@ TEST(Ecs, DeferredDestroyDuringIteration) {
     world.destroy(extra);
     EXPECT_EQ(world.try_get<A>(extra), nullptr);
     EXPECT_FALSE(world.valid(extra));
+}
+
+TEST(Ecs, StructureVersionFollowsAddRemoveAndDestroy) {
+    engine::ecs::World world;
+    EXPECT_EQ(world.structure_version<A>(), 0u);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity plain = world.create();
+    world.emplace<A>(a, A{1});
+    const std::uint64_t added = world.structure_version<A>();
+    EXPECT_NE(added, 0u);
+
+    world.get<A>(a).value = 2;
+    EXPECT_EQ(world.structure_version<A>(), added);
+
+    world.remove<A>(plain);
+    EXPECT_EQ(world.structure_version<A>(), added);
+    world.destroy(plain);
+    EXPECT_EQ(world.structure_version<A>(), added);
+
+    world.remove<A>(a);
+    const std::uint64_t removed = world.structure_version<A>();
+    EXPECT_GT(removed, added);
+
+    world.emplace<A>(a, A{3});
+    const std::uint64_t readded = world.structure_version<A>();
+    EXPECT_GT(readded, removed);
+    world.destroy(a);
+    EXPECT_GT(world.structure_version<A>(), readded);
+}
+
+TEST(Ecs, StructureVersionNeverRepeatsAcrossPoolsOrReloads) {
+    engine::ecs::World world;
+    std::vector<std::uint64_t> seen;
+    const engine::ecs::Entity first = world.create();
+    world.emplace<A>(first, A{});
+    seen.push_back(world.structure_version<A>());
+    world.emplace<B>(first, B{});
+    seen.push_back(world.structure_version<B>());
+
+    // Reload: destroy everything, then build the same content again. The pool is the same, the stamps are new.
+    for (int reload = 0; reload < 3; ++reload) {
+        for (engine::ecs::Entity entity : world.alive_entities()) {
+            world.destroy(entity);
+        }
+        seen.push_back(world.structure_version<A>());
+        seen.push_back(world.structure_version<B>());
+        const engine::ecs::Entity again = world.create();
+        world.emplace<A>(again, A{});
+        seen.push_back(world.structure_version<A>());
+        world.emplace<B>(again, B{});
+        seen.push_back(world.structure_version<B>());
+    }
+    std::vector<std::uint64_t> sorted = seen;
+    std::sort(sorted.begin(), sorted.end());
+    EXPECT_EQ(std::adjacent_find(sorted.begin(), sorted.end()), sorted.end());
 }

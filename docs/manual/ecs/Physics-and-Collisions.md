@@ -169,6 +169,26 @@ Do not put a `RigidBody2D` on a predicted or controlled entity. Prediction repla
 
 Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent. `size`, `radius`, and polygon vertices are not scaled. A box or polygon turns with the parent's world Z angle; a circle does not. A kinematic child's velocity is in its parent's space. A dynamic child is allowed: the solver writes the corrected world position through `set_world_position`, and its own yaw is written back into local `rotation`, so a translated or rotated parent keeps the contact in world space. The dynamic linear velocity itself stays world XY and does not include the parent's carry.
 
+### Chunked terrain: `CompoundCollider2D`
+
+Terrain built from many cells (a tilemap chunk, marching-squares cells) should not be one entity per cell. Put one `CompoundCollider2D` on one entity per chunk and add a convex shape per cell. Shapes are local to the entity, CCW, at most 8 vertices each, not scaled; `box_shape_2d(center, size, angle)` makes a box.
+
+```cpp
+auto chunk = world.create();
+world.emplace<engine::Transform>(chunk, engine::Transform{.position = {32.f, 0.f, 0.f}});
+engine::CompoundCollider2D ground{.friction = 0.4f};
+for (int x = 0; x < 32; ++x) {
+    ground.shapes.push_back(engine::box_shape_2d({x + 0.5f, -0.5f}, {1.f, 1.f}));
+}
+world.emplace<engine::CompoundCollider2D>(chunk, std::move(ground));
+```
+
+- Static, or under a Kinematic body (a moving platform). Under a Dynamic body it is ignored and a warning is logged once; dynamic compounds are not supported yet.
+- No trigger flag, and one `layer` / `mask` / `friction` / `restitution` for all shapes. Use separate entities for trigger zones.
+- A body touching several shapes of the chunk gets one `CollisionEvent2D` per tick, carrying the deepest contact. Sliding along the chunk is one Enter, then Stay.
+- Changing `shapes` in place (digging) needs `engine::mark_static_colliders_dirty_2d(world)`, as for any static collider edit. Adding or removing the component does not.
+- Particles do not collide with compound shapes.
+
 ---
 
 ## 2. Physics Runs by Itself

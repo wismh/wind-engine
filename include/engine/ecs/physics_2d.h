@@ -10,6 +10,7 @@
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <vector>
 
 namespace engine {
 
@@ -67,6 +68,28 @@ struct PolygonCollider2D {
     float restitution{0.f};  // clamped to [0, 1] when solved; non-finite is 0
 };
 
+// One convex part of a CompoundCollider2D: local XY about the entity origin, CCW, not recentered, not scaled. The
+// same validity rules as PolygonCollider2D.
+struct CompoundShape2D {
+    glm::vec2 vertices[kPolygonCollider2DCapacity]{};
+    std::uint8_t count{0};
+};
+
+// Many convex shapes on one entity, for chunked static terrain: one entity per chunk instead of one per cell. Static
+// or under a Kinematic body. Under a Dynamic body (on the entity or above it) it is ignored and a warning is logged
+// once per entity; dynamic compounds are future work. No trigger: use separate trigger entities. One material for
+// every shape. Editing `shapes` in place is an in-place static edit (mark_static_colliders_dirty_2d).
+struct CompoundCollider2D {
+    std::vector<CompoundShape2D> shapes{};
+    uint32_t layer{1};
+    uint32_t mask{0xFFFFFFFFu};
+    float friction{0.f};     // >= 0; negative or non-finite is 0 when solved
+    float restitution{0.f};  // clamped to [0, 1] when solved; non-finite is 0
+};
+
+// A box as a 4-vertex CCW shape: `center`, full `size` and `angle` (radians) in the entity's local XY.
+[[nodiscard]] CompoundShape2D box_shape_2d(glm::vec2 center, glm::vec2 size, float angle = 0.f);
+
 struct CollisionEvent2D {
     ecs::Entity a{};
     ecs::Entity b{};
@@ -74,11 +97,21 @@ struct CollisionEvent2D {
     bool is_trigger{false};  // true if either collider in the pair is a trigger
     glm::vec2 normal{0.f};   // unit XY from a toward b; zero on Exit
     float penetration{0.f};  // overlap along normal, >= 0; zero on Exit. Pre-solve.
-    glm::vec2 point{0.f};    // one world-space XY contact point; zero on Exit
+    // One world-space XY contact point; zero on Exit. When the two entities touch through several shape pairs (a
+    // compound, or several colliders on one entity), point, normal, penetration and is_trigger come from the deepest.
+    glm::vec2 point{0.f};
 
     constexpr bool operator==(const CollisionEvent2D&) const noexcept = default;
 };
 
 void run_physics_2d(ecs::World& world, JobSystem* jobs = nullptr);
+
+// A static collider has no Dynamic or Kinematic RigidBody2D on its entity or above it. run_physics_2d caches static
+// colliders across ticks, so its cost does not follow their count. Adding or removing a collider, destroying an
+// entity, and adding, removing or retyping a RigidBody2D are noticed on their own. Editing static geometry in place is
+// not: after changing the Transform of a static collider or of any of its ancestors, its collider fields, or its
+// parent, call this so the next tick sees the change. Without the call a background audit finds the edit within a
+// few seconds and logs a warning. Geometry that moves every tick should carry a Kinematic body instead.
+void mark_static_colliders_dirty_2d(ecs::World& world);
 
 }
