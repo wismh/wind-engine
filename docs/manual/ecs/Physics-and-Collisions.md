@@ -210,13 +210,14 @@ engine::mark_static_colliders_dirty_2d(world, ground);
 - After an edit, call `mark_static_colliders_dirty_2d(world, entity)`. The next tick re-reads only the chunks whose `revision` changed and wakes sleeping bodies over them, so a crate on a ledge you blasted away falls. A forgotten mark is found by the background audit within a few ticks and logs a warning.
 - A circle is tested at its center (keep its radius below `band`). A box or polygon is tested at its corners and at points along its edges one cell apart, so a spike thinner than a cell can poke between them, and a body pushed deeper than `band` into the solid has no direction out and gets no contact. Fields do not collide with each other.
 - The field is saved with the world (`sdf_collider_2d`) but is not replicated over the network: replicate your carve and fill calls and apply them on every peer.
-- Particles do not collide with it.
+- Particle emitters with `collision_enabled` collide with it too, with the emitter's own bounce and friction.
+- A `Fluid2D` is held by it as well: see [2D Fluids](Fluids.md).
 
 ---
 
 ## 2. Physics Runs by Itself
 
-The engine registers `run_physics_2d` and, immediately after it, `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
+The engine registers `run_physics_2d`, then the fluid step `run_fluid_2d` ([2D Fluids](Fluids.md)), then `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
 
 ```cpp
 void MyGame::on_start() {
@@ -408,6 +409,7 @@ if (const auto c = terrain.sweep_circle(ball, 0.3f, velocity * dt)) { /* c->frac
 
 ## Next Steps
 
+- Pour water or lava into your terrain with [2D Fluids](Fluids.md).
 - Make tile layers solid with [Tilemaps](../rendering/Tilemaps.md).
 - Render your entities with sprites in [Sprites & Animation](../rendering/Sprites-and-Animation.md).
 - Control the viewport using the [Camera](../rendering/Camera.md).

@@ -26,6 +26,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 * [Systems & Schedules](ecs/Systems-and-Schedules.md) — `Schedule::Frame`, `Schedule::Fixed`, and execution phases.
 * [Events](ecs/Events.md) — Double-buffered event queues (`Events<T>`, `EventReader`, `EventWriter`).
 * [Physics & Collisions](ecs/Physics-and-Collisions.md) — 2D box, circle, and polygon colliders, and a separate 3D sphere, box, and capsule solver (`run_physics_2d` then `run_physics_3d`; the engine registers both); grid collision and block picking (`sweep_aabb`, `raycast_grid`).
+* [2D Fluids](ecs/Fluids.md) — `Fluid2D`: position based fluid particles held by SDF terrain and colliders (`run_fluid_2d`, registered after `run_physics_2d`).
 * [Hierarchy](ecs/Hierarchy.md) — `Parent`, `set_parent`, world matrices and positions, cascade destroy.
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)

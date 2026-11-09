@@ -145,6 +145,24 @@ Windows, MSVC, RelWithDebInfo, mean microseconds per frame, ns per particle in b
 
 An SDF boundary costs about 200 ns per particle on one thread, linear in the count, and scales with the workers. While the particles fall (the minimum, about 85 ns) the cost is one `sample` at each end; a particle at rest adds one `gradient`. The first build swept every contact with `sweep_circle` and spent 1.3 us per resting particle (5.3 ms for the 4k terrain row); projecting short steps into the surface along the gradient, and reading the starts only for particles the end distance cannot clear, brought it to the numbers above.
 
+## Fluids (LQ-27)
+
+`bench/physics/bench_fluid_2d.cpp`, in the `--2d` suite. Each row times `run_fluid_2d` alone (gather included) for 300 fixed ticks of 1/60 s from the release: a dam break. A square column of particles at rest spacing (`radius` 0.05, every other parameter default: 2 substeps, 4 iterations) stands against the left wall of an open-top `SdfCollider2D` tank (0.1-unit cells, 0.4-unit band) 2.5 columns wide, gravity -10. The "Bodies" column is the particle count. Stability: no particle lost or non-finite, none closer than half a radius to the walls.
+
+| Scenario | What it measures |
+| --- | --- |
+| `fluid_dam_4k` | a 64 x 64 column (4,096 particles, 6.4 units) collapsing across a 16-unit tank |
+| `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
+
+Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
+
+| Scenario | `--threads 0` | default (`--threads 11`) |
+| --- | ---: | ---: |
+| `fluid_dam_4k` | 18,994 (4,637) | 3,161 (772) |
+| `fluid_dam_16k` | 78,954 (4,819) | 10,372 (633) |
+
+The cost is linear in the count and scales about 6 to 7.5 times on 11 workers (the hash fill is serial). Per substep, at 4k on one thread: the neighbour search is about 1.3 ms, each solver iteration about 1.4 ms (two passes over about 24 neighbours) plus about 0.5 ms of SDF projection, so 2 x 4 iterations dominate; halving `iterations` or `substeps` is the main knob. Keeping each neighbour's kernel gradient and weight from the lambda pass for the delta pass (instead of recomputing the square root and division) brought the 4k serial row from 28.5 ms to 19 ms. A 60 Hz game on one core fits about 3k particles in 15 ms; on a typical worker pool, 16k fits in about 10 ms.
+
 ## See also
 
 - [ECS](../modules/ECS.md#physics), the static collider cache and `mark_static_colliders_dirty_2d`
