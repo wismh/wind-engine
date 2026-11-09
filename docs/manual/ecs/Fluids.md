@@ -79,6 +79,9 @@ world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::Bo
 | `friction`, `restitution` | 0.1, 0 | against walls: slide damping and bounce |
 | `gravity_scale` | 1 | 0 for a floating blob, negative for a liquid that falls up |
 | `max_particles` | 16384 | `spawn` refuses beyond it |
+| `density` | 1 | mass per unit area: what floats in it ([section 4](#4-what-holds-the-fluid)) |
+| `cohesion` | 0 (off) | surface tension: drops hold together and round off. 4 to 16 keeps a pool at rest; 16 to 64 holds falling drops tighter, and a pool shimmers a little at 64 |
+| `vorticity` | 0 (off) | puts back the swirl the solver damps, so eddies last. 0.02 to 0.1 is safe; from about 0.2 a vortex speeds up on its own |
 
 Leave `rest_density`, `relaxation` and `tensile_strength` at their defaults unless you know Position Based Fluids: they are in the solver's normalized units, and a `tensile_strength` above about 0.01 makes the fluid swell.
 
