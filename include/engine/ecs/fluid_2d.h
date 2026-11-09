@@ -174,6 +174,10 @@ public:
     explicit Fluid2D(const Fluid2DParams& tuning) : params(tuning) {}
 
     Fluid2DParams params{};
+    // Saves the particles with the world: the serializer writes `save_state()` as base64 under `state` and reads it
+    // back, so a loaded fluid is the same bits (state_hash equal). Off by default: a large fluid is megabytes, and
+    // parameters alone load an empty fluid.
+    bool save_particles = false;
     // Taps, sinks and level sensors, stepped by `run_fluid_2d` in that order around the solver step: sources emit, the
     // fluid steps, drains remove, sensors measure. Their settings are serialized with `params`, their state is not.
     std::vector<FluidSource2D> sources;
@@ -188,6 +192,15 @@ public:
     std::size_t spawn_box(glm::vec2 min, glm::vec2 max, glm::vec2 velocity = glm::vec2{0.0f});
     // Removes every particle. Parameters are kept.
     void clear();
+
+    // The simulation state as bytes: every particle's position, velocity and density, then each source's carry and
+    // emitted count, each drain's count and each sensor's fill and `full`. Little-endian, floats by their bits, so
+    // the same on every target. For saves (`save_particles`) and for sending a fluid to a peer that joins late.
+    [[nodiscard]] std::vector<std::uint8_t> save_state() const;
+    // Replaces the particles (and the source, drain and sensor state, where the counts match this fluid's lists) with
+    // `bytes` from save_state. False, nothing changed, for bytes that are not such a state, hold a non-finite value,
+    // or hold more than `max_particles` particles.
+    bool load_state(std::span<const std::uint8_t> bytes);
 
     // --- Queries, on the particles as the last step (or spawn) left them. The first query after a change builds a
     // lookup grid of cells two radii wide (one pass over the particles); later queries read only the cells they touch.
@@ -236,6 +249,17 @@ private:
     mutable std::vector<std::uint32_t> query_sorted_;
     mutable std::vector<glm::ivec2> query_cell_;
     mutable bool query_valid_ = false;
+};
+
+// Authoring a pool: on an entity whose parent has the Fluid2D, a box of `size` (world units, axis-aligned, centered
+// on the entity's world position) that `run_fluid_2d` fills with a lattice at the rest spacing (`Fluid2D::spawn_box`)
+// with `velocity` the first time it steps that fluid, then marks `filled`. Move it with its Transform, size it in the
+// inspector; the editor draws the particles it will make. `filled` is serialized, so a world saved after the fill
+// does not fill twice.
+struct FluidBox2D {
+    glm::vec2 size{1.0f};
+    glm::vec2 velocity{0.0f};
+    bool filled = false;
 };
 
 // Fluids are opt-in: the engine does not step them unless the game installs them. Registers `run_fluid_2d` on
