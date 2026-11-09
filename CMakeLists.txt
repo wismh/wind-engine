@@ -46,6 +46,10 @@ if(MSVC)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
+# Every target of this tree, third party included: deterministic simulation (cmake/deterministic_float.cmake).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/deterministic_float.cmake")
+engine_deterministic_float_options(_engine_float_options)
+add_compile_options(${_engine_float_options})
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(_engine_is_root ON)
@@ -269,6 +273,8 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "game_module\\.cpp$")
 
 add_library(engine ${_engine_library_kind} ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
+# A game that links the engine compiles with its float flags too (cmake/deterministic_float.cmake): same inline code.
+target_compile_options(engine INTERFACE ${_engine_float_options})
 # What engine_add_server links. The same engine in a source build; the Server player libraries in SDK mode.
 add_library(engine_server ALIAS engine)
 
@@ -941,6 +947,7 @@ version = \"${ENGINE_VERSION_FULL}\"
         "${_engine_sdk_dir}/WindConfigVersion.cmake"
         "${_engine_sdk_dir}/wind_version.cmake"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deterministic_float.cmake"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_export.cmake"
         DESTINATION cmake)
 

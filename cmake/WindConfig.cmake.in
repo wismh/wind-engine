@@ -125,6 +125,11 @@ else()
     endif()
     set(_wind_sdk_engine_files "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>" "${_wind_sdk_engine_link}")
 endif()
+# Deterministic float flags on everything that links the engine, so inline engine and glm code in a game is compiled
+# as the engine compiled it (cmake/deterministic_float.cmake).
+include("${CMAKE_CURRENT_LIST_DIR}/deterministic_float.cmake")
+engine_deterministic_float_options(_wind_sdk_float_options)
+set_property(TARGET engine APPEND PROPERTY INTERFACE_COMPILE_OPTIONS ${_wind_sdk_float_options})
 add_library(engine::engine ALIAS engine)
 
 add_executable(asset_codegen IMPORTED GLOBAL)
