@@ -197,7 +197,20 @@ A tiled compound tank costs about what the SDF tank costs: a particle against a 
 
 ### Several fluids (LQ-62)
 
-A lone fluid now runs through the group solver (gather into per-particle arrays, per-particle parameter lookups, scatter back). Best of two runs, before and after, on a busier machine than the tables above: `fluid_dam_4k` 25,756 to 26,102 us serial and 4,087 to 4,274 us on the default threads, `fluid_dam_16k` 110,107 to 111,051 and 13,297 to 13,657, `fluid_rest_4k` 25,951 to 26,338 and 4,143 to 4,226. About 1 percent serial and up to 4 percent threaded, near the noise.
+A lone fluid now runs through the group solver (gather into per-particle arrays, per-particle parameter lookups, scatter back). Best of two runs, before and after, on a busier machine than the tables above: `fluid_dam_4k` 25,756 to 26,102 us serial and 4,087 to 4,274 us on the default threads, `fluid_dam_16k` 110,107 to 111,051 and 13,297 to 13,720, `fluid_rest_4k` 25,951 to 26,338 and 4,143 to 4,226. About 1 percent serial and up to 4 percent threaded, near the noise.
+
+### Performance, first pass (LQ-55)
+
+Changes that keep every result bit for bit (the golden hashes did not move): `JobSystem` workers spin up to 50 us for the next `parallel_for` batch before they sleep, and the caller spins as long for the last range ([Core](../modules/Core.md#jobs)); the fluid's delta pass applies, sweeps and projects its own range (one barrier less per iteration); the SDF projection skips the samples of a particle provably clear of every field (the clearance cache, [ECS](../modules/ECS.md#2d-fluids)); the neighbour search computes cells in parallel and reads its candidates from contiguous copies. Best of two runs against the commit before, same machine and load:
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 26,005 | 23,747 (-9%) | 4,128 | 3,634 (-12%) |
+| `fluid_dam_16k` | 110,536 | 100,612 (-9%) | 13,150 | 11,936 (-9%) |
+| `fluid_rest_4k` | 26,683 | 23,961 (-10%) | 4,180 | 3,688 (-12%) |
+| `fluid_crates_4k` | 26,913 | 24,599 (-9%) | 4,249 | 3,753 (-12%) |
+
+Profile of `fluid_dam_4k` on 11 workers, per tick at the defaults (2 substeps, 4 iterations): neighbour searches about 0.8 ms, the lambda passes about 1.2 ms, delta with apply, sweep and projection about 0.9 ms, velocity and XSPH about 0.25 ms. The lambda pass is compute bound (about 10 ns per neighbour pair serial: a square root and a division each); sorting the particles spatially inside the step (Morton order) changed nothing at 4k, whose working set is already in cache, and was not kept. At 1 substep and 3 iterations the step costs about 1.5 ms, but the fluid suite's quality checks then fail (multiphase layering, a body's splash, resting pools' kinetic energy), so the defaults stay. The 1 ms goal is open.
 
 ## Deterministic simulation (LQ-63)
 
