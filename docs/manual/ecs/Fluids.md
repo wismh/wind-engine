@@ -60,7 +60,13 @@ Read `positions()` every frame and draw them with your own sprites, a particle e
 - `CompoundCollider2D` terrain (tiles, marching-squares cells), static or on a Kinematic body. Only the parts near the water cost anything.
 - The usual layer rule: the fluid's `mask` must include the collider's `layer`, and the collider's `mask` the fluid's `layer`.
 
-Coupling is one way: colliders push the fluid, the fluid never pushes back. A crate does not float and gets no `CollisionEvent2D` from the water. Two fluids pass through each other.
+Water pushes back on Dynamic bodies: a crate lighter than the water floats, a heavier one sinks, a thrown rock splashes and slows down, a tilted plank turns flat. How heavy the water is comes from `density` (mass per unit area, default 1, in the units of `RigidBody2D::mass`: a 1 x 1 box of mass 0.5 floats half under water). This works for box, circle and polygon colliders on the body's own entity. Bodies much lighter than the water (below about 0.15 of its density) bob at the surface instead of settling. Set `density = 0` for water that only gets pushed around. No `CollisionEvent2D` comes from the water. Two fluids pass through each other.
+
+```cpp
+engine::Fluid2DParams water{.radius = 0.05f, .density = 1.0f};
+// A 0.5 x 0.5 crate of mass 0.1 (density 0.4): floats with 40 percent of it under water.
+world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = 0.1f});
+```
 
 ## 5. Tuning
 
