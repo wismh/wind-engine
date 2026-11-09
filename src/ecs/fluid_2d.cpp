@@ -560,6 +560,21 @@ struct Fluid2DScratch {
     std::vector<float> lambda;
     // Vorticity confinement: each particle's curl of velocity (1/s).
     std::vector<float> curl;
+    // The group being stepped (LQ-62): fluids that touch are solved as one particle system. Particle i belongs to
+    // member `owner[i]`, whose resolved parameters are `members[owner[i]]`; its radius, its mass relative to the
+    // group's heaviest particle, and its 1 / rest density are copied per particle for the hot loops. A lone fluid is
+    // a group of one: every ratio below is then exactly 1 and the result is the single-fluid solver's, bit for bit.
+    std::vector<Params> members;
+    std::vector<std::uint32_t> owner;
+    std::vector<float> radius;
+    std::vector<float> mass;
+    std::vector<float> inv_rest;
+    std::vector<glm::vec2> x;
+    std::vector<glm::vec2> v;
+    std::vector<float> density;
+    // Per selected shape and SDF field: the members it bounds (bit k for member k).
+    std::vector<std::uint32_t> shape_members;
+    std::vector<std::uint32_t> sdf_members;
     std::vector<glm::ivec2> cell;
     std::vector<std::uint32_t> bucket_start;
     std::vector<std::uint32_t> sorted;
@@ -588,14 +603,20 @@ struct Fluid2DScratch {
     std::vector<glm::vec2> from;
 };
 
+// The fluids `run_fluid_2d` steps as one particle system this tick, in view order, with their entities.
+struct FluidGroup2D {
+    std::vector<Fluid2D*> fluids;
+    std::vector<ecs::Entity> entities;
+};
+
 struct Fluid2DSolver {
-    static void step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
-                     Fluid2DScratch& s);
+    static void step(const FluidGroup2D& group, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
+                     Fluid2DScratch& s, ecs::EventWriter<FluidContactEvent2D>& contacts);
     // Neighbour lists of `s.predicted` [0, n).
     static void build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s);
-    static void select_boundaries(const Fluid2DParams& fluid, const Params& p, const Boundaries& boundaries,
+    static void select_boundaries(const FluidGroup2D& group, const Params& p, const Boundaries& boundaries,
                                   std::size_t n, Fluid2DScratch& s);
-    static void sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    static void sweep_range(std::size_t begin, std::size_t end, Fluid2DScratch& s);
     // Sources, before the step: emit what each enabled source owes for `dt`.
     static void emit(Fluid2D& fluid, float dt);
     // Drains, after the step: remove the particles that ended inside an enabled drain, keeping the others' order.
@@ -603,9 +624,9 @@ struct Fluid2DSolver {
     // Sensors, after the drains: measure each fill and send an event when one turns full or stops being full.
     static void sense(Fluid2D& fluid, ecs::Entity entity, ecs::EventWriter<FluidSensorEvent2D>& events);
     // Two-way coupling: `shape` moved particle i by `moved`, leaving it at `position` with contact normal `normal`.
-    static void record_push(const Params& p, std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
+    static void record_push(std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
                             glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s);
-    static void project_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    static void project_range(std::size_t begin, std::size_t end, Fluid2DScratch& s);
 };
 
 namespace {
@@ -862,10 +883,22 @@ void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* j
     });
 }
 
-void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& p, const Boundaries& boundaries,
+void Fluid2DSolver::select_boundaries(const FluidGroup2D& group, const Params& p, const Boundaries& boundaries,
                                       std::size_t n, Fluid2DScratch& s) {
     s.sdf.clear();
     s.shapes.clear();
+    s.sdf_members.clear();
+    s.shape_members.clear();
+    // The members a collider bounds, under the layer rule of each.
+    const auto members_of = [&](uint32_t layer, uint32_t mask) {
+        std::uint32_t bits = 0;
+        for (std::size_t k = 0; k < group.fluids.size(); ++k) {
+            if (layers_match(group.fluids[k]->params, layer, mask)) {
+                bits |= 1u << k;
+            }
+        }
+        return bits;
+    };
     glm::vec2 lo{std::numeric_limits<float>::max()};
     glm::vec2 hi{-std::numeric_limits<float>::max()};
     // The substep starts too: a swept step meets every boundary between its start and its end.
@@ -878,14 +911,18 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
     lo -= glm::vec2{grow};
     hi += glm::vec2{grow};
     for (const SdfBoundary& sdf : boundaries.sdf) {
-        if (layers_match(fluid, sdf.layer, sdf.mask)) {
+        if (const std::uint32_t bits = members_of(sdf.layer, sdf.mask); bits != 0) {
             s.sdf.push_back(&sdf);
+            s.sdf_members.push_back(bits);
         }
     }
     for (const ShapeBoundary& shape : boundaries.shapes) {
-        if (layers_match(fluid, shape.layer, shape.mask) && shape.hi.x >= lo.x && shape.lo.x <= hi.x &&
-            shape.hi.y >= lo.y && shape.lo.y <= hi.y) {
+        if (shape.hi.x < lo.x || shape.lo.x > hi.x || shape.hi.y < lo.y || shape.lo.y > hi.y) {
+            continue;
+        }
+        if (const std::uint32_t bits = members_of(shape.layer, shape.mask); bits != 0) {
             s.shapes.push_back(&shape);
+            s.shape_members.push_back(bits);
         }
     }
 
@@ -929,12 +966,12 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
     }
 }
 
-void Fluid2DSolver::record_push(const Params& p, std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
+void Fluid2DSolver::record_push(std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
                                 glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s) {
     if (shape.body < 0 || !s.coupled) {
         return;
     }
-    const glm::vec2 contact = position - normal * p.radius;
+    const glm::vec2 contact = position - normal * s.radius[i];
     const glm::vec2 arm = contact - s.boundaries->bodies[static_cast<std::size_t>(shape.body)].origin;
     const float moment = arm.x * moved.y - arm.y * moved.x;
     Fluid2DScratch::Push* slots = &s.pushes[i * kCouplingSlots];
@@ -956,32 +993,36 @@ void Fluid2DSolver::record_push(const Params& p, std::size_t i, const ShapeBound
 // and moves further in stops where it started. The stop is `kSweepSkinRadii` radii off the surface along its normal,
 // which becomes the particle's contact normal; `project_range` resolves the rest. A particle's result depends only on
 // itself and the read-only boundaries.
-void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s) {
-    const float threshold = kSweepRadii * p.radius;
+void Fluid2DSolver::sweep_range(std::size_t begin, std::size_t end, Fluid2DScratch& s) {
     for (std::size_t i = begin; i < end; ++i) {
+        const float radius_i = s.radius[i];
+        const std::uint32_t member = 1u << s.owner[i];
+        const float threshold = kSweepRadii * radius_i;
         const glm::vec2 from = s.from[i];
         const glm::vec2 delta = s.predicted[i] - from;
         if (glm::dot(delta, delta) <= threshold * threshold || !finite(delta)) {
             continue;
         }
-        const glm::vec2 lo = glm::min(from, from + delta) - glm::vec2{p.radius};
-        const glm::vec2 hi = glm::max(from, from + delta) + glm::vec2{p.radius};
+        const glm::vec2 lo = glm::min(from, from + delta) - glm::vec2{radius_i};
+        const glm::vec2 hi = glm::max(from, from + delta) + glm::vec2{radius_i};
         float best = 1.0f;
         glm::vec2 normal{0.0f};
         const ShapeBoundary* stopper = nullptr;
-        for (const ShapeBoundary* shape : s.shapes) {
-            if (hi.x < shape->lo.x || lo.x > shape->hi.x || hi.y < shape->lo.y || lo.y > shape->hi.y) {
+        for (std::size_t index = 0; index < s.shapes.size(); ++index) {
+            const ShapeBoundary* shape = s.shapes[index];
+            if ((s.shape_members[index] & member) == 0 || hi.x < shape->lo.x || lo.x > shape->hi.x ||
+                hi.y < shape->lo.y || lo.y > shape->hi.y) {
                 continue;
             }
             const float before = best;
             if (shape->kind == ShapeBoundary::Kind::Circle) {
-                (void)sweep_circle_shape(from, delta, shape->frame.position, shape->radius + p.radius, best, normal);
+                (void)sweep_circle_shape(from, delta, shape->frame.position, shape->radius + radius_i, best, normal);
             } else if (shape->kind == ShapeBoundary::Kind::Polygon) {
-                (void)sweep_polygon_shape(from, delta, *shape, p.radius, best, normal);
+                (void)sweep_polygon_shape(from, delta, *shape, radius_i, best, normal);
             } else {
                 glm::vec2 local_normal{0.0f};
                 if (sweep_box_shape(shape->frame.to_local(from), shape->frame.rotate_to_local(delta),
-                                    shape->half + glm::vec2{p.radius}, best, local_normal)) {
+                                    shape->half + glm::vec2{radius_i}, best, local_normal)) {
                     normal = shape->frame.rotate_to_world(local_normal);
                 }
             }
@@ -989,9 +1030,13 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
                 stopper = shape;
             }
         }
-        for (const SdfBoundary* sdf : s.sdf) {
+        for (std::size_t index = 0; index < s.sdf.size(); ++index) {
+            if ((s.sdf_members[index] & member) == 0) {
+                continue;
+            }
+            const SdfBoundary* sdf = s.sdf[index];
             const SdfField2D& field = *sdf->field;
-            const float radius = std::min(p.radius, field.band() * 0.999f);
+            const float radius = std::min(radius_i, field.band() * 0.999f);
             const glm::vec2 local_from = sdf->frame.to_local(from);
             const glm::vec2 local_delta = sdf->frame.rotate_to_local(delta);
             if (field.outside() != SdfOutside::Solid) {
@@ -1017,9 +1062,9 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
             stopper = nullptr;
         }
         if (best < 1.0f) {
-            const glm::vec2 stop = from + delta * best + normal * (kSweepSkinRadii * p.radius);
+            const glm::vec2 stop = from + delta * best + normal * (kSweepSkinRadii * radius_i);
             if (stopper != nullptr) {
-                record_push(p, i, *stopper, stop - s.predicted[i], stop, normal, s);
+                record_push(i, *stopper, stop - s.predicted[i], stop, normal, s);
             }
             s.predicted[i] = stop;
             s.normal[i] = normal;
@@ -1030,23 +1075,25 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
 // Pushes predicted positions [begin, end) out of every selected boundary: boxes and circles, then SDF colliders in
 // gather order, so a particle squeezed between a moving shape and the terrain ends outside the terrain (and is pushed
 // out of the shape on a later iteration). A particle's result depends only on itself and the read-only boundaries.
-void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s) {
+void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScratch& s) {
     for (std::size_t i = begin; i < end && !s.shapes.empty(); ++i) {
         glm::vec2 pos = s.predicted[i];
+        const float radius_i = s.radius[i];
+        const std::uint32_t member = 1u << s.owner[i];
         s.grid.for_each(pos, [&](std::uint32_t index) {
             const ShapeBoundary* shape = s.shapes[index];
-            if (pos.x < shape->lo.x - p.radius || pos.x > shape->hi.x + p.radius || pos.y < shape->lo.y - p.radius ||
-                pos.y > shape->hi.y + p.radius) {
+            if ((s.shape_members[index] & member) == 0 || pos.x < shape->lo.x - radius_i ||
+                pos.x > shape->hi.x + radius_i || pos.y < shape->lo.y - radius_i || pos.y > shape->hi.y + radius_i) {
                 return;
             }
             const glm::vec2 before = pos;
             if (shape->kind == ShapeBoundary::Kind::Polygon) {
-                if (project_polygon(*shape, p.radius, pos, s.normal[i])) {
-                    record_push(p, i, *shape, pos - before, pos, s.normal[i], s);
+                if (project_polygon(*shape, radius_i, pos, s.normal[i])) {
+                    record_push(i, *shape, pos - before, pos, s.normal[i], s);
                 }
             } else if (shape->kind == ShapeBoundary::Kind::Circle) {
                 const glm::vec2 d = pos - shape->frame.position;
-                const float reach = shape->radius + p.radius;
+                const float reach = shape->radius + radius_i;
                 const float dist2 = glm::dot(d, d);
                 if (dist2 >= reach * reach) {
                     return;
@@ -1055,10 +1102,10 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 const glm::vec2 n = dist > 1.0e-6f ? d / dist : glm::vec2{0.0f, 1.0f};
                 pos = shape->frame.position + n * reach;
                 s.normal[i] = n;
-                record_push(p, i, *shape, pos - before, pos, n, s);
+                record_push(i, *shape, pos - before, pos, n, s);
             } else {
                 const glm::vec2 l = shape->frame.to_local(pos);
-                const glm::vec2 half = shape->half + glm::vec2{p.radius};
+                const glm::vec2 half = shape->half + glm::vec2{radius_i};
                 const float px = half.x - std::abs(l.x);
                 const float py = half.y - std::abs(l.y);
                 if (px <= 0.0f || py <= 0.0f) {
@@ -1075,7 +1122,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 }
                 pos = shape->frame.to_world(out);
                 s.normal[i] = shape->frame.rotate_to_world(n);
-                record_push(p, i, *shape, pos - before, pos, s.normal[i], s);
+                record_push(i, *shape, pos - before, pos, s.normal[i], s);
             }
         });
         s.predicted[i] = pos;
@@ -1083,9 +1130,11 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
     std::array<glm::vec2, kSdfBatch> local{};
     std::array<float, kSdfBatch> distance{};
     std::array<std::uint32_t, kSdfBatch> index{};
-    for (const SdfBoundary* sdf : s.sdf) {
+    for (std::size_t field_index = 0; field_index < s.sdf.size(); ++field_index) {
+        const SdfBoundary* sdf = s.sdf[field_index];
+        const std::uint32_t members = s.sdf_members[field_index];
         const SdfField2D& field = *sdf->field;
-        const float radius = std::min(p.radius, field.band() * 0.999f);
+        const float band_radius = field.band() * 0.999f;
         const std::optional<SdfBounds2D> bounds = field.allocated_bounds();
         const bool solid_outside = field.outside() == SdfOutside::Solid;
         if (!bounds && !solid_outside) {
@@ -1095,6 +1144,10 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
             const std::size_t batch_end = std::min(end, batch + kSdfBatch);
             std::size_t count = 0;
             for (std::size_t i = batch; i < batch_end; ++i) {
+                if ((members & (1u << s.owner[i])) == 0) {
+                    continue;
+                }
+                const float radius = std::min(s.radius[i], band_radius);
                 const glm::vec2 l = sdf->frame.to_local(s.predicted[i]);
                 if (!solid_outside && (l.x < bounds->min.x - radius || l.x > bounds->max.x + radius ||
                                        l.y < bounds->min.y - radius || l.y > bounds->max.y + radius)) {
@@ -1111,6 +1164,8 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                               std::span<float>{distance.data(), count});
             for (std::size_t k = 0; k < count; ++k) {
                 const float d = distance[k];
+                const std::uint32_t i = index[k];
+                const float radius = std::min(s.radius[i], band_radius);
                 if (d >= radius) {
                     continue;
                 }
@@ -1118,7 +1173,6 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 if (g.x == 0.0f && g.y == 0.0f) {
                     continue;
                 }
-                const std::uint32_t i = index[k];
                 s.predicted[i] = sdf->frame.to_world(local[k] + g * (radius - d));
                 s.normal[i] = sdf->frame.rotate_to_world(g);
             }
@@ -1126,22 +1180,94 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
     }
 }
 
-void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
-                         Fluid2DScratch& s) {
-    const std::size_t n = fluid.positions_.size();
-    fluid.densities_.resize(n, 0.0f);
+void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm::vec2 gravity, float dt,
+                         JobSystem* jobs, Fluid2DScratch& s, ecs::EventWriter<FluidContactEvent2D>& contacts) {
+    std::size_t n = 0;
+    for (Fluid2D* fluid : group.fluids) {
+        fluid->densities_.resize(fluid->positions_.size(), 0.0f);
+        n += fluid->positions_.size();
+    }
     if (n == 0 || !(dt > 0.0f) || !std::isfinite(dt)) {
         return;
     }
-    fluid.query_valid_ = false;
-    const Params p = resolve(fluid.params);
+    // The group's parameters: each member's own, and for the whole system the largest kernel support (pair terms
+    // must be symmetric) and the most substeps and iterations. `p` is the first member's with those shared fields, and
+    // the largest radius and delta clamp for the boundary culls. For a group of one it is that fluid's own.
+    s.members.clear();
+    for (Fluid2D* fluid : group.fluids) {
+        s.members.push_back(resolve(fluid->params));
+    }
+    Params p = s.members.front();
+    for (const Params& member : s.members) {
+        p.h = std::max(p.h, member.h);
+        p.substeps = std::max(p.substeps, member.substeps);
+        p.iterations = std::max(p.iterations, member.iterations);
+        p.radius = std::max(p.radius, member.radius);
+        p.max_delta = std::max(p.max_delta, member.max_delta);
+    }
+    p.inv_h = 1.0f / p.h;
+    if (s.members.size() > 1) {
+        // Rest densities of each member's own lattice at the shared support (the lone-fluid value otherwise).
+        for (std::size_t k = 0; k < s.members.size(); ++k) {
+            Params& member = s.members[k];
+            member.rest_density = positive_or(group.fluids[k]->params.rest_density,
+                                              lattice_density(2.0f * member.radius * p.inv_h));
+            member.inv_rest = 1.0f / member.rest_density;
+        }
+    }
+    // Relative particle masses, the heaviest 1: each particle takes its inverse mass's share of every density
+    // correction, so at an interface the lighter fluid yields and the heavier sinks. A fluid with density 0 counts as
+    // the heaviest's thousandth.
+    float heaviest = 0.0f;
+    std::vector<float> member_mass(s.members.size());
+    for (std::size_t k = 0; k < s.members.size(); ++k) {
+        const float spacing = 2.0f * s.members[k].radius;
+        member_mass[k] = s.members[k].density * spacing * spacing;
+        heaviest = std::max(heaviest, member_mass[k]);
+    }
+    std::vector<float> relative(s.members.size(), 1.0f);
+    if (s.members.size() > 1 && heaviest > 0.0f) {
+        for (std::size_t k = 0; k < s.members.size(); ++k) {
+            relative[k] = std::max(member_mass[k] / heaviest, 1.0e-3f);
+        }
+    }
+    const bool mixed = s.members.size() > 1;
+
+    // Gather the members' particles in member order.
+    s.x.resize(n);
+    s.v.resize(n);
+    s.density.resize(n);
+    s.owner.resize(n);
+    s.radius.resize(n);
+    s.mass.resize(n);
+    s.inv_rest.resize(n);
+    {
+        std::size_t at = 0;
+        for (std::size_t k = 0; k < group.fluids.size(); ++k) {
+            Fluid2D& fluid = *group.fluids[k];
+            fluid.query_valid_ = false;
+            for (std::size_t i = 0; i < fluid.positions_.size(); ++i, ++at) {
+                s.x[at] = fluid.positions_[i];
+                s.v[at] = fluid.velocities_[i];
+                s.density[at] = fluid.densities_[i];
+                s.owner[at] = static_cast<std::uint32_t>(k);
+                s.radius[at] = s.members[k].radius;
+                s.mass[at] = relative[k];
+                s.inv_rest[at] = s.members[k].inv_rest;
+            }
+        }
+    }
     const float sub_dt = dt / static_cast<float>(p.substeps);
     const float inv_dt = 1.0f / sub_dt;
-    const float scale = std::isfinite(fluid.params.gravity_scale) ? fluid.params.gravity_scale : 0.0f;
-    const glm::vec2 g = finite(gravity) ? gravity * scale : glm::vec2{0.0f};
-    std::vector<glm::vec2>& x = fluid.positions_;
-    std::vector<glm::vec2>& v = fluid.velocities_;
-    std::vector<float>& density = fluid.densities_;
+    std::vector<glm::vec2> member_gravity(s.members.size());
+    for (std::size_t k = 0; k < s.members.size(); ++k) {
+        const float scale = std::isfinite(group.fluids[k]->params.gravity_scale) ? group.fluids[k]->params.gravity_scale
+                                                                                : 0.0f;
+        member_gravity[k] = finite(gravity) ? gravity * scale : glm::vec2{0.0f};
+    }
+    std::vector<glm::vec2>& x = s.x;
+    std::vector<glm::vec2>& v = s.v;
+    std::vector<float>& density = s.density;
     s.predicted.resize(n);
     s.pre_velocity.resize(n);
     s.delta.resize(n);
@@ -1150,15 +1276,14 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
     s.lambda.resize(n);
     s.from.resize(n);
     s.boundaries = &boundaries;
-    // A particle's mass in world units: the fluid's density times the area of one lattice cell (the rest spacing
+    // A particle's mass in world units: its fluid's density times the area of one lattice cell (the rest spacing
     // squared). The reaction of a push `moved` over a substep is an impulse of mass * moved / sub_dt on the body.
-    const float spacing = 2.0f * p.radius;
-    const float particle_mass = p.density * spacing * spacing;
+    const bool any_mass = std::any_of(member_mass.begin(), member_mass.end(), [](float m) { return m > 0.0f; });
 
     for (int sub = 0; sub < p.substeps; ++sub) {
         for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
             for (std::size_t i = begin; i < end; ++i) {
-                v[i] += g * sub_dt;
+                v[i] += member_gravity[s.owner[i]] * sub_dt;
                 s.pre_velocity[i] = v[i];
                 s.predicted[i] = x[i] + v[i] * sub_dt;
                 s.from[i] = x[i];
@@ -1168,8 +1293,8 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
         build_neighbors(p, n, jobs, s);
         s.gradient.resize(n * kMaxNeighbors);
         s.weight.resize(n * kMaxNeighbors);
-        select_boundaries(fluid.params, p, boundaries, n, s);
-        s.coupled = particle_mass > 0.0f &&
+        select_boundaries(group, p, boundaries, n, s);
+        s.coupled = any_mass &&
                     std::any_of(s.shapes.begin(), s.shapes.end(), [](const ShapeBoundary* shape) { return shape->body >= 0; });
         if (s.coupled) {
             s.pushes.assign(n * kCouplingSlots, Fluid2DScratch::Push{});
@@ -1180,6 +1305,9 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
             // neighbour's kernel gradient and weight for the delta pass, which reads the same positions.
             for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
                 for (std::size_t i = begin; i < end; ++i) {
+                    const Params& own = s.members[s.owner[i]];
+                    const float inv_rest = s.inv_rest[i];
+                    const float inv_mass = 1.0f / s.mass[i];
                     const glm::vec2 pi = s.predicted[i];
                     const std::size_t base = i * kMaxNeighbors;
                     const std::uint32_t* nb = &s.neighbors[base];
@@ -1189,7 +1317,8 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                     glm::vec2 grad_i{0.0f};
                     float sum_sq = 0.0f;
                     for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
-                        const glm::vec2 d = (pi - s.predicted[nb[k]]) * p.inv_h;
+                        const std::uint32_t j = nb[k];
+                        const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
                         const float r2 = glm::dot(d, d);
                         const float w = poly6(r2);
                         const glm::vec2 grad = spiky_grad(d, std::sqrt(r2));
@@ -1197,35 +1326,46 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                         grads[k] = grad;
                         rho += w;
                         grad_i += grad;
-                        sum_sq += glm::dot(grad, grad);
+                        // Each particle's share of the correction is its inverse mass (heaviest 1): a neighbour's
+                        // gradient counts by its weight. 1 in a lone fluid.
+                        sum_sq += mixed ? glm::dot(grad, grad) / s.mass[j] : glm::dot(grad, grad);
                     }
                     // Both sums in units of rest density: grad C = grad W / rho_0.
-                    sum_sq = (sum_sq + glm::dot(grad_i, grad_i)) * (p.inv_rest * p.inv_rest);
-                    const float ratio = rho * p.inv_rest;
+                    const float own_share = mixed ? glm::dot(grad_i, grad_i) * inv_mass : glm::dot(grad_i, grad_i);
+                    sum_sq = (sum_sq + own_share) * (inv_rest * inv_rest);
+                    const float ratio = rho * inv_rest;
                     density[i] = ratio;
                     const float c = ratio - 1.0f;
-                    s.lambda[i] = c > 0.0f ? -c / (sum_sq + p.relaxation) : 0.0f;
+                    s.lambda[i] = c > 0.0f ? -c / (sum_sq + own.relaxation) : 0.0f;
                 }
             });
             // Delta: gathered from the neighbours' lambdas, with the s_corr tensile term.
             for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
                 for (std::size_t i = begin; i < end; ++i) {
+                    const Params& own = s.members[s.owner[i]];
                     const float li = s.lambda[i];
+                    const float inv_rest = s.inv_rest[i];
+                    const float inv_mass = 1.0f / s.mass[i];
                     const std::size_t base = i * kMaxNeighbors;
                     const std::uint32_t* nb = &s.neighbors[base];
                     const glm::vec2* grads = &s.gradient[base];
                     const float* weights = &s.weight[base];
                     glm::vec2 sum{0.0f};
                     for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
-                        const float w = weights[k] * p.inv_w_dq;
+                        const std::uint32_t j = nb[k];
+                        const float w = weights[k] * own.inv_w_dq;
                         const float w2 = w * w;
-                        const float scorr = -p.tensile * w2 * w2;
-                        sum += (li + s.lambda[nb[k]] + scorr) * grads[k];
+                        const float scorr = -own.tensile * w2 * w2;
+                        // The neighbour's constraint in units of its own rest density. 1 in a lone fluid.
+                        const float rr = mixed ? s.inv_rest[j] / inv_rest : 1.0f;
+                        sum += (li + s.lambda[j] * rr + scorr) * grads[k];
                     }
-                    glm::vec2 delta = sum * (p.inv_rest * p.h);
+                    // i takes its inverse mass's share of every correction: a lighter particle yields to a heavier
+                    // one, so the heavier sinks through it (buoyancy). 1 in a lone fluid.
+                    glm::vec2 delta = mixed ? sum * (inv_rest * p.h * inv_mass) : sum * (inv_rest * p.h);
                     const float len2 = glm::dot(delta, delta);
-                    if (len2 > p.max_delta * p.max_delta) {
-                        delta *= p.max_delta / std::sqrt(len2);
+                    if (len2 > own.max_delta * own.max_delta) {
+                        delta *= own.max_delta / std::sqrt(len2);
                     }
                     s.delta[i] = delta;
                 }
@@ -1234,8 +1374,8 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                 for (std::size_t i = begin; i < end; ++i) {
                     s.predicted[i] += s.delta[i];
                 }
-                sweep_range(p, begin, end, s);
-                project_range(p, begin, end, s);
+                sweep_range(begin, end, s);
+                project_range(begin, end, s);
                 for (std::size_t i = begin; i < end; ++i) {
                     s.from[i] = s.predicted[i];
                 }
@@ -1246,24 +1386,25 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
         // neighbours' velocities into a second buffer).
         for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
             for (std::size_t i = begin; i < end; ++i) {
+                const Params& own = s.members[s.owner[i]];
                 glm::vec2 vel = (s.predicted[i] - x[i]) * inv_dt;
                 const glm::vec2 nrm = s.normal[i];
                 if (nrm.x != 0.0f || nrm.y != 0.0f) {
                     float vn = glm::dot(vel, nrm);
                     const float approach = glm::dot(s.pre_velocity[i], nrm);
                     if (approach < 0.0f) {
-                        vn = std::max(vn, -p.restitution * approach);
+                        vn = std::max(vn, -own.restitution * approach);
                     }
                     const glm::vec2 vt = vel - glm::dot(vel, nrm) * nrm;
-                    vel = vn * nrm + vt * (1.0f - p.friction);
+                    vel = vn * nrm + vt * (1.0f - own.friction);
                 }
                 s.velocity[i] = vel;
             }
         });
         // Vorticity confinement needs every neighbour's curl first: w_i = sum_j grad_i W_ij x (v_j - v_i) / rho_0 / h,
         // the SPH curl (1/s; 2 omega for a rigid rotation at omega). grad_i W_ij points toward j.
-        const bool cohesive = p.cohesion > 0.0f;
-        const bool swirling = p.vorticity > 0.0f;
+        const bool swirling = std::any_of(s.members.begin(), s.members.end(),
+                                          [](const Params& member) { return member.vorticity > 0.0f; });
         if (swirling) {
             s.curl.resize(n);
             for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
@@ -1278,14 +1419,15 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                         const glm::vec2 dv = s.velocity[j] - s.velocity[i];
                         curl += grad.x * dv.y - grad.y * dv.x;
                     }
-                    s.curl[i] = curl * p.inv_rest * p.inv_h;
+                    s.curl[i] = curl * s.inv_rest[i] * p.inv_h;
                 }
             });
         }
         for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
             for (std::size_t i = begin; i < end; ++i) {
+                const Params& own = s.members[s.owner[i]];
                 glm::vec2 vel = s.velocity[i];
-                if (p.viscosity > 0.0f || cohesive || swirling) {
+                if (own.viscosity > 0.0f || own.cohesion > 0.0f || own.vorticity > 0.0f) {
                     const glm::vec2 pi = s.predicted[i];
                     const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
                     glm::vec2 blend{0.0f};
@@ -1297,7 +1439,7 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                         const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
                         const float r2 = glm::dot(d, d);
                         blend += (s.velocity[j] - s.velocity[i]) * poly6(r2);
-                        if (cohesive) {
+                        if (own.cohesion > 0.0f && s.owner[j] == s.owner[i]) {
                             // Akinci's cohesion K_ij C(r) r_hat, K_ij = 2 rho_0 / (rho_i + rho_j): pulls i toward its
                             // neighbours where it has fewer of them, at the free surface. Akinci's curvature term
                             // (n_i - n_j) is left out: explicit in this solver it throws out the corners of a blob.
@@ -1307,23 +1449,42 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                             const glm::vec2 r_hat = r > 1.0e-6f ? d / r : glm::vec2{0.0f};
                             pull += (k_ij * cohesion_spline(r)) * r_hat;
                         }
-                        if (swirling) {
+                        if (own.vorticity > 0.0f) {
                             eta += (std::abs(s.curl[j]) - std::abs(s.curl[i])) * spiky_grad(d, std::sqrt(r2));
                         }
                     }
-                    vel += blend * (p.viscosity * p.inv_rest);
+                    vel += blend * (own.viscosity * s.inv_rest[i]);
                     // Accelerations in world units: cohesion in h per second squared per unit of `cohesion`.
-                    vel -= pull * (p.cohesion * p.h * sub_dt);
-                    if (swirling) {
+                    vel -= pull * (own.cohesion * p.h * sub_dt);
+                    if (own.vorticity > 0.0f) {
                         // Confinement: f = eps (N x w), N the unit gradient of |w| (the SPH gradient
                         // sum_j (|w_j| - |w_i|) grad_i W_ij), toward the vortex center.
                         const float length = std::sqrt(glm::dot(eta, eta));
                         if (length > 1.0e-6f) {
                             const glm::vec2 normal = eta / length;
                             const float w = s.curl[i];
-                            vel += glm::vec2{normal.y * w, -normal.x * w} * (p.vorticity * sub_dt);
+                            vel += glm::vec2{normal.y * w, -normal.x * w} * (own.vorticity * sub_dt);
                         }
                     }
+                }
+                if (mixed) {
+                    // Buoyancy (LQ-62): a particle among heavier ones is lifted, among lighter ones it sinks, by
+                    // Archimedes' a = -g (m_around - m_i) / m_i, with m_around the kernel-weighted mean mass of the
+                    // particle and its neighbours. Zero inside one fluid. Clamped to two g either way.
+                    const glm::vec2 pi = s.predicted[i];
+                    const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+                    float weight = kPoly6;
+                    float mass_sum = kPoly6 * s.mass[i];
+                    for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
+                        const std::uint32_t j = nb[k];
+                        const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
+                        const float w = poly6(glm::dot(d, d));
+                        weight += w;
+                        mass_sum += w * s.mass[j];
+                    }
+                    const float around = mass_sum / weight;
+                    const float lift = std::clamp((around - s.mass[i]) / s.mass[i], -2.0f, 2.0f);
+                    vel -= member_gravity[s.owner[i]] * (lift * sub_dt);
                 }
                 v[i] = vel;
                 x[i] = s.predicted[i];
@@ -1333,8 +1494,8 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
         // Two-way coupling: the bodies take the reaction of every push, summed serially in particle order, so the
         // result does not depend on the worker count.
         if (s.coupled) {
-            const float to_impulse = -particle_mass * inv_dt;
             for (std::size_t i = 0; i < n; ++i) {
+                const float to_impulse = -member_mass[s.owner[i]] * inv_dt;
                 for (std::size_t k = 0; k < kCouplingSlots; ++k) {
                     const Fluid2DScratch::Push& push = s.pushes[i * kCouplingSlots + k];
                     if (push.body < 0) {
@@ -1347,6 +1508,62 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
                     body.arm = std::max(body.arm, push.arm);
                 }
             }
+        }
+    }
+
+    // Contacts between members (LQ-62): every neighbour pair of the last substep whose particles belong to two
+    // fluids, counted once (lower index first), summed serially in particle order per pair of fluids.
+    if (mixed) {
+        struct Contact {
+            std::size_t count = 0;
+            glm::vec2 sum{0.0f};
+            glm::vec2 lo{std::numeric_limits<float>::max()};
+            glm::vec2 hi{-std::numeric_limits<float>::max()};
+        };
+        const std::size_t m = s.members.size();
+        std::vector<Contact> pairs(m * m);
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+            for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
+                const std::uint32_t j = nb[k];
+                if (j <= i || s.owner[j] == s.owner[i]) {
+                    continue;
+                }
+                const std::size_t a = std::min(s.owner[i], s.owner[j]);
+                const std::size_t b = std::max(s.owner[i], s.owner[j]);
+                Contact& contact = pairs[a * m + b];
+                const glm::vec2 mid = (x[i] + x[j]) * 0.5f;
+                ++contact.count;
+                contact.sum += mid;
+                contact.lo = glm::min(contact.lo, mid);
+                contact.hi = glm::max(contact.hi, mid);
+            }
+        }
+        for (std::size_t a = 0; a < m; ++a) {
+            for (std::size_t b = a + 1; b < m; ++b) {
+                const Contact& contact = pairs[a * m + b];
+                if (contact.count == 0) {
+                    continue;
+                }
+                contacts.send(FluidContactEvent2D{
+                        .a = group.entities[a],
+                        .b = group.entities[b],
+                        .count = contact.count,
+                        .center = contact.sum / static_cast<float>(contact.count),
+                        .min = contact.lo,
+                        .max = contact.hi,
+                });
+            }
+        }
+    }
+
+    // Scatter the particles back, in member order.
+    std::size_t at = 0;
+    for (Fluid2D* fluid : group.fluids) {
+        for (std::size_t i = 0; i < fluid->positions_.size(); ++i, ++at) {
+            fluid->positions_[i] = x[at];
+            fluid->velocities_[i] = v[at];
+            fluid->densities_[i] = density[at];
         }
     }
 }
@@ -1746,6 +1963,88 @@ std::uint64_t Fluid2D::state_hash() const {
     return hasher.value();
 }
 
+namespace {
+
+// Fluids that are stepped together (LQ-62): two fluids join when their particles' boxes, grown by each one's kernel
+// support, overlap and each one's mask takes the other's layer. Joined transitively, in view order (union-find on
+// view indices, the group of the lower index wins), at most 32 to a group (a member bit each); a fluid that would
+// make a 33rd starts its own group. Empty fluids stay alone.
+[[nodiscard]] std::vector<FluidGroup2D> fluid_groups(ecs::World& world) {
+    struct Entry {
+        ecs::Entity entity{};
+        Fluid2D* fluid = nullptr;
+        glm::vec2 lo{0.0f};
+        glm::vec2 hi{0.0f};
+        bool empty = true;
+    };
+    std::vector<Entry> entries;
+    auto view = world.view<Fluid2D>();
+    for (ecs::Entity entity : view) {
+        Fluid2D& fluid = view.get<Fluid2D>(entity);
+        Entry entry{.entity = entity, .fluid = &fluid};
+        if (fluid.count() > 0) {
+            entry.empty = false;
+            entry.lo = glm::vec2{std::numeric_limits<float>::max()};
+            entry.hi = glm::vec2{-std::numeric_limits<float>::max()};
+            for (const glm::vec2 position : fluid.positions()) {
+                entry.lo = glm::min(entry.lo, position);
+                entry.hi = glm::max(entry.hi, position);
+            }
+            const float h = resolve(fluid.params).h;
+            entry.lo -= glm::vec2{h};
+            entry.hi += glm::vec2{h};
+        }
+        entries.push_back(entry);
+    }
+    std::vector<std::size_t> root(entries.size());
+    std::vector<std::size_t> size(entries.size(), 1);
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        root[i] = i;
+    }
+    const auto find = [&](std::size_t i) {
+        while (root[i] != i) {
+            i = root[i];
+        }
+        return i;
+    };
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        for (std::size_t j = i + 1; j < entries.size(); ++j) {
+            const Entry& a = entries[i];
+            const Entry& b = entries[j];
+            if (a.empty || b.empty || a.hi.x < b.lo.x || b.hi.x < a.lo.x || a.hi.y < b.lo.y || b.hi.y < a.lo.y) {
+                continue;
+            }
+            if ((a.fluid->params.mask & b.fluid->params.layer) == 0 || (b.fluid->params.mask & a.fluid->params.layer) == 0) {
+                continue;
+            }
+            const std::size_t ra = find(i);
+            const std::size_t rb = find(j);
+            if (ra == rb || size[ra] + size[rb] > 32) {
+                continue;
+            }
+            const std::size_t low = std::min(ra, rb);
+            const std::size_t high = std::max(ra, rb);
+            root[high] = low;
+            size[low] += size[high];
+        }
+    }
+    std::vector<FluidGroup2D> groups;
+    std::vector<std::size_t> group_of(entries.size(), std::numeric_limits<std::size_t>::max());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const std::size_t r = find(i);
+        if (group_of[r] == std::numeric_limits<std::size_t>::max()) {
+            group_of[r] = groups.size();
+            groups.emplace_back();
+        }
+        FluidGroup2D& group = groups[group_of[r]];
+        group.fluids.push_back(entries[i].fluid);
+        group.entities.push_back(entries[i].entity);
+    }
+    return groups;
+}
+
+}
+
 void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
     auto view = world.view<Fluid2D>();
     bool any = false;
@@ -1780,8 +2079,9 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
     // run_physics_2d ends with update_world_transforms, so the collider matrices are this tick's.
     Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi);
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
-    for (ecs::Entity entity : view) {
-        Fluid2DSolver::step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch);
+    ecs::EventWriter<FluidContactEvent2D> contacts{world};
+    for (const FluidGroup2D& group : fluid_groups(world)) {
+        Fluid2DSolver::step(group, boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch, contacts);
     }
     apply_coupling(world, boundaries, glm::vec2{gravity.x, gravity.y}, dt);
     ecs::EventWriter<FluidSensorEvent2D> events{world};

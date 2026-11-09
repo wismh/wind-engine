@@ -124,6 +124,21 @@ struct FluidSensorEvent2D {
     constexpr bool operator==(const FluidSensorEvent2D&) const noexcept = default;
 };
 
+// Sent (double-buffered, `ecs::EventReader<FluidContactEvent2D>`) once a tick for each pair of fluids whose particles
+// touch (closer than the kernel support), `a` before `b` in view order: how many particle pairs touch, their mean
+// midpoint and the box of the midpoints. For a game reacting where two liquids meet (lava and water to stone: carve or
+// fill the SDF terrain there).
+struct FluidContactEvent2D {
+    ecs::Entity a{};
+    ecs::Entity b{};
+    std::size_t count = 0;
+    glm::vec2 center{0.0f};
+    glm::vec2 min{0.0f};
+    glm::vec2 max{0.0f};
+
+    constexpr bool operator==(const FluidContactEvent2D&) const noexcept = default;
+};
+
 // What a fluid query found: how many particles, the area they stand for (count times (2 radius)^2), and their mean
 // velocity (zero when none).
 struct FluidQuery2D {
@@ -144,7 +159,13 @@ struct FluidQuery2D {
 // `CompoundCollider2D` under a Dynamic body is skipped, as the 2D solver skips it. Coupling is two-way for a box,
 // circle or polygon collider on a Dynamic body's own entity: the fluid pushes it back (buoyancy, drag) with the
 // reaction of every push, added to its velocity and angular velocity at the end of the step for the next
-// `run_physics_2d` to integrate. Everything else only pushes. No `CollisionEvent2D`. Two fluids do not see each other.
+// `run_physics_2d` to integrate. Everything else only pushes. No `CollisionEvent2D`.
+//
+// Fluids that touch (their boxes grown by the kernel support overlap, and each one's mask takes the other's layer) are
+// solved together as one particle system: they push each other, and by `params.density` a lighter one floats on a
+// heavier one and a heavier one sinks. They share the largest smoothing length and the most substeps and iterations
+// of the group; every other parameter stays each fluid's own. Where two fluids touch, a FluidContactEvent2D is sent
+// each tick. Fluids apart step exactly as they would alone.
 //
 // Rendering is the game's: draw `positions()` with its own sprites or particles.
 class Fluid2D {
