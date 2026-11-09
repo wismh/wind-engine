@@ -149,14 +149,14 @@ TEST(Physics2DStaticCache, MovedStaticWithMarkCollidesNextTick) {
     EXPECT_TRUE(step_and_read(world).empty());
 
     world.get<engine::Transform>(moved).position.x = 1.5f;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, moved);
     std::vector<engine::CollisionEvent2D> events = step_and_read(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(has_event(events, probe, moved, engine::CollisionPhase::Enter));
 
     world.get<engine::Transform>(moved).rotation = engine::rotation_z(0.5f);
     world.get<engine::Transform>(moved).position.x = 100.f;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, moved);
     events = step_and_read(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(has_event(events, probe, moved, engine::CollisionPhase::Exit));
@@ -179,14 +179,16 @@ TEST(Physics2DStaticCache, EditedStaticFieldsWithMarkApplyNextTick) {
 
     world.get<engine::BoxCollider2D>(box).size = glm::vec3{5.f, 1.f, 1.f};
     world.get<engine::PolygonCollider2D>(poly).vertices[0] = {-0.5f, -2.5f};
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, box);
+    engine::mark_static_colliders_dirty_2d(world, poly);
     std::vector<engine::CollisionEvent2D> events = step_and_read(world);
     EXPECT_TRUE(has_event(events, probe, box, engine::CollisionPhase::Enter));
     EXPECT_TRUE(has_event(events, probe, poly, engine::CollisionPhase::Enter));
 
     world.get<engine::BoxCollider2D>(box).layer = 0u;
     world.get<engine::PolygonCollider2D>(poly).is_trigger = true;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, box);
+    engine::mark_static_colliders_dirty_2d(world, poly);
     events = step_and_read(world);
     EXPECT_TRUE(has_event(events, probe, box, engine::CollisionPhase::Exit));
     ASSERT_TRUE(has_event(events, probe, poly, engine::CollisionPhase::Stay));
@@ -208,7 +210,7 @@ TEST(Physics2DStaticCache, MovedChunkParentWithMarkMovesChildren) {
     EXPECT_TRUE(step_and_read(world).empty());
 
     world.get<engine::Transform>(chunk).position.x = 0.f;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, chunk);
     const std::vector<engine::CollisionEvent2D> events = step_and_read(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(has_event(events, probe, cell, engine::CollisionPhase::Enter));
