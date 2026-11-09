@@ -163,6 +163,10 @@ Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, 
 
 The cost is linear in the count and scales about 6 to 7.5 times on 11 workers (the hash fill is serial). Per substep, at 4k on one thread: the neighbour search is about 1.3 ms, each solver iteration about 1.4 ms (two passes over about 24 neighbours) plus about 0.5 ms of SDF projection, so 2 x 4 iterations dominate; halving `iterations` or `substeps` is the main knob. Keeping each neighbour's kernel gradient and weight from the lambda pass for the delta pass (instead of recomputing the square root and division) brought the 4k serial row from 28.5 ms to 19 ms. A 60 Hz game on one core fits about 3k particles in 15 ms; on a typical worker pool, 16k fits in about 10 ms.
 
+## Deterministic simulation (LQ-63)
+
+The switch from libm `sin`, `cos` and `atan2` to the engine's deterministic functions ([Principles](../architecture/Principles.md#deterministic-simulation)), measured against the commit before it: the whole suite, `--all --threads 0 --skip-large`, best of two runs each, Windows, MSVC, RelWithDebInfo. MSVC already compiled with `/fp:precise` and no contraction, so on this target the change is the trigonometry alone. Most rows move within the run-to-run noise (about 5 percent). Rows dominated by contacts on rotated shapes cost a little more: `tumbler` 21,724 to 22,612 us (+4 percent), `static_contact_2k` 998 to 1,045 (+5), `static_contact_2k_compound` 965 to 1,025 (+6), `3d_large_island` 2,198 to 2,300 (+5). The fluid gets slightly cheaper (`fluid_dam_4k` 20,087 to 19,747), since collider frames now come from the matrix axis without an angle. The cost per platform (clang, Emscripten, arm64) is a separate backlog ticket.
+
 ## See also
 
 - [ECS](../modules/ECS.md#physics), the static collider cache and `mark_static_colliders_dirty_2d`
