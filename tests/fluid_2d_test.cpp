@@ -999,3 +999,279 @@ TEST(Fluid2DCoupling, VeryLightBodyBobsButStaysInThePool) {
     }
     EXPECT_TRUE(all_finite(pool.world.get<engine::Fluid2D>(pool.fluid)));
 }
+
+// LQ-60: sources, drains, sensors and region queries.
+
+namespace {
+
+engine::FluidRegion2D box_region(glm::vec2 center, glm::vec2 half) {
+    return engine::FluidRegion2D{.shape = engine::FluidRegion2D::Shape::Box, .center = center, .half_extents = half};
+}
+
+engine::FluidRegion2D circle_region(glm::vec2 center, float radius) {
+    return engine::FluidRegion2D{.shape = engine::FluidRegion2D::Shape::Circle, .center = center, .radius = radius};
+}
+
+// Events sent since the last call (the cursor keeps the reader from seeing an event on two frames).
+std::vector<engine::FluidSensorEvent2D> sensor_events(engine::ecs::World& world,
+                                                      engine::ecs::EventCursor<engine::FluidSensorEvent2D>& cursor) {
+    std::vector<engine::FluidSensorEvent2D> out;
+    for (const engine::FluidSensorEvent2D& event : engine::ecs::EventReader<engine::FluidSensorEvent2D>{world, cursor}) {
+        out.push_back(event);
+    }
+    return out;
+}
+
+}
+
+TEST(Fluid2DSources, EmitAtTheRate) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity entity = add_fluid(world);
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    fluid.sources.push_back(engine::FluidSource2D{.region = box_region({0.f, 0.f}, {2.f, 2.f}), .rate = 30.f});
+    step(world, 120);
+    EXPECT_EQ(world.get<engine::Fluid2D>(entity).count(), 60u) << "30 per second for 2 seconds";
+
+    // A rate that is not a whole number per tick carries the remainder: 10 per second is 1/6 a tick.
+    world.get<engine::Fluid2D>(entity).sources[0].rate = 10.f;
+    world.get<engine::Fluid2D>(entity).clear();
+    step(world, 600);
+    const std::size_t count = world.get<engine::Fluid2D>(entity).count();
+    EXPECT_GE(count, 99u);
+    EXPECT_LE(count, 101u);
+    EXPECT_EQ(world.get<engine::Fluid2D>(entity).sources[0].emitted, 60u + count);
+}
+
+TEST(Fluid2DSources, EmitInsideTheRegionWithTheVelocity) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity entity = add_fluid(world, engine::Fluid2DParams{.radius = 0.01f});
+    world.get<engine::Fluid2D>(entity).sources.push_back(engine::FluidSource2D{
+            .region = circle_region({3.f, 1.f}, 0.5f), .rate = 600.f, .velocity = {0.f, 0.f}});
+    world.get<engine::Fluid2D>(entity).sources.push_back(engine::FluidSource2D{
+            .region = box_region({-3.f, 1.f}, {0.5f, 0.25f}), .rate = 600.f, .velocity = {0.f, 0.f}});
+    step(world, 1);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    ASSERT_EQ(fluid.count(), 20u);
+    for (const glm::vec2 p : fluid.positions()) {
+        // One tick of the solver may separate close particles by a little; the regions are far apart.
+        if (p.x > 0.f) {
+            EXPECT_LE(glm::length(p - glm::vec2{3.f, 1.f}), 0.5f + 0.02f);
+        } else {
+            EXPECT_LE(std::abs(p.x + 3.f), 0.5f + 0.02f);
+            EXPECT_LE(std::abs(p.y - 1.f), 0.25f + 0.02f);
+        }
+    }
+
+    // A fast stream keeps its velocity.
+    engine::ecs::World stream = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity jet = add_fluid(stream);
+    stream.get<engine::Fluid2D>(jet).sources.push_back(engine::FluidSource2D{
+            .region = box_region({0.f, 0.f}, {0.01f, 0.5f}), .rate = 60.f, .velocity = {4.f, 0.f}});
+    step(stream, 1);
+    ASSERT_EQ(stream.get<engine::Fluid2D>(jet).count(), 1u);
+    EXPECT_FLOAT_EQ(stream.get<engine::Fluid2D>(jet).velocities()[0].x, 4.f);
+}
+
+TEST(Fluid2DSources, StopAtMaxParticlesAndResumeWhenDrained) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity entity =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .max_particles = 50});
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    fluid.sources.push_back(engine::FluidSource2D{
+            .region = box_region({0.f, 0.f}, {1.f, 1.f}), .rate = 600.f, .velocity = {3.f, 0.f}});
+    step(world, 30);
+    EXPECT_EQ(world.get<engine::Fluid2D>(entity).count(), 50u);
+    const std::uint64_t emitted = world.get<engine::Fluid2D>(entity).sources[0].emitted;
+    EXPECT_EQ(emitted, 50u) << "what does not fit is dropped, not queued";
+
+    // A drain to the right takes the particles as they leave: emission refills the free room.
+    world.get<engine::Fluid2D>(entity).drains.push_back(
+            engine::FluidDrain2D{.region = box_region({4.f, 0.f}, {1.f, 3.f})});
+    step(world, 120);
+    EXPECT_GT(world.get<engine::Fluid2D>(entity).drains[0].drained, 0u);
+    EXPECT_GT(world.get<engine::Fluid2D>(entity).sources[0].emitted, emitted);
+    EXPECT_LE(world.get<engine::Fluid2D>(entity).count(), 50u);
+}
+
+TEST(Fluid2DDrains, RemoveWhatEntersAndKeepTheOrder) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity entity = add_fluid(world);
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    // Particles far apart, each tagged by its y; the even ones move right into the drain, the odd ones stay.
+    for (int i = 0; i < 10; ++i) {
+        const float speed = i % 2 == 0 ? 3.f : 0.f;
+        ASSERT_TRUE(fluid.spawn({0.f, static_cast<float>(i)}, {speed, 0.f}));
+    }
+    fluid.drains.push_back(engine::FluidDrain2D{.region = box_region({2.f, 4.5f}, {0.5f, 10.f})});
+    step(world, 60);
+    const engine::Fluid2D& after = world.get<engine::Fluid2D>(entity);
+    ASSERT_EQ(after.count(), 5u);
+    EXPECT_EQ(after.drains[0].drained, 5u);
+    for (std::size_t k = 0; k < after.count(); ++k) {
+        EXPECT_FLOAT_EQ(after.positions()[k].y, static_cast<float>(2 * k + 1)) << "the survivors keep their order";
+    }
+    // A disabled drain takes nothing.
+    world.get<engine::Fluid2D>(entity).drains[0].enabled = false;
+    ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({2.f, 0.f}));
+    step(world, 1);
+    EXPECT_EQ(world.get<engine::Fluid2D>(entity).count(), 6u);
+}
+
+TEST(Fluid2DQueries, RegionCountsMatchBruteForce) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field());
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.5f, 2.f});
+    step(world, 45);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+
+    auto brute = [&](auto&& inside) {
+        engine::FluidQuery2D out;
+        glm::vec2 sum{0.f};
+        for (std::size_t i = 0; i < fluid.count(); ++i) {
+            if (inside(fluid.positions()[i])) {
+                ++out.count;
+                sum += fluid.velocities()[i];
+            }
+        }
+        out.volume = static_cast<float>(out.count) * 4.f * kRadius * kRadius;
+        out.average_velocity = out.count > 0 ? sum / static_cast<float>(out.count) : glm::vec2{0.f};
+        return out;
+    };
+    auto expect_same = [](const engine::FluidQuery2D& a, const engine::FluidQuery2D& b) {
+        EXPECT_EQ(a.count, b.count);
+        EXPECT_NEAR(a.volume, b.volume, 1e-5f);
+        EXPECT_NEAR(a.average_velocity.x, b.average_velocity.x, 1e-4f);
+        EXPECT_NEAR(a.average_velocity.y, b.average_velocity.y, 1e-4f);
+    };
+    for (const engine::FluidRegion2D region :
+         {box_region({0.7f, 0.4f}, {0.5f, 0.3f}), box_region({2.f, 0.2f}, {2.f, 0.2f}), circle_region({1.f, 1.f}, 0.6f),
+          circle_region({3.5f, 0.1f}, 0.3f), box_region({-5.f, -5.f}, {0.1f, 0.1f}), box_region({2.f, 2.f}, {50.f, 50.f})}) {
+        expect_same(fluid.query(region), brute([&](glm::vec2 p) { return region.contains(p); }));
+    }
+    // A concave polygon (an L), counter-clockwise, and the same reversed.
+    std::vector<glm::vec2> l_shape{{0.f, 0.f}, {2.f, 0.f}, {2.f, 0.4f}, {0.6f, 0.4f}, {0.6f, 1.5f}, {0.f, 1.5f}};
+    auto in_l = [](glm::vec2 p) {
+        return (p.x >= 0.f && p.x <= 2.f && p.y >= 0.f && p.y <= 0.4f) ||
+               (p.x >= 0.f && p.x <= 0.6f && p.y >= 0.f && p.y <= 1.5f);
+    };
+    const engine::FluidQuery2D l = fluid.query(std::span<const glm::vec2>{l_shape});
+    const engine::FluidQuery2D expected = brute(in_l);
+    EXPECT_NEAR(static_cast<float>(l.count), static_cast<float>(expected.count), 2.f) << "edges may split a point";
+    EXPECT_GT(l.count, 0u);
+    std::reverse(l_shape.begin(), l_shape.end());
+    EXPECT_EQ(fluid.query(std::span<const glm::vec2>{l_shape}).count, l.count);
+}
+
+TEST(Fluid2DQueries, IsWetMatchesBruteForce) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field());
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.f, 1.f});
+    step(world, 30);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    const float reach = 2.f * kRadius;
+    for (int iy = -2; iy < 30; ++iy) {
+        for (int ix = -2; ix < 50; ++ix) {
+            const glm::vec2 point{static_cast<float>(ix) * 0.0937f, static_cast<float>(iy) * 0.0611f};
+            bool wet = false;
+            for (const glm::vec2 p : fluid.positions()) {
+                wet = wet || glm::dot(p - point, p - point) <= reach * reach;
+            }
+            EXPECT_EQ(fluid.is_wet(point), wet) << point.x << ", " << point.y;
+        }
+    }
+    // The grid follows the particles: after a step and after a spawn.
+    step(world, 1);
+    engine::Fluid2D& moved = world.get<engine::Fluid2D>(entity);
+    EXPECT_FALSE(moved.is_wet({8.f, 8.f}));
+    ASSERT_TRUE(moved.spawn({8.f, 8.f}));
+    EXPECT_TRUE(moved.is_wet({8.f, 8.f}));
+}
+
+TEST(Fluid2DSensors, FireOnceWhenFilledAndOnceWhenDrained) {
+    auto run = [](engine::JobSystem* jobs) {
+        engine::ecs::World world = fluid_world(jobs);
+        (void)add_terrain(world, tank_field(2.f, 2.f));
+        const engine::ecs::Entity entity = add_fluid(world);
+        engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+        fluid.sources.push_back(engine::FluidSource2D{
+                .region = box_region({1.f, 1.6f}, {0.8f, 0.1f}), .rate = 400.f, .velocity = {0.f, -1.f}});
+        fluid.sensors.push_back(engine::FluidSensor2D{.region = box_region({1.f, 0.25f}, {0.9f, 0.2f}),
+                                                      .threshold = 0.7f});
+        std::vector<std::pair<int, engine::FluidSensorEvent2D>> log;
+        engine::ecs::EventCursor<engine::FluidSensorEvent2D> cursor;
+        for (int tick = 0; tick < 600; ++tick) {
+            if (tick == 300) {
+                // Stop the tap, open a drain over the whole tank floor.
+                world.get<engine::Fluid2D>(entity).sources[0].enabled = false;
+                world.get<engine::Fluid2D>(entity).drains.push_back(
+                        engine::FluidDrain2D{.region = box_region({1.f, 0.f}, {1.f, 0.15f})});
+            }
+            step(world, 1);
+            for (const engine::FluidSensorEvent2D& event : sensor_events(world, cursor)) {
+                log.emplace_back(tick, event);
+            }
+            world.flush_events();
+        }
+        return log;
+    };
+    const auto log = run(nullptr);
+    ASSERT_EQ(log.size(), 2u);
+    EXPECT_TRUE(log[0].second.full);
+    EXPECT_GE(log[0].second.fill, 0.7f);
+    EXPECT_LT(log[0].first, 300);
+    EXPECT_FALSE(log[1].second.full);
+    EXPECT_GT(log[1].first, 300);
+    EXPECT_EQ(log[0].second.sensor, 0u);
+
+    engine::JobSystem jobs{3};
+    const auto parallel = run(&jobs);
+    ASSERT_EQ(parallel.size(), log.size());
+    for (std::size_t i = 0; i < log.size(); ++i) {
+        EXPECT_EQ(parallel[i].first, log[i].first) << "the events fire on the same tick for any worker count";
+        EXPECT_EQ(parallel[i].second, log[i].second);
+    }
+}
+
+TEST(Fluid2DSources, SerializerRoundTripsSourcesDrainsAndSensors) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    engine::Fluid2D fluid;
+    fluid.sources.push_back(engine::FluidSource2D{
+            .region = circle_region({1.f, 2.f}, 0.3f), .rate = 12.5f, .velocity = {0.f, -2.f}, .enabled = false});
+    fluid.drains.push_back(engine::FluidDrain2D{.region = box_region({5.f, 0.f}, {1.f, 0.5f})});
+    fluid.sensors.push_back(engine::FluidSensor2D{
+            .region = box_region({0.f, 0.f}, {2.f, 1.f}), .threshold = 0.4f, .hysteresis = 0.1f});
+    fluid.sources[0].emitted = 99;  // state: not saved
+    world.emplace<engine::Fluid2D>(entity, fluid);
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World loaded_world;
+    auto loaded = engine::ecs::load_world_from_toml(loaded_world, saved);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const engine::Fluid2D* c = nullptr;
+    loaded_world.view<engine::Fluid2D>().each([&](const engine::Fluid2D& f) { c = &f; });
+    ASSERT_NE(c, nullptr);
+    ASSERT_EQ(c->sources.size(), 1u);
+    EXPECT_EQ(c->sources[0].region.shape, engine::FluidRegion2D::Shape::Circle);
+    EXPECT_FLOAT_EQ(c->sources[0].region.center.y, 2.f);
+    EXPECT_FLOAT_EQ(c->sources[0].region.radius, 0.3f);
+    EXPECT_FLOAT_EQ(c->sources[0].rate, 12.5f);
+    EXPECT_FLOAT_EQ(c->sources[0].velocity.y, -2.f);
+    EXPECT_FALSE(c->sources[0].enabled);
+    EXPECT_EQ(c->sources[0].emitted, 0u);
+    ASSERT_EQ(c->drains.size(), 1u);
+    EXPECT_FLOAT_EQ(c->drains[0].region.half_extents.y, 0.5f);
+    ASSERT_EQ(c->sensors.size(), 1u);
+    EXPECT_FLOAT_EQ(c->sensors[0].threshold, 0.4f);
+    EXPECT_FLOAT_EQ(c->sensors[0].hysteresis, 0.1f);
+}
+
+TEST(Fluid2DSources, StateHashCoversTheSourceCarry) {
+    engine::Fluid2D a;
+    a.sources.push_back(engine::FluidSource2D{.rate = 10.f});
+    engine::Fluid2D b = a;
+    EXPECT_EQ(a.state_hash(), b.state_hash());
+    b.sources[0].carry = 0.5f;
+    EXPECT_NE(a.state_hash(), b.state_hash());
+}
