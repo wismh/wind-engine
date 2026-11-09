@@ -51,6 +51,13 @@ constexpr std::size_t kSdfBatch = 64;
 // A solver delta is at most this many radii per iteration: a deep overlap (a spawn inside another particle, a
 // collider teleported into the fluid) spreads over several iterations instead of exploding.
 constexpr float kMaxDeltaRadii = 1.0f;
+// A particle that moved farther than this many radii in an iteration (the first one includes the predicted step) is
+// swept against the boundaries before it is projected, so a fast one cannot cross a wall thinner than its step. A
+// shorter step from a resting distance of one radius cannot reach past the middle of a wall half a radius thick, and
+// resting fluid pays one length test.
+constexpr float kSweepRadii = 0.5f;
+// A swept particle stops this many radii off the surface it touched.
+constexpr float kSweepSkinRadii = 0.01f;
 
 [[nodiscard]] float poly6(float r2) {
     if (r2 >= 1.0f) {
@@ -309,6 +316,9 @@ struct Fluid2DScratch {
     std::vector<float> weight;
     std::vector<const SdfBoundary*> sdf;
     std::vector<const ShapeBoundary*> shapes;
+    // Where each particle's sweep starts: its position at the start of the substep for the first iteration, then where
+    // the previous iteration left it (outside every boundary).
+    std::vector<glm::vec2> from;
 };
 
 struct Fluid2DSolver {
@@ -318,8 +328,101 @@ struct Fluid2DSolver {
     static void build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s);
     static void select_boundaries(const Fluid2DParams& fluid, const Params& p, const Boundaries& boundaries,
                                   std::size_t n, Fluid2DScratch& s);
+    static void sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
     static void project_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
 };
+
+namespace {
+
+// The first time in [0, `best`) at which the segment `from + t * delta` enters the circle of `reach` about `center`.
+// A start inside counts as a hit at 0 when the step goes further in. Sets `best` and `normal` on a hit.
+[[nodiscard]] bool sweep_circle_shape(glm::vec2 from, glm::vec2 delta, glm::vec2 center, float reach, float& best,
+                                      glm::vec2& normal) {
+    const glm::vec2 m = from - center;
+    const float c = glm::dot(m, m) - reach * reach;
+    const float b = glm::dot(m, delta);
+    if (b >= 0.0f) {
+        return false;  // moving away from the center: no entry, and a start inside is left to the projection
+    }
+    if (c <= 0.0f) {
+        const float length = std::sqrt(glm::dot(m, m));
+        best = 0.0f;
+        normal = length > 1.0e-6f ? m / length : glm::vec2{0.0f, 1.0f};
+        return true;
+    }
+    const float a = glm::dot(delta, delta);
+    const float disc = b * b - a * c;
+    if (disc < 0.0f) {
+        return false;
+    }
+    const float t = (-b - std::sqrt(disc)) / a;
+    if (!(t >= 0.0f) || t >= best) {
+        return false;
+    }
+    best = t;
+    normal = glm::normalize(m + delta * t);
+    return true;
+}
+
+// The same for the box of `half` extents about the origin of its own frame (the box grown by the radius, square
+// corners). Slab test; the entry face gives the normal. A start inside counts at 0 when the step goes deeper through
+// the face of least penetration.
+[[nodiscard]] bool sweep_box_shape(glm::vec2 from, glm::vec2 delta, glm::vec2 half, float& best, glm::vec2& normal) {
+    const float px = half.x - std::abs(from.x);
+    const float py = half.y - std::abs(from.y);
+    if (px > 0.0f && py > 0.0f) {
+        glm::vec2 n{0.0f};
+        if (px < py) {
+            n.x = from.x < 0.0f ? -1.0f : 1.0f;
+        } else {
+            n.y = from.y < 0.0f ? -1.0f : 1.0f;
+        }
+        if (glm::dot(delta, n) >= 0.0f) {
+            return false;
+        }
+        best = 0.0f;
+        normal = n;
+        return true;
+    }
+    float enter = 0.0f;
+    float leave = best;
+    glm::vec2 n{0.0f};
+    for (int axis = 0; axis < 2; ++axis) {
+        const float o = from[axis];
+        const float d = delta[axis];
+        const float h = half[axis];
+        if (d == 0.0f) {
+            if (o < -h || o > h) {
+                return false;
+            }
+            continue;
+        }
+        float t0 = (-h - o) / d;
+        float t1 = (h - o) / d;
+        float side = -1.0f;
+        if (t0 > t1) {
+            std::swap(t0, t1);
+            side = 1.0f;
+        }
+        if (t0 > enter) {
+            enter = t0;
+            n = glm::vec2{0.0f};
+            n[axis] = side;
+        }
+        leave = std::min(leave, t1);
+        if (enter > leave) {
+            return false;
+        }
+    }
+    if ((n.x == 0.0f && n.y == 0.0f) || enter >= best) {
+        return false;
+    }
+    best = enter;
+    normal = n;
+    return true;
+}
+
+}
 
 void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s) {
     std::uint32_t table = 64;
@@ -385,9 +488,10 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
     s.shapes.clear();
     glm::vec2 lo{std::numeric_limits<float>::max()};
     glm::vec2 hi{-std::numeric_limits<float>::max()};
+    // The substep starts too: a swept step meets every boundary between its start and its end.
     for (std::size_t i = 0; i < n; ++i) {
-        lo = glm::min(lo, s.predicted[i]);
-        hi = glm::max(hi, s.predicted[i]);
+        lo = glm::min(lo, glm::min(s.predicted[i], s.from[i]));
+        hi = glm::max(hi, glm::max(s.predicted[i], s.from[i]));
     }
     // Per iteration the solver moves a particle at most `max_delta`, and an SDF projection at most a radius.
     const float grow = p.radius + (p.max_delta + p.radius) * static_cast<float>(p.iterations);
@@ -402,6 +506,71 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
         if (layers_match(fluid, shape.layer, shape.mask) && shape.hi.x >= lo.x && shape.lo.x <= hi.x &&
             shape.hi.y >= lo.y && shape.lo.y <= hi.y) {
             s.shapes.push_back(&shape);
+        }
+    }
+}
+
+// Sweeps the step of each particle in [begin, end) that moved more than `kSweepRadii` radii in this iteration (from
+// `from`) against every selected boundary, and stops it at the first contact: a circle (its radius plus the particle's), a box
+// grown by the radius (square corners), an SDF field (`SdfField2D::sweep_circle`). A particle that starts in contact
+// and moves further in stops where it started. The stop is `kSweepSkinRadii` radii off the surface along its normal,
+// which becomes the particle's contact normal; `project_range` resolves the rest. A particle's result depends only on
+// itself and the read-only boundaries.
+void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s) {
+    const float threshold = kSweepRadii * p.radius;
+    for (std::size_t i = begin; i < end; ++i) {
+        const glm::vec2 from = s.from[i];
+        const glm::vec2 delta = s.predicted[i] - from;
+        if (glm::dot(delta, delta) <= threshold * threshold || !finite(delta)) {
+            continue;
+        }
+        const glm::vec2 lo = glm::min(from, from + delta) - glm::vec2{p.radius};
+        const glm::vec2 hi = glm::max(from, from + delta) + glm::vec2{p.radius};
+        float best = 1.0f;
+        glm::vec2 normal{0.0f};
+        for (const ShapeBoundary* shape : s.shapes) {
+            if (hi.x < shape->lo.x || lo.x > shape->hi.x || hi.y < shape->lo.y || lo.y > shape->hi.y) {
+                continue;
+            }
+            if (shape->kind == ShapeBoundary::Kind::Circle) {
+                (void)sweep_circle_shape(from, delta, shape->frame.position, shape->radius + p.radius, best, normal);
+            } else {
+                glm::vec2 local_normal{0.0f};
+                if (sweep_box_shape(shape->frame.to_local(from), shape->frame.rotate_to_local(delta),
+                                    shape->half + glm::vec2{p.radius}, best, local_normal)) {
+                    normal = shape->frame.rotate_to_world(local_normal);
+                }
+            }
+        }
+        for (const SdfBoundary* sdf : s.sdf) {
+            const SdfField2D& field = *sdf->field;
+            const float radius = std::min(p.radius, field.band() * 0.999f);
+            const glm::vec2 local_from = sdf->frame.to_local(from);
+            const glm::vec2 local_delta = sdf->frame.rotate_to_local(delta);
+            if (field.outside() != SdfOutside::Solid) {
+                const std::optional<SdfBounds2D> bounds = field.allocated_bounds();
+                if (!bounds) {
+                    continue;
+                }
+                const glm::vec2 a = glm::min(local_from, local_from + local_delta) - glm::vec2{radius};
+                const glm::vec2 b = glm::max(local_from, local_from + local_delta) + glm::vec2{radius};
+                if (b.x < bounds->min.x || a.x > bounds->max.x || b.y < bounds->min.y || a.y > bounds->max.y) {
+                    continue;
+                }
+            }
+            const std::optional<SdfSweep2D> hit = field.sweep_circle(local_from, radius, local_delta);
+            if (!hit || (hit->normal.x == 0.0f && hit->normal.y == 0.0f) || hit->fraction >= best) {
+                continue;
+            }
+            if (hit->fraction == 0.0f && glm::dot(local_delta, hit->normal) >= 0.0f) {
+                continue;  // starts in contact and moves away: nothing to stop
+            }
+            best = hit->fraction;
+            normal = sdf->frame.rotate_to_world(hit->normal);
+        }
+        if (best < 1.0f) {
+            s.predicted[i] = from + delta * best + normal * (kSweepSkinRadii * p.radius);
+            s.normal[i] = normal;
         }
     }
 }
@@ -518,6 +687,7 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
     s.normal.resize(n);
     s.velocity.resize(n);
     s.lambda.resize(n);
+    s.from.resize(n);
 
     for (int sub = 0; sub < p.substeps; ++sub) {
         for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
@@ -525,6 +695,7 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
                 v[i] += g * sub_dt;
                 s.pre_velocity[i] = v[i];
                 s.predicted[i] = x[i] + v[i] * sub_dt;
+                s.from[i] = x[i];
                 s.normal[i] = glm::vec2{0.0f};
             }
         });
@@ -592,7 +763,11 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
                 for (std::size_t i = begin; i < end; ++i) {
                     s.predicted[i] += s.delta[i];
                 }
+                sweep_range(p, begin, end, s);
                 project_range(p, begin, end, s);
+                for (std::size_t i = begin; i < end; ++i) {
+                    s.from[i] = s.predicted[i];
+                }
             });
         }
 
