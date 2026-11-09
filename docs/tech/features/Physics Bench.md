@@ -155,6 +155,7 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 | `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
 | `fluid_rest_4k` | `fluid_dam_4k` after 600 untimed ticks: the pool has spread and come to rest (LQ-59) |
 | `fluid_compound_dam_4k`, `fluid_compound_rest_4k` | the same two in a tank of `CompoundCollider2D` parts instead of the SDF: 0.25-unit square tiles, 1 unit thick (about 2,000 parts), plus a second compound of 4,000 tiles far below that the fluid never reaches. `run_physics_2d` runs once before timing, so the fluid reads the static parts from the solver's cache (LQ-57) |
+| `fluid_crates_4k` | `fluid_dam_4k` with 16 light dynamic crates (0.4 units, half the water's density) dropped across the tank. `run_physics_2d` steps before each fluid step, untimed: the row times the fluid with its two-way coupling (LQ-56) |
 
 Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
 
@@ -189,6 +190,10 @@ Same settings, best of two runs. Before LQ-57 a compound does not hold the fluid
 | `fluid_compound_rest_4k` | (falls through) | 19,037 | (falls through) | 3,357 |
 
 A tiled compound tank costs about what the SDF tank costs: a particle against a wall tests the few tiles of its grid cell (two kernel supports wide), not the 2,000 parts, and the 4,000 far tiles never leave the solver's tree.
+
+### Two-way coupling (LQ-56)
+
+`fluid_crates_4k`, best of two runs, before (one-way) and after: 20,806 to 20,788 us with `--threads 0`, 3,474 to 3,526 us with the default threads. Recording each push of a body's shape and the serial sum per substep cost nothing measurable; a fluid with no dynamic body in reach skips both.
 
 ## Deterministic simulation (LQ-63)
 
