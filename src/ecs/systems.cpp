@@ -12,6 +12,7 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
@@ -1402,6 +1403,8 @@ namespace engine {
         world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
                          [jobs = deps.jobs](ecs::World &w) { run_physics_2d(w, jobs); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                         [jobs = deps.jobs](ecs::World &w) { run_fluid_2d(w, jobs); });
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
                          [jobs = deps.jobs](ecs::World &w) { run_physics_3d(w, jobs); });
         nav::register_nav_systems(world);
