@@ -229,6 +229,40 @@ Sweep:
 
 The engine has no tile collision flag; a tile layer is a lambda. Tilemap rows run down while y runs up, so grid cell `(x, y)` is row `-y - 1`: `map.tile(layer, c.x, -c.y - 1) != 0`, with the box taken relative to the map's position and divided by `TilemapAsset::cell_size()`.
 
+### SDF fields
+
+`include/engine/ecs/sdf_2d.h`, `src/ecs/sdf_2d.cpp`. `SdfField2D` is a chunked 2D signed distance field for destructible terrain (dig, blast, build) and the data that later SDF collision reads. Pure math like [Grid queries](#grid-queries): no world, no components, no serializer, nothing registered. It owns its storage; copy it like a value.
+
+Conventions:
+
+- Negative inside solid, positive in empty space, zero on the surface. `gradient` points out of the solid.
+- Samples sit at cell corners: sample `(i, j)` is at `origin + cell_size * (i, j)`, and cell `(i, j)` is the bilinear patch between samples `(i, j)` and `(i + 1, j + 1)`. +Y is up, as in the grid queries.
+- Chunks of `kSdfChunkCells` (32) x 32. Chunk `(cx, cy)` owns samples and cells `[32 cx, 32 cx + 32) x [32 cy, 32 cy + 32)` (`chunk_of` is a floor division; coordinates may be negative). Each sample belongs to exactly one chunk, so a seam holds no duplicated value that could disagree; the cells on a chunk's right and top rows read the neighbours' samples. Chunk boundaries line up with tilemap chunks: with `origin` at the map's top-left corner and `cell_size` its (square) cell size, field chunk `(cx, cy)` covers tilemap chunk `(cx, -cy - 1)` (tilemap rows run down).
+- Sparse: a chunk is allocated only when an edit changes it (or dirties it, below). Everywhere else reads the field-wide `outside`: `SdfOutside::Empty` (+band, build in empty space) or `SdfOutside::Solid` (-band, dig into a solid world).
+- Storage is one `int16` per sample (2 KB a chunk), the distance quantized over `[-band, +band]` (`band / 32767` per step) and clamped there. Beyond the band a distance is only known to be at least `band`.
+- `SdfField2DDesc`: `cell_size` (non-finite or not positive: 1), `band` (non-finite or not positive: 4 cells; below one cell: one cell), `origin`, `outside`.
+
+Queries are `const`, deterministic, and do not allocate. A non-finite position, or one 2^24 cells out, reads `outside`.
+
+| Function | Result |
+| --- | --- |
+| `sample_at(index)` | The stored distance at a sample |
+| `sample(p)` | Bilinear distance |
+| `gradient(p)` | Unit normal: the analytic gradient of the bilinear cell; central differences half a cell to each side when that is degenerate (a saddle, a flat cell); zero when both are flat |
+| `raymarch(origin, direction, max_distance)` | `std::optional<SdfHit2D>`: `point`, `normal`, `distance` along the normalized direction |
+| `sweep_circle(center, radius, delta)` | `std::optional<SdfSweep2D>`: `fraction` of `delta` in [0, 1], `center` there, contact `point`, `normal`, `depth` |
+
+- `raymarch` is sphere tracing: each step is the sampled distance, at least 1/10 of a cell (a feature thinner than that can be stepped over). The first sign change (`d <= 0`) is bisected to 1e-4 of a cell and the hit is on the empty side of it. A ray that only grazes the surface misses. A ray that starts at or inside the surface hits at distance 0. With `Empty` the ray is first clipped to the rectangle of allocated chunks, so a long ray past the terrain is free. nullopt: a miss, a zero or non-finite direction, a negative or non-finite `max_distance`.
+- `sweep_circle` is conservative advancement on `sample - radius` with the same stepping and refinement, so the returned center does not penetrate. A circle that starts touching or penetrating reports fraction 0, `depth = radius - d`, `point = center - normal * d`. `radius` must be below `band`, since the field cannot tell surfaces apart beyond it; a larger radius returns nullopt. Choose the band larger than the largest swept circle.
+
+Edits return the chunks they dirtied, sorted by y then x, unique, and bump each one's revision once. A chunk is dirty when any cell it owns changed, that is, when one of a cell's four corner samples changed value; a changed sample in a chunk's first column or row also dirties the chunk to its left or below (allocating it, filled with `outside`, if needed). An edit that changes no sample (carving empty space, repeating the same edit) returns nothing and bumps nothing. `revision(chunk)` is 0 for an unallocated chunk and starts at 1; `chunk_coords()` lists allocated chunks; `chunk_samples(chunk)` is the raw `int16` row-major array from the bottom row.
+
+- `fill_circle`, `carve_circle`, `fill_polygon`, `carve_polygon`: CSG with the exact shape SDF in the quantized domain, fill `min(d, shape)`, carve `max(d, -shape)`, over the samples within the shape's bounds grown by `band` only (outside them the shape cannot change a clamped value). A polygon is convex and CCW in world space with no vertex cap; fewer than 3 vertices, a non-finite vertex, a zero-length edge, a clockwise turn, or a non-positive area is a no-op (the `PolygonCollider2D` rules), and a collinear turn is kept. A non-positive radius is a no-op.
+- `fill_from_mask(min_cell, size, is_solid, cells_per_mask_cell = 1)`: a solid-cell mask (a tile layer, a bitmap) to exact distances. Mask cell `(x, y)` is the square of `cells_per_mask_cell` field cells per side; `is_solid` is the same `CellPredicate<glm::ivec2>` as the grid queries, so a tile layer is `map.tile(layer, c.x, -c.y - 1) != 0`. A sample gets the distance to the union of solid squares (integer math, then one `sqrt`), 0 on its boundary. Mask cells outside the rectangle read as `outside`. Samples inside the rectangle are overwritten; in the band-wide margin around it they are merged (`min` with `Empty`, `max` with `Solid`), so a mask joins terrain already there. A shape one field cell thick has no negative sample; use 2 or more field cells per mask cell for one-tile platforms. Cost: one predicate call per mask cell, and per written sample a scan of the mask cells within the band.
+- `renormalize(chunk)` / `renormalize(span)`: repeated CSG leaves a distance bound (two overlapping carves read the nearer circle at the lens center, not the cusps). The chunk's samples are recomputed as the exact distance to the piecewise-linear zero crossing, keeping each sign: marching squares over the chunk plus a halo of `h = ceil(band / cell_size) + 1` samples from its neighbours, crossings by linear interpolation along cell edges, a saddle split by the cell's mean, then, per sample, a brute-force scan of the segments of the `(2h)^2` cells around it. That is about `1024 * (2h)^2` cell visits a chunk (about 100k for a 4-cell band). A sample's result depends only on samples within `h` of it, computed relative to the sample, so a seam gives the same bits as the middle of a chunk. The span form computes every listed chunk from the field as it was before any changed, so the order of the list does not matter; pass an edit's dirty list. It is a near fixed point, not an exact one: a second pass moves curved interfaces by rounding only.
+
+Not here yet: LQ-25 makes particles collide with a field, LQ-26 adds an `SdfCollider2D` to the 2D solver that rebuilds per chunk on `revision`, and LQ-27 uses the field as a fluid boundary.
+
 ## World serialization
 
 `include/engine/ecs/world_io.h`, `include/engine/ecs/world_asset.h`, `include/engine/ecs/world_serializer.h`.
@@ -282,12 +316,13 @@ The root gets `Transform` and `ModelAnimator`. Each primitive is a child (`Paren
 - `include/engine/ecs/physics.h`
 - `include/engine/ecs/physics_2d.h`
 - `include/engine/ecs/grid_query.h`
+- `include/engine/ecs/sdf_2d.h`
 - `include/engine/ecs/ray.h`
 - `include/engine/ecs/systems.h`
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/physics_2d_static_cache_test.cpp`, `tests/physics_2d_compound_test.cpp`, `tests/grid_query_test.cpp`, `tests/ray_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/physics_2d_static_cache_test.cpp`, `tests/physics_2d_compound_test.cpp`, `tests/grid_query_test.cpp`, `tests/sdf_2d_test.cpp`, `tests/ray_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
 
 ## See also
 

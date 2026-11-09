@@ -361,6 +361,26 @@ box_min = origin + r.min * cell;
 box_max = origin + r.max * cell;
 ```
 
+### Destructible terrain: `SdfField2D`
+
+For terrain you dig into or blast holes in, `<engine/ecs/sdf_2d.h>` has `SdfField2D`: a signed distance field stored in 32 x 32 chunks, negative inside solid and positive in the air. Like the grid queries it is a plain object you own, not a component; nothing collides with it on its own yet.
+
+```cpp
+#include <engine/ecs/sdf_2d.h>
+
+engine::SdfField2D terrain{{.cell_size = 0.25f, .band = 2.0f, .outside = engine::SdfOutside::Solid}};
+const std::vector<glm::ivec2> dirty = terrain.carve_circle(explosion_point, 1.5f);   // chunks to rebuild
+terrain.renormalize(dirty);                                                        // keep it a true distance
+
+if (const auto hit = terrain.raymarch(muzzle, aim, 50.0f)) { /* hit->point, hit->normal */ }
+if (const auto c = terrain.sweep_circle(ball, 0.3f, velocity * dt)) { /* c->fraction, c->normal */ }
+```
+
+- `SdfOutside::Solid` starts as a solid world to dig into; `Empty` starts as air to build in with `fill_circle` and `fill_polygon` (convex, counter-clockwise).
+- `fill_from_mask` builds it from a tile layer, with the same lambda as the grid queries. Give it 2 or more field cells per tile if your platforms are one tile thick.
+- Every edit returns the chunks it changed and bumps their `revision`, so you rebuild only those (a mesh, a collider).
+- Keep `band` larger than the biggest circle you sweep.
+
 ---
 
 ## Next Steps
