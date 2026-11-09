@@ -56,6 +56,75 @@ struct Fluid2DParams {
     uint32_t mask = 0xFFFFFFFFu;  // which collider layers bound it
 };
 
+// A region of world XY for fluid sources, drains, sensors and queries: an axis-aligned box or a circle.
+struct FluidRegion2D {
+    enum class Shape : std::uint8_t { Box, Circle };
+    Shape shape = Shape::Box;
+    glm::vec2 center{0.0f};
+    glm::vec2 half_extents{0.5f};  // Box
+    float radius = 0.5f;           // Circle
+
+    // Inside or on the edge. A negative size holds nothing.
+    [[nodiscard]] bool contains(glm::vec2 point) const;
+    // World units squared; 0 for a negative or non-finite size.
+    [[nodiscard]] float area() const;
+};
+
+// Emits `rate` particles per second inside `region`, each with `velocity`, before the fluid steps. The fraction of a
+// particle a tick does not emit is carried to the next. Positions follow a low-discrepancy sequence over the region
+// (the same on every peer), so a stream spreads evenly without random numbers. Emission stops at `max_particles`;
+// what does not fit is dropped, not queued.
+struct FluidSource2D {
+    FluidRegion2D region{};
+    float rate = 0.0f;  // particles per second; not positive or non-finite: none
+    glm::vec2 velocity{0.0f};
+    bool enabled = true;
+    // State, not serialized: the part of a particle not emitted yet, and how many this source has emitted.
+    float carry = 0.0f;
+    std::uint64_t emitted = 0;
+};
+
+// Removes every particle that ends a step inside `region`. The others keep their order.
+struct FluidDrain2D {
+    FluidRegion2D region{};
+    bool enabled = true;
+    // State, not serialized: particles removed so far.
+    std::uint64_t drained = 0;
+};
+
+// Watches how full `region` is after each step: the particles inside times their lattice cell, (2 radius)^2, over the
+// region's area (about 1 for a region under water at rest). When the fill reaches `threshold` it is `full` and a
+// FluidSensorEvent2D with `full = true` is sent; it stops being full (and sends `full = false`) only below
+// `threshold - hysteresis`, so a level wobbling at the threshold does not send an event every tick.
+struct FluidSensor2D {
+    FluidRegion2D region{};
+    float threshold = 0.5f;
+    float hysteresis = 0.05f;
+    // State, not serialized: the last fill and whether the region counts as full.
+    float fill = 0.0f;
+    bool full = false;
+};
+
+// Sent (double-buffered, `ecs::EventReader<FluidSensorEvent2D>`) when a sensor of `fluid` turns full or stops being
+// full. `sensor` indexes `Fluid2D::sensors`.
+struct FluidSensorEvent2D {
+    ecs::Entity fluid{};
+    std::uint32_t sensor = 0;
+    bool full = false;
+    float fill = 0.0f;
+    std::size_t count = 0;  // particles inside
+
+    constexpr bool operator==(const FluidSensorEvent2D&) const noexcept = default;
+};
+
+// What a fluid query found: how many particles, the area they stand for (count times (2 radius)^2), and their mean
+// velocity (zero when none).
+struct FluidQuery2D {
+    std::size_t count = 0;
+    float volume = 0.0f;
+    glm::vec2 average_velocity{0.0f};
+};
+
 // A 2D liquid: Position Based Fluids (Macklin and Mueller 2013) particles in world XY, stepped by `run_fluid_2d` on
 // Fixed / Physics after `run_physics_2d` and `run_physics_3d`, on a world `install_fluid_2d` ran on. Without the
 // install a Fluid2D keeps its particles and never moves. `params` is plain data (serialized as `fluid_2d`); the
@@ -77,6 +146,11 @@ public:
     explicit Fluid2D(const Fluid2DParams& tuning) : params(tuning) {}
 
     Fluid2DParams params{};
+    // Taps, sinks and level sensors, stepped by `run_fluid_2d` in that order around the solver step: sources emit, the
+    // fluid steps, drains remove, sensors measure. Their settings are serialized with `params`, their state is not.
+    std::vector<FluidSource2D> sources;
+    std::vector<FluidDrain2D> drains;
+    std::vector<FluidSensor2D> sensors;
 
     // Adds one particle at world `position` with `velocity`. False (nothing added) at `max_particles` or for a
     // non-finite input.
@@ -86,6 +160,16 @@ public:
     std::size_t spawn_box(glm::vec2 min, glm::vec2 max, glm::vec2 velocity = glm::vec2{0.0f});
     // Removes every particle. Parameters are kept.
     void clear();
+
+    // --- Queries, on the particles as the last step (or spawn) left them. The first query after a change builds a
+    // lookup grid of cells two radii wide (one pass over the particles); later queries read only the cells they touch.
+    // Main thread, like every engine call.
+    [[nodiscard]] FluidQuery2D query(const FluidRegion2D& region) const;
+    // Inside a simple polygon in world XY (either winding, convex or not; the even-odd rule). Fewer than 3 vertices
+    // or a non-finite one: nothing.
+    [[nodiscard]] FluidQuery2D query(std::span<const glm::vec2> polygon) const;
+    // A particle center within the rest spacing (2 radii) of `point`.
+    [[nodiscard]] bool is_wet(glm::vec2 point) const;
 
     [[nodiscard]] std::size_t count() const {
         return positions_.size();
@@ -103,16 +187,27 @@ public:
         return densities_;
     }
     // FNV-1a 64 of the simulation state: the particle count, then each particle's position and velocity bits in
-    // spawn order. Equal on two peers exactly when their fluids are the same bits (desync detection, golden tests).
-    // Parameters and densities (output of the last step) are not in it.
+    // spawn order, then each source's carry and emitted count and each sensor's `full`. Equal on two peers exactly
+    // when their fluids are the same bits (desync detection, golden tests). Parameters, drain counts, sensor fills and
+    // densities (outputs of the last step) are not in it.
     [[nodiscard]] std::uint64_t state_hash() const;
 
 private:
     friend struct Fluid2DSolver;
 
+    void build_query_grid() const;
+    template <class F>
+    void for_each_in_cells(glm::vec2 lo, glm::vec2 hi, F&& fn) const;
+
     std::vector<glm::vec2> positions_;
     std::vector<glm::vec2> velocities_;
     std::vector<float> densities_;
+    // The queries' lookup grid: a counting sort of the particles by cell (two radii) into a power-of-two hash table.
+    // Rebuilt on the first query after the particles changed.
+    mutable std::vector<std::uint32_t> query_bucket_start_;
+    mutable std::vector<std::uint32_t> query_sorted_;
+    mutable std::vector<glm::ivec2> query_cell_;
+    mutable bool query_valid_ = false;
 };
 
 // Fluids are opt-in: the engine does not step them unless the game installs them. Registers `run_fluid_2d` on

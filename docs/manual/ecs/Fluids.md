@@ -84,7 +84,37 @@ Leave `rest_density`, `relaxation` and `tensile_strength` at their defaults unle
 
 Fast fluid does not leak through thin walls: a particle that moves more than half its radius in a substep is swept along its step and stops at the first box, circle or terrain surface on the way. An `SdfCollider2D` wall thinner than one field cell exists only where it covers a sample of the field, so keep terrain walls at least a cell thick (or straddling a sample). A particle pushed deep into terrain (deeper than the field's `band`) stays there.
 
-## 6. Cost and saving
+## 6. Taps, drains and how full a pool is
+
+A tap is a `FluidSource2D` on the fluid: a box or circle where particles appear at `rate` per second with a `velocity`. A drain is a `FluidDrain2D`: particles that end a tick inside it disappear. A sensor is a `FluidSensor2D`: it watches how full a region is and sends a `FluidSensorEvent2D` when it fills past `threshold` and again when it empties.
+
+```cpp
+engine::Fluid2D& water = world.get<engine::Fluid2D>(pool);
+water.sources.push_back(engine::FluidSource2D{
+    .region = {.shape = engine::FluidRegion2D::Shape::Box, .center = {2.f, 3.f}, .half_extents = {0.2f, 0.05f}},
+    .rate = 200.f,  // particles per second
+    .velocity = {0.f, -2.f},
+});
+water.drains.push_back(engine::FluidDrain2D{
+    .region = {.shape = engine::FluidRegion2D::Shape::Circle, .center = {6.f, 0.f}, .radius = 0.3f}});
+water.sensors.push_back(engine::FluidSensor2D{
+    .region = {.center = {2.f, 0.5f}, .half_extents = {1.f, 0.5f}},
+    .threshold = 0.8f,  // 80 percent full
+});
+
+// In a Fixed system after the fluid, with a cursor the system keeps:
+for (const engine::FluidSensorEvent2D& e : engine::ecs::EventReader<engine::FluidSensorEvent2D>{world, cursor_}) {
+    if (e.full) {
+        open_the_gate();
+    }
+}
+```
+
+`drains[i].drained` counts what a drain took. To ask about the water directly, `water.query(region)` or `water.query(polygon)` give how many particles are inside, the area they cover and their average velocity, and `water.is_wet(point)` says whether water touches a point. Asking many times a tick is cheap.
+
+Taps, drains and sensors are saved with the world: their settings, not how much they have emitted or drained.
+
+## 7. Cost and saving
 
 About 4.6 us per particle per tick on one thread with the defaults, and it scales across the job workers: 4,000 particles cost about 3 ms a tick on a 12-thread desktop, 16,000 about 10 ms. Results are the same for any number of workers.
 

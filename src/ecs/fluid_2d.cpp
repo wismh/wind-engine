@@ -1,5 +1,6 @@
 #include <engine/ecs/fluid_2d.h>
 
+#include <engine/core/det_math.h>
 #include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/hierarchy.h>
@@ -578,6 +579,12 @@ struct Fluid2DSolver {
     static void select_boundaries(const Fluid2DParams& fluid, const Params& p, const Boundaries& boundaries,
                                   std::size_t n, Fluid2DScratch& s);
     static void sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    // Sources, before the step: emit what each enabled source owes for `dt`.
+    static void emit(Fluid2D& fluid, float dt);
+    // Drains, after the step: remove the particles that ended inside an enabled drain, keeping the others' order.
+    static void drain(Fluid2D& fluid);
+    // Sensors, after the drains: measure each fill and send an event when one turns full or stops being full.
+    static void sense(Fluid2D& fluid, ecs::Entity entity, ecs::EventWriter<FluidSensorEvent2D>& events);
     // Two-way coupling: `shape` moved particle i by `moved`, leaving it at `position` with contact normal `normal`.
     static void record_push(const Params& p, std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
                             glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s);
@@ -1109,6 +1116,7 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
     if (n == 0 || !(dt > 0.0f) || !std::isfinite(dt)) {
         return;
     }
+    fluid.query_valid_ = false;
     const Params p = resolve(fluid.params);
     const float sub_dt = dt / static_cast<float>(p.substeps);
     const float inv_dt = 1.0f / sub_dt;
@@ -1277,6 +1285,114 @@ void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravi
 
 namespace {
 
+// The R2 low-discrepancy sequence (Roberts 2018), point `n` in [0, 1)^2: fractional parts of n / g and n / g^2 for the
+// plastic number g, in double so a long stream stays spread. Only + * floor: the same on every target.
+[[nodiscard]] glm::vec2 r2_point(std::uint64_t n) {
+    constexpr double kA1 = 0.75487766624669276005;
+    constexpr double kA2 = 0.56984029099805326591;
+    const double index = static_cast<double>(n);
+    const double u = 0.5 + kA1 * index;
+    const double v = 0.5 + kA2 * index;
+    return {static_cast<float>(u - std::floor(u)), static_cast<float>(v - std::floor(v))};
+}
+
+}
+
+void Fluid2DSolver::emit(Fluid2D& fluid, float dt) {
+    for (FluidSource2D& source : fluid.sources) {
+        if (!source.enabled || !std::isfinite(source.rate) || source.rate <= 0.0f || source.region.area() <= 0.0f ||
+            !finite(source.region.center)) {
+            continue;
+        }
+        const float owed = source.carry + source.rate * dt;
+        const float whole = std::floor(owed);
+        source.carry = owed - whole;
+        const auto count = static_cast<std::uint64_t>(std::min(whole, 1.0e6f));
+        const FluidRegion2D& region = source.region;
+        for (std::uint64_t k = 0; k < count && fluid.count() < fluid.params.max_particles; ++k) {
+            // Point `emitted` of the sequence: one per particle. Over a circle the square maps to the disc by area
+            // (radius sqrt(u), angle 2 pi v), with the engine's deterministic trigonometry.
+            const glm::vec2 u = r2_point(source.emitted);
+            glm::vec2 position{0.0f};
+            if (region.shape == FluidRegion2D::Shape::Circle) {
+                const SinCos turn = det_sin_cos(2.0f * kPi * u.y);
+                position = region.center + glm::vec2{turn.cos, turn.sin} * (region.radius * std::sqrt(u.x));
+            } else {
+                position = region.center + (u * 2.0f - glm::vec2{1.0f}) * region.half_extents;
+            }
+            if (!fluid.spawn(position, source.velocity)) {
+                break;
+            }
+            ++source.emitted;
+        }
+        // At max_particles the rest of this tick's emission is dropped, not queued.
+    }
+}
+
+void Fluid2DSolver::drain(Fluid2D& fluid) {
+    bool any = false;
+    for (const FluidDrain2D& drain : fluid.drains) {
+        any = any || (drain.enabled && drain.region.area() > 0.0f);
+    }
+    if (!any) {
+        return;
+    }
+    std::size_t kept = 0;
+    for (std::size_t i = 0; i < fluid.positions_.size(); ++i) {
+        FluidDrain2D* taken = nullptr;
+        for (FluidDrain2D& drain : fluid.drains) {
+            if (drain.enabled && drain.region.contains(fluid.positions_[i])) {
+                taken = &drain;
+                break;
+            }
+        }
+        if (taken != nullptr) {
+            ++taken->drained;
+            continue;
+        }
+        fluid.positions_[kept] = fluid.positions_[i];
+        fluid.velocities_[kept] = fluid.velocities_[i];
+        fluid.densities_[kept] = fluid.densities_[i];
+        ++kept;
+    }
+    if (kept != fluid.positions_.size()) {
+        fluid.positions_.resize(kept);
+        fluid.velocities_.resize(kept);
+        fluid.densities_.resize(kept);
+        fluid.query_valid_ = false;
+    }
+}
+
+void Fluid2DSolver::sense(Fluid2D& fluid, ecs::Entity entity, ecs::EventWriter<FluidSensorEvent2D>& events) {
+    const float spacing = 2.0f * particle_radius(fluid.params);
+    for (std::size_t k = 0; k < fluid.sensors.size(); ++k) {
+        FluidSensor2D& sensor = fluid.sensors[k];
+        const float area = sensor.region.area();
+        if (area <= 0.0f) {
+            continue;
+        }
+        const FluidQuery2D found = fluid.query(sensor.region);
+        sensor.fill = static_cast<float>(found.count) * spacing * spacing / area;
+        const bool was_full = sensor.full;
+        if (!sensor.full && sensor.fill >= sensor.threshold) {
+            sensor.full = true;
+        } else if (sensor.full && sensor.fill < sensor.threshold - std::max(sensor.hysteresis, 0.0f)) {
+            sensor.full = false;
+        }
+        if (sensor.full != was_full) {
+            events.send(FluidSensorEvent2D{
+                    .fluid = entity,
+                    .sensor = static_cast<std::uint32_t>(k),
+                    .full = sensor.full,
+                    .fill = sensor.fill,
+                    .count = found.count,
+            });
+        }
+    }
+}
+
+namespace {
+
 // The 2D solver's inverse inertia of a Dynamic body: its first non-trigger collider of box, circle, polygon (in that
 // order) about the body origin, with the body's whole mass. 0 when it has none.
 [[nodiscard]] float inverse_inertia_of(const ecs::World& world, ecs::Entity entity, float mass) {
@@ -1362,6 +1478,7 @@ bool Fluid2D::spawn(glm::vec2 position, glm::vec2 velocity) {
     positions_.push_back(position);
     velocities_.push_back(velocity);
     densities_.push_back(0.0f);
+    query_valid_ = false;
     return true;
 }
 
@@ -1396,6 +1513,150 @@ void Fluid2D::clear() {
     positions_.clear();
     velocities_.clear();
     densities_.clear();
+    query_valid_ = false;
+}
+
+bool FluidRegion2D::contains(glm::vec2 point) const {
+    const glm::vec2 d = point - center;
+    if (shape == Shape::Circle) {
+        return radius >= 0.0f && glm::dot(d, d) <= radius * radius;
+    }
+    return std::abs(d.x) <= half_extents.x && std::abs(d.y) <= half_extents.y;
+}
+
+float FluidRegion2D::area() const {
+    if (shape == Shape::Circle) {
+        return std::isfinite(radius) && radius > 0.0f ? kPi * radius * radius : 0.0f;
+    }
+    const bool valid = finite(half_extents) && half_extents.x > 0.0f && half_extents.y > 0.0f;
+    return valid ? 4.0f * half_extents.x * half_extents.y : 0.0f;
+}
+
+void Fluid2D::build_query_grid() const {
+    const std::size_t n = positions_.size();
+    const float inv_cell = 0.5f / particle_radius(params);
+    std::uint32_t table = 64;
+    while (static_cast<std::size_t>(table) < 2 * n) {
+        table *= 2;
+    }
+    const std::uint32_t mask = table - 1;
+    query_cell_.resize(n);
+    query_bucket_start_.assign(static_cast<std::size_t>(table) + 1, 0);
+    query_sorted_.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        query_cell_[i] = glm::ivec2{cell_coord(positions_[i].x * inv_cell), cell_coord(positions_[i].y * inv_cell)};
+        ++query_bucket_start_[cell_hash(query_cell_[i], mask) + 1];
+    }
+    for (std::uint32_t b = 0; b < table; ++b) {
+        query_bucket_start_[b + 1] += query_bucket_start_[b];
+    }
+    std::vector<std::uint32_t> fill(table, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::uint32_t b = cell_hash(query_cell_[i], mask);
+        query_sorted_[query_bucket_start_[b] + fill[b]++] = static_cast<std::uint32_t>(i);
+    }
+    query_valid_ = true;
+}
+
+// Calls `fn(i)` for every particle whose cell lies in the cell range of [lo, hi], each once, cell by cell. Falls back
+// to every particle in order when the range has more cells than there are particles.
+template <class F>
+void Fluid2D::for_each_in_cells(glm::vec2 lo, glm::vec2 hi, F&& fn) const {
+    const std::size_t n = positions_.size();
+    if (n == 0 || !finite(lo) || !finite(hi) || lo.x > hi.x || lo.y > hi.y) {
+        return;
+    }
+    if (!query_valid_) {
+        build_query_grid();
+    }
+    const float inv_cell = 0.5f / particle_radius(params);
+    const glm::ivec2 c0{cell_coord(lo.x * inv_cell), cell_coord(lo.y * inv_cell)};
+    const glm::ivec2 c1{cell_coord(hi.x * inv_cell), cell_coord(hi.y * inv_cell)};
+    const double cells = (static_cast<double>(c1.x) - c0.x + 1.0) * (static_cast<double>(c1.y) - c0.y + 1.0);
+    if (cells > static_cast<double>(n)) {
+        for (std::size_t i = 0; i < n; ++i) {
+            fn(i);
+        }
+        return;
+    }
+    const auto mask = static_cast<std::uint32_t>(query_bucket_start_.size() - 2);
+    for (int y = c0.y; y <= c1.y; ++y) {
+        for (int x = c0.x; x <= c1.x; ++x) {
+            const glm::ivec2 cell{x, y};
+            const std::uint32_t b = cell_hash(cell, mask);
+            for (std::uint32_t k = query_bucket_start_[b]; k < query_bucket_start_[b + 1]; ++k) {
+                const std::uint32_t i = query_sorted_[k];
+                if (query_cell_[i] == cell) {
+                    fn(i);
+                }
+            }
+        }
+    }
+}
+
+FluidQuery2D Fluid2D::query(const FluidRegion2D& region) const {
+    FluidQuery2D out;
+    const glm::vec2 reach = region.shape == FluidRegion2D::Shape::Circle ? glm::vec2{region.radius}
+                                                                         : region.half_extents;
+    glm::vec2 sum{0.0f};
+    for_each_in_cells(region.center - reach, region.center + reach, [&](std::size_t i) {
+        if (region.contains(positions_[i])) {
+            ++out.count;
+            sum += velocities_[i];
+        }
+    });
+    const float spacing = 2.0f * particle_radius(params);
+    out.volume = static_cast<float>(out.count) * spacing * spacing;
+    out.average_velocity = out.count > 0 ? sum / static_cast<float>(out.count) : glm::vec2{0.0f};
+    return out;
+}
+
+FluidQuery2D Fluid2D::query(std::span<const glm::vec2> polygon) const {
+    FluidQuery2D out;
+    if (polygon.size() < 3) {
+        return out;
+    }
+    glm::vec2 lo{std::numeric_limits<float>::max()};
+    glm::vec2 hi{-std::numeric_limits<float>::max()};
+    for (const glm::vec2 v : polygon) {
+        if (!finite(v)) {
+            return out;
+        }
+        lo = glm::min(lo, v);
+        hi = glm::max(hi, v);
+    }
+    glm::vec2 sum{0.0f};
+    for_each_in_cells(lo, hi, [&](std::size_t i) {
+        // Even-odd: count the edges a ray toward +X crosses.
+        const glm::vec2 point = positions_[i];
+        bool inside = false;
+        for (std::size_t a = 0, b = polygon.size() - 1; a < polygon.size(); b = a++) {
+            const glm::vec2 va = polygon[a];
+            const glm::vec2 vb = polygon[b];
+            if ((va.y > point.y) != (vb.y > point.y) &&
+                point.x < (vb.x - va.x) * (point.y - va.y) / (vb.y - va.y) + va.x) {
+                inside = !inside;
+            }
+        }
+        if (inside) {
+            ++out.count;
+            sum += velocities_[i];
+        }
+    });
+    const float spacing = 2.0f * particle_radius(params);
+    out.volume = static_cast<float>(out.count) * spacing * spacing;
+    out.average_velocity = out.count > 0 ? sum / static_cast<float>(out.count) : glm::vec2{0.0f};
+    return out;
+}
+
+bool Fluid2D::is_wet(glm::vec2 point) const {
+    const float reach = 2.0f * particle_radius(params);
+    bool wet = false;
+    for_each_in_cells(point - glm::vec2{reach}, point + glm::vec2{reach}, [&](std::size_t i) {
+        const glm::vec2 d = positions_[i] - point;
+        wet = wet || glm::dot(d, d) <= reach * reach;
+    });
+    return wet;
 }
 
 std::uint64_t Fluid2D::state_hash() const {
@@ -1405,6 +1666,15 @@ std::uint64_t Fluid2D::state_hash() const {
         hasher.vec2(positions_[i]);
         hasher.vec2(velocities_[i]);
     }
+    hasher.u64(sources.size());
+    for (const FluidSource2D& source : sources) {
+        hasher.f32(source.carry);
+        hasher.u64(source.emitted);
+    }
+    hasher.u64(sensors.size());
+    for (const FluidSensor2D& sensor : sensors) {
+        hasher.u8(sensor.full ? 1 : 0);
+    }
     return hasher.value();
 }
 
@@ -1412,7 +1682,8 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
     auto view = world.view<Fluid2D>();
     bool any = false;
     for (ecs::Entity entity : view) {
-        if (view.get<Fluid2D>(entity).count() > 0) {
+        const Fluid2D& fluid = view.get<Fluid2D>(entity);
+        if (fluid.count() > 0 || !fluid.sources.empty() || !fluid.sensors.empty()) {
             any = true;
             break;
         }
@@ -1421,6 +1692,11 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
         return;
     }
     const float dt = world.ctx<Time>().fixed_delta_time;
+    if (dt > 0.0f && std::isfinite(dt)) {
+        for (ecs::Entity entity : view) {
+            Fluid2DSolver::emit(view.get<Fluid2D>(entity), dt);
+        }
+    }
     const glm::vec3 gravity = world.ctx<Physics2DConfig>().gravity;
     // Where any fluid can be this tick, for the static polygon and compound parts.
     glm::vec2 reach_lo{std::numeric_limits<float>::max()};
@@ -1440,6 +1716,12 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
         Fluid2DSolver::step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch);
     }
     apply_coupling(world, boundaries, glm::vec2{gravity.x, gravity.y}, dt);
+    ecs::EventWriter<FluidSensorEvent2D> events{world};
+    for (ecs::Entity entity : view) {
+        Fluid2D& fluid = view.get<Fluid2D>(entity);
+        Fluid2DSolver::drain(fluid);
+        Fluid2DSolver::sense(fluid, entity, events);
+    }
 }
 
 void register_fluid_2d_system(ecs::World& world) {

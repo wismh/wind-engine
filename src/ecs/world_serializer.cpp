@@ -122,6 +122,83 @@ bool load_asset_or_validate_headless(
     return false;
 }
 
+namespace {
+
+// Fluid2D: a region as a nested table: shape "box" (center, half_extents) or "circle" (center, radius).
+void write_fluid_region(ComponentWriter& out, const FluidRegion2D& region) {
+    out.field("shape", std::string{region.shape == FluidRegion2D::Shape::Circle ? "circle" : "box"});
+    out.field("center", region.center);
+    if (region.shape == FluidRegion2D::Shape::Circle) {
+        out.field("radius", region.radius);
+    } else {
+        out.field("half_extents", region.half_extents);
+    }
+}
+
+void read_fluid_region(ComponentReader& in, FluidRegion2D& region) {
+    std::string shape = "box";
+    (void)in.field("shape", shape);
+    if (shape == "circle") {
+        region.shape = FluidRegion2D::Shape::Circle;
+    } else if (shape == "box") {
+        region.shape = FluidRegion2D::Shape::Box;
+    } else {
+        in.fail("fluid_2d region shape \"" + shape + "\" is not box or circle");
+        return;
+    }
+    (void)in.field("center", region.center);
+    (void)in.field("half_extents", region.half_extents);
+    (void)in.field("radius", region.radius);
+}
+
+// Writes `items` as an array of nested tables under `name`, one `write(nested, item)` each.
+template <class List, class Write>
+void write_fluid_list(ComponentWriter& out, std::string_view name, const List& items, const Write& write) {
+    if (items.empty()) {
+        return;
+    }
+    FieldArray array;
+    array.reserve(items.size());
+    for (const auto& item : items) {
+        FieldTable table;
+        ComponentWriter nested = out.nested(table);
+        write(nested, item);
+        array.push_back(FieldValue{std::move(table)});
+    }
+    out.table().insert_or_assign(std::string{name}, FieldValue{std::move(array)});
+}
+
+// Reads the array `name` (missing: empty) into `items`, one `read(nested, item)` per table.
+template <class List, class Read>
+void read_fluid_list(ComponentReader& in, std::string_view name, List& items, const Read& read) {
+    items.clear();
+    const auto found = in.table().find(std::string{name});
+    if (found == in.table().end()) {
+        return;
+    }
+    const FieldArray* array = found->second.as_array();
+    if (array == nullptr) {
+        in.fail("fluid_2d " + std::string{name} + " is not an array");
+        return;
+    }
+    for (const FieldValue& element : *array) {
+        const FieldTable* table = element.as_table();
+        if (table == nullptr) {
+            in.fail("fluid_2d " + std::string{name} + " entry is not a table");
+            return;
+        }
+        ComponentReader nested = in.nested(*table);
+        items.emplace_back();
+        read(nested, items.back());
+        if (!nested.ok()) {
+            in.fail(std::string(nested.error()));
+            return;
+        }
+    }
+}
+
+}
+
 void register_builtin_components(
         WorldSerializer& serializer,
         std::map<std::string, WorldSerializer::Entry, std::less<>>& entries) {
@@ -975,7 +1052,8 @@ void register_builtin_components(
                 c.field = std::move(field);
             });
 
-    // Parameters only: the particles are transient simulation state, neither saved nor replicated.
+    // Parameters, sources, drains and sensors: the particles and the sources', drains' and sensors' state are
+    // transient simulation state, neither saved nor replicated.
     serializer.register_component<Fluid2D>(
             "fluid_2d",
             [](ComponentWriter& out, const Fluid2D& c) {
@@ -994,6 +1072,21 @@ void register_builtin_components(
                 out.field("density", c.params.density);
                 out.field("layer", c.params.layer);
                 out.field("mask", c.params.mask);
+                write_fluid_list(out, "sources", c.sources, [](ComponentWriter& w, const FluidSource2D& source) {
+                    write_fluid_region(w, source.region);
+                    w.field("rate", source.rate);
+                    w.field("velocity", source.velocity);
+                    w.field("enabled", source.enabled);
+                });
+                write_fluid_list(out, "drains", c.drains, [](ComponentWriter& w, const FluidDrain2D& drain) {
+                    write_fluid_region(w, drain.region);
+                    w.field("enabled", drain.enabled);
+                });
+                write_fluid_list(out, "sensors", c.sensors, [](ComponentWriter& w, const FluidSensor2D& sensor) {
+                    write_fluid_region(w, sensor.region);
+                    w.field("threshold", sensor.threshold);
+                    w.field("hysteresis", sensor.hysteresis);
+                });
             },
             [](ComponentReader& in, Fluid2D& c) {
                 (void)in.field("radius", c.params.radius);
@@ -1011,6 +1104,21 @@ void register_builtin_components(
                 (void)in.field("density", c.params.density);
                 (void)in.field("layer", c.params.layer);
                 (void)in.field("mask", c.params.mask);
+                read_fluid_list(in, "sources", c.sources, [](ComponentReader& r, FluidSource2D& source) {
+                    read_fluid_region(r, source.region);
+                    (void)r.field("rate", source.rate);
+                    (void)r.field("velocity", source.velocity);
+                    (void)r.field("enabled", source.enabled);
+                });
+                read_fluid_list(in, "drains", c.drains, [](ComponentReader& r, FluidDrain2D& drain) {
+                    read_fluid_region(r, drain.region);
+                    (void)r.field("enabled", drain.enabled);
+                });
+                read_fluid_list(in, "sensors", c.sensors, [](ComponentReader& r, FluidSensor2D& sensor) {
+                    read_fluid_region(r, sensor.region);
+                    (void)r.field("threshold", sensor.threshold);
+                    (void)r.field("hysteresis", sensor.hysteresis);
+                });
             });
 
     serializer.register_component<CircleCollider2D>(
