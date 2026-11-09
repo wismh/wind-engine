@@ -53,7 +53,8 @@ struct Fluid2DParams {
 };
 
 // A 2D liquid: Position Based Fluids (Macklin and Mueller 2013) particles in world XY, stepped by `run_fluid_2d` on
-// Fixed / Physics right after `run_physics_2d`. `params` is plain data (serialized as `fluid_2d`); the particles are
+// Fixed / Physics after `run_physics_2d` and `run_physics_3d`, on a world `install_fluid_2d` ran on. Without the
+// install a Fluid2D keeps its particles and never moves. `params` is plain data (serialized as `fluid_2d`); the particles are
 // owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
 // The entity needs no Transform: positions are world XY.
 //
@@ -104,9 +105,17 @@ private:
     std::vector<float> densities_;
 };
 
-// Steps every Fluid2D by `Time::fixed_delta_time`. Registered by the engine on Fixed / Physics after
-// `run_physics_2d`; do not register it again. With `jobs`, per-particle passes run in `parallel_for`; every pass is a
-// gather (a particle writes only its own slots), so the result is bit-identical for any worker count.
+// Fluids are opt-in: the engine does not step them unless the game installs them. Registers `run_fluid_2d` on
+// Fixed / Physics once, after the engine's `run_physics_2d` and `run_physics_3d`. Called before the engine registers
+// its simulation systems (a game's constructor), the system is added right after `run_physics_3d`; called later
+// (`on_start`), it is appended to the phase, after any Physics system the game added before it. A second call
+// replaces `jobs` without adding the system again. Pass `EngineServices::jobs` for parallel passes.
+void install_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
+
+// Steps every Fluid2D by `Time::fixed_delta_time`: the system `install_fluid_2d` registers. Do not register it
+// yourself; call it directly only on a world without that install (a bench, a tool). With `jobs`, per-particle
+// passes run in `parallel_for`; every pass is a gather (a particle writes only its own slots), so the result is
+// bit-identical for any worker count.
 void run_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
 
 }

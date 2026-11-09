@@ -13,6 +13,21 @@ namespace engine {
 
 class JobSystem;
 
+namespace ecs {
+class World;
+}
+
+// `install_fluid_2d`'s marker in `world.ctx`. `jobs` is read by the system each tick, so a second install moves it.
+struct FluidInstall2D {
+    JobSystem* jobs = nullptr;
+    bool registered = false;
+};
+
+// Adds `run_fluid_2d` to Fixed / Physics once, when `install_fluid_2d` has run on `world`. Called by
+// `install_fluid_2d` when the simulation systems are already registered, and by `register_simulation_systems` right
+// after `run_physics_3d` otherwise.
+void register_fluid_2d_system(ecs::World& world);
+
 // Neighbours kept per particle by the fluid solver.
 inline constexpr std::size_t kFluidMaxNeighbors2D = 48;
 

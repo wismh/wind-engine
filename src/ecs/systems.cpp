@@ -12,7 +12,6 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
-#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
@@ -46,6 +45,7 @@
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ecs/fluid_2d_internal.h"
 #include "ui/dock_runtime.h"
 #include "ui/input_batch.h"
 #include "ui/popup.h"
@@ -1404,9 +1404,9 @@ namespace engine {
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
                          [jobs = deps.jobs](ecs::World &w) { run_physics_2d(w, jobs); });
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
-                         [jobs = deps.jobs](ecs::World &w) { run_fluid_2d(w, jobs); });
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
                          [jobs = deps.jobs](ecs::World &w) { run_physics_3d(w, jobs); });
+        // Opt-in: only a world `install_fluid_2d` ran on before now has the marker.
+        register_fluid_2d_system(world);
         nav::register_nav_systems(world);
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });

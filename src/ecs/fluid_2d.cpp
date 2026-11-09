@@ -4,7 +4,9 @@
 #include <engine/core/time.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_2d.h>
+#include <engine/ecs/schedule.h>
 #include <engine/ecs/sdf_2d.h>
+#include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 
 #include "fluid_2d_internal.h"
@@ -706,6 +708,26 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
     for (ecs::Entity entity : view) {
         Fluid2DSolver::step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch);
+    }
+}
+
+void register_fluid_2d_system(ecs::World& world) {
+    FluidInstall2D* install = world.try_ctx<FluidInstall2D>();
+    if (install == nullptr || install->registered) {
+        return;
+    }
+    install->registered = true;
+    world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
+                     [](ecs::World& w) { run_fluid_2d(w, w.ctx<FluidInstall2D>().jobs); });
+}
+
+void install_fluid_2d(ecs::World& world, JobSystem* jobs) {
+    world.ctx<FluidInstall2D>().jobs = jobs;
+    // Before the simulation systems exist (a game constructing its world), register_simulation_systems adds the
+    // system after run_physics_3d, so it lands after both physics steps either way.
+    const SimulationSystemsRegistered* simulation = world.try_ctx<SimulationSystemsRegistered>();
+    if (simulation != nullptr && simulation->value) {
+        register_fluid_2d_system(world);
     }
 }
 
