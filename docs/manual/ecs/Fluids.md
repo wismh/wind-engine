@@ -60,7 +60,21 @@ Read `positions()` every frame and draw them with your own sprites, a particle e
 - `CompoundCollider2D` terrain (tiles, marching-squares cells), static or on a Kinematic body. Only the parts near the water cost anything.
 - The usual layer rule: the fluid's `mask` must include the collider's `layer`, and the collider's `mask` the fluid's `layer`.
 
-Water pushes back on Dynamic bodies: a crate lighter than the water floats, a heavier one sinks, a thrown rock splashes and slows down, a tilted plank turns flat. How heavy the water is comes from `density` (mass per unit area, default 1, in the units of `RigidBody2D::mass`: a 1 x 1 box of mass 0.5 floats half under water). This works for box, circle and polygon colliders on the body's own entity. Bodies much lighter than the water (below about 0.15 of its density) bob at the surface instead of settling. Set `density = 0` for water that only gets pushed around. No `CollisionEvent2D` comes from the water. Two fluids pass through each other.
+Water pushes back on Dynamic bodies: a crate lighter than the water floats, a heavier one sinks, a thrown rock splashes and slows down, a tilted plank turns flat. How heavy the water is comes from `density` (mass per unit area, default 1, in the units of `RigidBody2D::mass`: a 1 x 1 box of mass 0.5 floats half under water). This works for box, circle and polygon colliders on the body's own entity. Bodies much lighter than the water (below about 0.15 of its density) bob at the surface instead of settling. Set `density = 0` for water that only gets pushed around. No `CollisionEvent2D` comes from the water.
+
+Two fluids that meet mix by weight: give each its own `density` and the lighter one floats on the heavier (oil on water), a heavier one sinks (mud). Fluids whose `mask` leaves out the other's `layer` pass through each other instead. Where two fluids touch, a `FluidContactEvent2D` arrives every tick with how many particles touch and where (`center`, `min`, `max`), for reactions like lava meeting water:
+
+```cpp
+for (const engine::FluidContactEvent2D& e : engine::ecs::EventReader<engine::FluidContactEvent2D>{world, cursor_}) {
+    if ((e.a == lava_ && e.b == water_) || (e.a == water_ && e.b == lava_)) {
+        // Harden the meeting zone: fill the terrain there.
+        (void)world.get<engine::SdfCollider2D>(terrain_).field.fill_circle(e.center, 0.3f);
+        engine::mark_static_colliders_dirty_2d(world, terrain_);  // for the rigid bodies
+    }
+}
+```
+
+Fluids that touch are stepped together and share the largest `smoothing_length`, `substeps` and `iterations` of the group, so give fluids that will meet the same `radius`.
 
 ```cpp
 engine::Fluid2DParams water{.radius = 0.05f, .density = 1.0f};
