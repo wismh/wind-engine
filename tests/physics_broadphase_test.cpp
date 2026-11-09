@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -337,4 +338,52 @@ TEST(Physics2D, BroadphaseBalancesTreeOnMonotonicSortedInsertions) {
     desc_tree.query_pairs(got_desc);
     std::sort(got_desc.begin(), got_desc.end());
     EXPECT_EQ(got_desc, brute(descending));
+}
+
+TEST(Physics2D, BroadphaseIncrementalEditsMatchARebuild) {
+    constexpr int kCount = 200;
+    const engine::Aabb empty{.min = glm::vec3{1.f}, .max = glm::vec3{-1.f}};
+    std::uint32_t seed = 12345u;
+    auto next = [&] {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<float>(seed >> 8) / static_cast<float>(1u << 24);
+    };
+    auto random_box = [&] {
+        const float x = next() * 60.f;
+        const float y = next() * 60.f;
+        return engine::Aabb{.min = {x, y, -1.f}, .max = {x + 0.5f + next() * 3.f, y + 0.5f + next() * 3.f, 1.f}};
+    };
+
+    std::vector<engine::Aabb> boxes(kCount, empty);
+    engine::Broadphase tree;
+    for (int op = 0; op < 3000; ++op) {
+        const int index = static_cast<int>(next() * static_cast<float>(kCount)) % kCount;
+        if (next() < 0.3f) {
+            tree.erase(index);
+            boxes[static_cast<std::size_t>(index)] = empty;
+        } else {
+            boxes[static_cast<std::size_t>(index)] = random_box();
+            tree.set(index, boxes[static_cast<std::size_t>(index)]);
+        }
+        if (op % 500 == 499) {
+            std::vector<std::pair<int, int>> got;
+            tree.query_pairs(got);
+            std::sort(got.begin(), got.end());
+            EXPECT_EQ(got, brute(boxes)) << "after edit " << op;
+            EXPECT_LE(tree.height(), 20);
+        }
+    }
+
+    const engine::Aabb probe{.min = {10.f, 10.f, -1.f}, .max = {30.f, 25.f, 1.f}};
+    std::vector<int> got;
+    tree.query(probe, got);
+    std::sort(got.begin(), got.end());
+    std::vector<int> expected;
+    for (int i = 0; i < kCount; ++i) {
+        const engine::Aabb& box = boxes[static_cast<std::size_t>(i)];
+        if (box.min.x <= box.max.x && engine::aabb_overlaps(box, probe)) {
+            expected.push_back(i);
+        }
+    }
+    EXPECT_EQ(got, expected);
 }

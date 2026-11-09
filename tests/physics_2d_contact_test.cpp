@@ -403,7 +403,7 @@ TEST(Physics2D, TwoCollidersOnOneBodyPublishOneEvent) {
     EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
 }
 
-TEST(Physics2D, FirstShapePairKeepsItsManifold) {
+TEST(Physics2D, DeepestShapePairIsPublished) {
     engine::ecs::World world = physics_world();
     const engine::ecs::Entity body = world.create();
     world.emplace<engine::Transform>(body, engine::Transform{});
@@ -417,8 +417,8 @@ TEST(Physics2D, FirstShapePairKeepsItsManifold) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, body);
     EXPECT_EQ(events[0].b, other);
-    // The circle overlap is 0.8 deep. The box, gathered first, is the 0.3 face.
-    expect_contact(events[0], glm::vec2{1.f, 0.f}, 0.3f, glm::vec2{0.85f, 0.f});
+    // The box (gathered first) is the 0.3 face. The circle overlap is 0.8 deep, so its manifold is published.
+    expect_contact(events[0], glm::vec2{1.f, 0.f}, 0.8f, glm::vec2{1.1f, 0.f});
 }
 
 TEST(Physics2D, MultiPairEnterStayExitSequence) {
