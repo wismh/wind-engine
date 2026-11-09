@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <tuple>
 #include <vector>
 
 // LQ-27: Fluid2D, position based fluids with SDF and collider boundaries.
@@ -1408,4 +1409,199 @@ TEST(Fluid2DCohesion, BitIdenticalAcrossWorkerCountsWithCohesionAndVorticity) {
     };
     engine::JobSystem jobs{3};
     EXPECT_EQ(run(nullptr), run(&jobs));
+}
+
+// LQ-62: several fluids. Fluids that touch are solved together, by mass, and report where they meet.
+
+namespace {
+
+float mean_y(const engine::Fluid2D& fluid) {
+    float sum = 0.f;
+    for (const glm::vec2 p : fluid.positions()) {
+        sum += p.y;
+    }
+    return sum / static_cast<float>(fluid.count());
+}
+
+struct TwoFluids {
+    engine::ecs::World world;
+    engine::ecs::Entity light{};
+    engine::ecs::Entity heavy{};
+};
+
+// A tank with a light fluid (`light_density`) spawned under a heavy one (density 1): the light one must rise.
+TwoFluids layered_tank(float light_density, engine::JobSystem* jobs = nullptr) {
+    TwoFluids out{fluid_world(jobs)};
+    (void)add_terrain(out.world, tank_field(2.f, 3.f));
+    out.light = add_fluid(out.world, engine::Fluid2DParams{.radius = kRadius, .density = light_density});
+    out.heavy = add_fluid(out.world, engine::Fluid2DParams{.radius = kRadius, .density = 1.f});
+    (void)out.world.get<engine::Fluid2D>(out.light).spawn_box({0.f, 0.f}, {2.f, 0.6f});
+    (void)out.world.get<engine::Fluid2D>(out.heavy).spawn_box({0.f, 0.6f}, {2.f, 1.2f});
+    return out;
+}
+
+std::vector<engine::FluidContactEvent2D> contact_events(engine::ecs::World& world,
+                                                        engine::ecs::EventCursor<engine::FluidContactEvent2D>& cursor) {
+    std::vector<engine::FluidContactEvent2D> out;
+    for (const engine::FluidContactEvent2D& event : engine::ecs::EventReader<engine::FluidContactEvent2D>{world, cursor}) {
+        out.push_back(event);
+    }
+    return out;
+}
+
+}
+
+TEST(Fluid2DMultiple, LighterFluidPouredOnHeavierStaysOnTop) {
+    // Oil (0.4) dropped as a blob into a settled pool of water (1): it plunges in, comes back up and floats.
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(2.f, 3.f));
+    const engine::ecs::Entity water = add_fluid(world);
+    const engine::ecs::Entity oil = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 0.4f});
+    (void)world.get<engine::Fluid2D>(water).spawn_box({0.f, 0.f}, {2.f, 0.8f});
+    step(world, 120);
+    (void)world.get<engine::Fluid2D>(oil).spawn_box({0.6f, 1.6f}, {1.4f, 2.f});
+    step(world, 900);
+    const engine::Fluid2D& light = world.get<engine::Fluid2D>(oil);
+    const engine::Fluid2D& heavy = world.get<engine::Fluid2D>(water);
+    ASSERT_TRUE(all_finite(light));
+    ASSERT_TRUE(all_finite(heavy));
+    std::vector<float> heavy_y;
+    for (const glm::vec2 p : heavy.positions()) {
+        heavy_y.push_back(p.y);
+    }
+    std::sort(heavy_y.begin(), heavy_y.end());
+    const float surface = heavy_y[heavy_y.size() * 9 / 10];
+    std::size_t above = 0;
+    for (const glm::vec2 p : light.positions()) {
+        above += p.y > surface ? 1u : 0u;
+    }
+    EXPECT_GT(static_cast<float>(above), 0.95f * static_cast<float>(light.count())) << "the oil floats on the water";
+    EXPECT_LT((kinetic_energy(light) + kinetic_energy(heavy)) / static_cast<float>(light.count() + heavy.count()), 1.e-3f)
+            << "and comes to rest";
+}
+
+TEST(Fluid2DMultiple, HeavierBlobSinksToTheBottom) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(2.f, 3.f));
+    const engine::ecs::Entity water = add_fluid(world);
+    const engine::ecs::Entity mud = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 2.5f});
+    (void)world.get<engine::Fluid2D>(water).spawn_box({0.f, 0.f}, {2.f, 0.8f});
+    step(world, 120);
+    (void)world.get<engine::Fluid2D>(mud).spawn_box({0.6f, 1.6f}, {1.4f, 2.f});
+    step(world, 900);
+    EXPECT_LT(mean_y(world.get<engine::Fluid2D>(mud)), mean_y(world.get<engine::Fluid2D>(water)) - 0.2f);
+}
+
+TEST(Fluid2DMultiple, InvertedLayersTurnOver) {
+    // A light layer under a heavy one is unstable: the heavy one sinks through it. A resting PBF fluid jams like a
+    // granular pile, so the turn-over stops short of two clean layers; it still inverts the order.
+    TwoFluids tank = layered_tank(0.4f);
+    const float light_start = mean_y(tank.world.get<engine::Fluid2D>(tank.light));
+    step(tank.world, 900);
+    const engine::Fluid2D& light = tank.world.get<engine::Fluid2D>(tank.light);
+    const engine::Fluid2D& heavy = tank.world.get<engine::Fluid2D>(tank.heavy);
+    ASSERT_TRUE(all_finite(light));
+    EXPECT_GT(mean_y(light), light_start + 0.2f);
+    EXPECT_GT(mean_y(light), mean_y(heavy) + 0.1f);
+    EXPECT_LT((kinetic_energy(light) + kinetic_energy(heavy)) / static_cast<float>(light.count() + heavy.count()), 1.e-3f);
+}
+
+TEST(Fluid2DMultiple, EqualDensitiesDoNotSeparate) {
+    // Control: the same setup with equal densities keeps the lower fluid lower.
+    TwoFluids tank = layered_tank(1.f);
+    step(tank.world, 600);
+    EXPECT_LT(mean_y(tank.world.get<engine::Fluid2D>(tank.light)), mean_y(tank.world.get<engine::Fluid2D>(tank.heavy)));
+}
+
+TEST(Fluid2DMultiple, FluidsApartStepAsIfAlone) {
+    auto alone = [](glm::vec2 offset) {
+        engine::ecs::World world = fluid_world();
+        (void)add_terrain(world, floor_field());
+        const engine::ecs::Entity entity = add_fluid(world);
+        (void)world.get<engine::Fluid2D>(entity).spawn_box(offset, offset + glm::vec2{0.6f, 0.6f});
+        step(world, 60);
+        return world.get<engine::Fluid2D>(entity).state_hash();
+    };
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, floor_field());
+    const engine::ecs::Entity a = add_fluid(world);
+    const engine::ecs::Entity b = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 0.3f});
+    (void)world.get<engine::Fluid2D>(a).spawn_box({-2.f, 0.f}, {-1.4f, 0.6f});
+    (void)world.get<engine::Fluid2D>(b).spawn_box({4.f, 0.f}, {4.6f, 0.6f});
+    step(world, 60);
+    EXPECT_EQ(world.get<engine::Fluid2D>(a).state_hash(), alone({-2.f, 0.f}));
+    // The density only weighs against other fluids (and bodies): alone, b steps as a fluid of density 1 would.
+    EXPECT_EQ(world.get<engine::Fluid2D>(b).state_hash(), alone({4.f, 0.f}));
+}
+
+TEST(Fluid2DMultiple, MasksThatExcludeEachOtherPassThrough) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity a =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .layer = 1u << 1, .mask = ~(1u << 2)});
+    const engine::ecs::Entity b =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .layer = 1u << 2, .mask = 0xFFFFFFFFu});
+    ASSERT_TRUE(world.get<engine::Fluid2D>(a).spawn({0.f, 0.f}, {1.f, 0.f}));
+    ASSERT_TRUE(world.get<engine::Fluid2D>(b).spawn({1.f, 0.f}, {-1.f, 0.f}));
+    engine::ecs::EventCursor<engine::FluidContactEvent2D> cursor;
+    std::size_t events = 0;
+    for (int i = 0; i < 60; ++i) {
+        step(world, 1);
+        events += contact_events(world, cursor).size();
+        world.flush_events();
+    }
+    // They crossed: a's particle ends right of b's.
+    EXPECT_GT(world.get<engine::Fluid2D>(a).positions()[0].x, world.get<engine::Fluid2D>(b).positions()[0].x);
+    EXPECT_EQ(events, 0u);
+}
+
+TEST(Fluid2DMultiple, ContactEventsReportWhereFluidsMeet) {
+    auto run = [](engine::JobSystem* jobs) {
+        engine::ecs::World world = fluid_world(jobs);
+        (void)add_terrain(world, tank_field(3.f, 2.f));
+        const engine::ecs::Entity water = add_fluid(world);
+        const engine::ecs::Entity lava = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 2.f});
+        (void)world.get<engine::Fluid2D>(water).spawn_box({0.f, 0.f}, {1.f, 1.f});
+        (void)world.get<engine::Fluid2D>(lava).spawn_box({2.f, 0.f}, {3.f, 1.f});
+        engine::ecs::EventCursor<engine::FluidContactEvent2D> cursor;
+        std::vector<std::pair<int, engine::FluidContactEvent2D>> log;
+        for (int tick = 0; tick < 120; ++tick) {
+            step(world, 1);
+            for (const engine::FluidContactEvent2D& event : contact_events(world, cursor)) {
+                log.emplace_back(tick, event);
+            }
+            world.flush_events();
+        }
+        return std::tuple{log, water, lava};
+    };
+    const auto [log, water, lava] = run(nullptr);
+    ASSERT_FALSE(log.empty()) << "the two spreading pools meet";
+    EXPECT_GT(log.front().first, 0) << "not at the start: they begin a unit apart";
+    for (const auto& [tick, event] : log) {
+        EXPECT_EQ(event.a, water);
+        EXPECT_EQ(event.b, lava);
+        EXPECT_GT(event.count, 0u);
+        EXPECT_GE(event.center.x, event.min.x);
+        EXPECT_LE(event.center.x, event.max.x);
+        EXPECT_GT(event.center.x, 0.5f);
+        EXPECT_LT(event.center.x, 2.5f);
+    }
+    engine::JobSystem jobs{3};
+    const auto [parallel, w2, l2] = run(&jobs);
+    ASSERT_EQ(parallel.size(), log.size());
+    for (std::size_t i = 0; i < log.size(); ++i) {
+        EXPECT_EQ(parallel[i].first, log[i].first);
+        EXPECT_EQ(parallel[i].second, log[i].second) << "the same events for any worker count";
+    }
+}
+
+TEST(Fluid2DMultiple, BitIdenticalAcrossWorkerCounts) {
+    TwoFluids serial = layered_tank(0.5f);
+    engine::JobSystem jobs{3};
+    TwoFluids parallel = layered_tank(0.5f, &jobs);
+    step(serial.world, 120);
+    step(parallel.world, 120);
+    EXPECT_EQ(serial.world.get<engine::Fluid2D>(serial.light).state_hash(),
+              parallel.world.get<engine::Fluid2D>(parallel.light).state_hash());
+    EXPECT_EQ(serial.world.get<engine::Fluid2D>(serial.heavy).state_hash(),
+              parallel.world.get<engine::Fluid2D>(parallel.heavy).state_hash());
 }
