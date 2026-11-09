@@ -298,7 +298,7 @@ TEST(Fluid2D, KinematicBoxSweepsThroughFluid) {
     EXPECT_TRUE(all_finite(fluid));
 }
 
-TEST(Fluid2D, DynamicBodyPushesFluidOneWay) {
+TEST(Fluid2D, WithoutDensityDynamicBodyPushesFluidOneWay) {
     auto simulate = [](bool with_fluid, bool check) {
         engine::ecs::World world = fluid_world();
         (void)add_terrain(world, floor_field());
@@ -306,7 +306,8 @@ TEST(Fluid2D, DynamicBodyPushesFluidOneWay) {
         world.emplace<engine::Transform>(ball, engine::Transform{.position = {2.f, 1.5f, 0.f}});
         world.emplace<engine::CircleCollider2D>(ball, engine::CircleCollider2D{.radius = 0.25f});
         world.emplace<engine::RigidBody2D>(ball, engine::RigidBody2D{.type = engine::BodyType::Dynamic});
-        const engine::ecs::Entity entity = add_fluid(world);
+        // density 0: the fluid has no mass, so it pushes nothing back.
+        const engine::ecs::Entity entity = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 0.f});
         if (with_fluid) {
             (void)world.get<engine::Fluid2D>(entity).spawn_box({1.f, 0.f}, {3.f, 0.5f});
         }
@@ -417,6 +418,7 @@ TEST(Fluid2D, SerializerRoundTripsParametersOnly) {
                            .gravity_scale = 0.5f,
                            .friction = 0.3f,
                            .restitution = 0.4f,
+                           .density = 0.75f,
                            .layer = 1u << 4,
                            .mask = 0x0Fu}};
     (void)fluid.spawn({1.f, 1.f});
@@ -443,6 +445,7 @@ TEST(Fluid2D, SerializerRoundTripsParametersOnly) {
     EXPECT_FLOAT_EQ(c.params.gravity_scale, 0.5f);
     EXPECT_FLOAT_EQ(c.params.friction, 0.3f);
     EXPECT_FLOAT_EQ(c.params.restitution, 0.4f);
+    EXPECT_FLOAT_EQ(c.params.density, 0.75f);
     EXPECT_EQ(c.params.layer, 1u << 4);
     EXPECT_EQ(c.params.mask, 0x0Fu);
     // Particles are transient.
@@ -776,7 +779,7 @@ TEST(Fluid2DPolygon, StaticPolygonColliderBoundsIt) {
     }
 }
 
-TEST(Fluid2DPolygon, DynamicPolygonPushesFluidOneWay) {
+TEST(Fluid2DPolygon, DynamicPolygonPushesMasslessFluidOneWay) {
     engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
     const engine::ecs::Entity body = world.create();
     world.emplace<engine::Transform>(body, engine::Transform{.position = {-0.5f, 0.5f, 0.f}});
@@ -788,7 +791,7 @@ TEST(Fluid2DPolygon, DynamicPolygonPushesFluidOneWay) {
     polygon.vertices[1] = {0.2f, 0.f};
     polygon.vertices[2] = {-0.2f, 0.2f};
     world.emplace<engine::PolygonCollider2D>(body, polygon);
-    const engine::ecs::Entity entity = add_fluid(world);
+    const engine::ecs::Entity entity = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 0.f});
     ASSERT_TRUE(world.get<engine::Fluid2D>(entity).spawn({0.5f, 0.5f}));
     step(world, 60);
     EXPECT_GT(world.get<engine::Fluid2D>(entity).positions()[0].x, 0.6f) << "the wedge pushed the particle";
@@ -834,4 +837,165 @@ TEST(Fluid2DPolygon, FastParticlesDoNotCrossAThinCompoundPart) {
     fire_column(world.get<engine::Fluid2D>(entity), {120.f, 20.f});
     step(world, 30);
     EXPECT_LT(max_x(world.get<engine::Fluid2D>(entity)), 1.f);
+}
+
+// LQ-56: two-way coupling. The fluid pushes Dynamic bodies back: buoyancy and drag.
+
+namespace {
+
+struct Pool {
+    engine::ecs::World world;
+    engine::ecs::Entity fluid{};
+    engine::ecs::Entity body{};
+};
+
+// A pool 1.2 deep in a 3-unit SDF tank, settled, then a `size` box of `density` (mass per area) dropped with its
+// center at `drop_y`. With `angle` the box starts tilted.
+Pool pool_with_box(glm::vec2 size, float density, float drop_y, engine::JobSystem* jobs = nullptr, float angle = 0.f) {
+    Pool pool{fluid_world(jobs)};
+    (void)add_terrain(pool.world, tank_field(3.f, 3.f));
+    pool.fluid = add_fluid(pool.world);
+    (void)pool.world.get<engine::Fluid2D>(pool.fluid).spawn_box({0.f, 0.f}, {3.f, 1.2f});
+    step(pool.world, 120);
+    pool.body = pool.world.create();
+    pool.world.emplace<engine::Transform>(
+            pool.body, engine::Transform{.position = {1.5f, drop_y, 0.f}, .rotation = engine::rotation_z(angle)});
+    pool.world.emplace<engine::BoxCollider2D>(pool.body, engine::BoxCollider2D{.size = {size.x, size.y, 1.f}});
+    pool.world.emplace<engine::RigidBody2D>(
+            pool.body, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = size.x * size.y * density});
+    return pool;
+}
+
+// The highest particle in the column under x in [x0, x1]: where the water surface is.
+float surface_near(const engine::Fluid2D& fluid, float x0, float x1) {
+    float top = -1.0e9f;
+    for (const glm::vec2 p : fluid.positions()) {
+        if (p.x >= x0 && p.x <= x1) {
+            top = std::max(top, p.y);
+        }
+    }
+    return top;
+}
+
+}
+
+TEST(Fluid2DCoupling, LightBoxFloatsAtAStableWaterline) {
+    Pool pool = pool_with_box({0.4f, 0.4f}, 0.4f, 1.6f);
+    step(pool.world, 300);
+    float lowest = 1.0e9f;
+    float highest = -1.0e9f;
+    float fastest = 0.f;
+    for (int i = 0; i < 120; ++i) {
+        step(pool.world, 1);
+        const float y = pool.world.get<engine::Transform>(pool.body).position.y;
+        lowest = std::min(lowest, y);
+        highest = std::max(highest, y);
+        fastest = std::max(fastest, glm::length(glm::vec2{pool.world.get<engine::RigidBody2D>(pool.body).velocity}));
+    }
+    const float surface = surface_near(pool.world.get<engine::Fluid2D>(pool.fluid), 0.f, 0.8f);
+    // Floating: its center within its own half height of the surface, not on the floor, not flying off.
+    EXPECT_GT(lowest, surface - 0.25f) << "surface " << surface;
+    EXPECT_LT(highest, surface + 0.25f) << "surface " << surface;
+    EXPECT_LT(highest - lowest, 0.06f) << "the waterline is not stable";
+    EXPECT_LT(fastest, 0.3f);
+}
+
+TEST(Fluid2DCoupling, HeavyBoxSinks) {
+    Pool pool = pool_with_box({0.4f, 0.4f}, 3.f, 1.6f);
+    step(pool.world, 300);
+    EXPECT_LT(pool.world.get<engine::Transform>(pool.body).position.y, 0.35f) << "a dense box ends on the floor";
+}
+
+TEST(Fluid2DCoupling, LighterBoxesFloatHigher) {
+    Pool light = pool_with_box({0.4f, 0.4f}, 0.25f, 1.6f);
+    Pool medium = pool_with_box({0.4f, 0.4f}, 0.6f, 1.6f);
+    step(light.world, 300);
+    step(medium.world, 300);
+    EXPECT_GT(light.world.get<engine::Transform>(light.body).position.y,
+              medium.world.get<engine::Transform>(medium.body).position.y + 0.03f);
+}
+
+TEST(Fluid2DCoupling, DroppedBodySplashesAndSlows) {
+    Pool wet = pool_with_box({0.4f, 0.4f}, 0.8f, 2.4f);
+    // The same drop with a massless fluid: the body falls as if dry until it reaches the floor.
+    Pool dry = pool_with_box({0.4f, 0.4f}, 0.8f, 2.4f);
+    dry.world.get<engine::Fluid2D>(dry.fluid).params.density = 0.f;
+    float splash = 0.f;
+    for (int i = 0; i < 30; ++i) {
+        step(wet.world, 1);
+        step(dry.world, 1);
+        for (const glm::vec2 v : wet.world.get<engine::Fluid2D>(wet.fluid).velocities()) {
+            splash = std::max(splash, v.y);
+        }
+    }
+    const float wet_y = wet.world.get<engine::Transform>(wet.body).position.y;
+    const float dry_y = dry.world.get<engine::Transform>(dry.body).position.y;
+    EXPECT_GT(wet_y, dry_y + 0.05f) << "the water slows the body";
+    EXPECT_GT(splash, 0.5f) << "and throws water up";
+    EXPECT_TRUE(all_finite(wet.world.get<engine::Fluid2D>(wet.fluid)));
+}
+
+TEST(Fluid2DCoupling, TiltedPlankRightsItself) {
+    Pool pool = pool_with_box({1.2f, 0.2f}, 0.4f, 1.4f, nullptr, 0.6f);
+    step(pool.world, 420);
+    const float angle = engine::angle_z(pool.world.get<engine::Transform>(pool.body).rotation);
+    EXPECT_LT(std::abs(angle), 0.25f) << "buoyancy torque turns a floating plank flat";
+}
+
+TEST(Fluid2DCoupling, NothingExplodesAtRest) {
+    Pool pool = pool_with_box({0.5f, 0.3f}, 0.5f, 1.3f);
+    step(pool.world, 600);
+    const engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    ASSERT_TRUE(all_finite(fluid));
+    EXPECT_LT(kinetic_energy(fluid) / static_cast<float>(fluid.count()), 0.01f);
+    const engine::RigidBody2D& body = pool.world.get<engine::RigidBody2D>(pool.body);
+    EXPECT_LT(glm::length(glm::vec2{body.velocity}), 0.3f);
+    EXPECT_LT(std::abs(body.angular_velocity), 0.5f);
+}
+
+TEST(Fluid2DCoupling, BitIdenticalAcrossWorkerCounts) {
+    Pool serial = pool_with_box({0.4f, 0.3f}, 0.5f, 2.f, nullptr, 0.3f);
+    engine::JobSystem jobs{3};
+    Pool parallel = pool_with_box({0.4f, 0.3f}, 0.5f, 2.f, &jobs, 0.3f);
+    step(serial.world, 120);
+    step(parallel.world, 120);
+    EXPECT_EQ(engine::physics_state_hash_2d(serial.world), engine::physics_state_hash_2d(parallel.world));
+    EXPECT_EQ(serial.world.get<engine::Fluid2D>(serial.fluid).state_hash(),
+              parallel.world.get<engine::Fluid2D>(parallel.fluid).state_hash());
+}
+
+TEST(Fluid2DCoupling, SleepingBodyWakesWhenWaterHitsIt) {
+    // A box asleep on a dry floor wakes when a wave reaches it.
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(4.f, 3.f));
+    const engine::ecs::Entity box = world.create();
+    world.emplace<engine::Transform>(box, engine::Transform{.position = {3.5f, 0.2f, 0.f}});
+    world.emplace<engine::BoxCollider2D>(box, engine::BoxCollider2D{.size = {0.4f, 0.4f, 1.f}});
+    world.emplace<engine::RigidBody2D>(box, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = 0.05f});
+    step(world, 120);
+    ASSERT_TRUE(world.get<engine::RigidBody2D>(box).sleeping);
+    const engine::ecs::Entity fluid = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(fluid).spawn_box({0.f, 0.f}, {1.5f, 2.f});
+    bool woke = false;
+    for (int i = 0; i < 120 && !woke; ++i) {
+        step(world, 1);
+        woke = !world.get<engine::RigidBody2D>(box).sleeping;
+    }
+    EXPECT_TRUE(woke);
+}
+
+TEST(Fluid2DCoupling, VeryLightBodyBobsButStaysInThePool) {
+    // Far lighter than the water (2 percent): the explicit reaction is capped by the speed of the water that pushes
+    // it, so the box bobs at the surface instead of being thrown out.
+    Pool pool = pool_with_box({0.4f, 0.4f}, 0.02f, 1.6f);
+    for (int i = 0; i < 600; ++i) {
+        step(pool.world, 1);
+        const glm::vec3 p = pool.world.get<engine::Transform>(pool.body).position;
+        ASSERT_TRUE(std::isfinite(p.x) && std::isfinite(p.y));
+        ASSERT_GT(p.x, 0.f);
+        ASSERT_LT(p.x, 3.f);
+        ASSERT_GT(p.y, 0.5f) << "tick " << i;
+        ASSERT_LT(p.y, 4.f) << "tick " << i;
+    }
+    EXPECT_TRUE(all_finite(pool.world.get<engine::Fluid2D>(pool.fluid)));
 }
