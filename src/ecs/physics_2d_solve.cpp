@@ -55,17 +55,6 @@ struct ItemPair {
     return depth;
 }
 
-// Heading of the world matrix X axis in XY. Same epsilon as angle_z. Scale changes the length, not the heading.
-[[nodiscard]] float world_yaw(const ecs::World& world, ecs::Entity entity) {
-    const glm::mat4 matrix = ecs::compute_world_matrix(world, entity);
-    const float x = matrix[0][0];
-    const float y = matrix[0][1];
-    if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
-        return 0.f;
-    }
-    return std::atan2(y, x);
-}
-
 // Root: local xy is world xy (the body's own rotation and scale are not applied).
 // Child: the parent's world linear map (rotation, scale, skew) times the local velocity, then XY.
 [[nodiscard]] glm::vec2 kinematic_world_velocity_xy(const ecs::World& world, ecs::Entity entity, glm::vec3 velocity) {
@@ -106,7 +95,8 @@ struct ItemPair {
     return body.mass > kMinDynamicMass ? body.mass : kMinDynamicMass;
 }
 
-// First non-trigger collider in gather order (boxes, then circles, then polygons). One mass, not a sum.
+// First non-trigger collider in gather order (boxes, then circles, then polygons). One mass, not a sum. A compound
+// never reaches this for a dynamic body: gather leaves it out under a Dynamic body.
 [[nodiscard]] float inverse_inertia_for(const ecs::World& world, ecs::Entity entity,
                                         const std::vector<ColliderItem2D>& colliders) {
     const RigidBody2D* rigid = world.try_get<RigidBody2D>(entity);
@@ -150,59 +140,6 @@ void fill_solver_shape(SolverShape2D& shape, const ColliderItem2D& collider) {
     }
 }
 
-}
-
-std::vector<ColliderItem2D> gather_colliders_2d(ecs::World& world) {
-    std::vector<ColliderItem2D> colliders;
-    world.view<Transform, BoxCollider2D>().each([&](ecs::Entity entity, const Transform&, const BoxCollider2D& box) {
-        colliders.push_back(ColliderItem2D{
-                .entity = entity,
-                .position = ecs::world_position(world, entity),
-                .angle = world_yaw(world, entity),
-                .shape = ColliderShape2D::Box,
-                .box_size = box.size,
-                .layer = box.layer,
-                .mask = box.mask,
-                .is_trigger = box.is_trigger,
-                .friction = box.friction,
-                .restitution = box.restitution,
-        });
-    });
-    world.view<Transform, CircleCollider2D>().each(
-            [&](ecs::Entity entity, const Transform&, const CircleCollider2D& circle) {
-                colliders.push_back(ColliderItem2D{
-                        .entity = entity,
-                        .position = ecs::world_position(world, entity),
-                        .angle = world_yaw(world, entity),
-                        .shape = ColliderShape2D::Circle,
-                        .radius = circle.radius,
-                        .layer = circle.layer,
-                        .mask = circle.mask,
-                        .is_trigger = circle.is_trigger,
-                        .friction = circle.friction,
-                        .restitution = circle.restitution,
-                });
-            });
-    world.view<Transform, PolygonCollider2D>().each(
-            [&](ecs::Entity entity, const Transform&, const PolygonCollider2D& polygon) {
-                ColliderItem2D item{
-                        .entity = entity,
-                        .position = ecs::world_position(world, entity),
-                        .angle = world_yaw(world, entity),
-                        .shape = ColliderShape2D::Polygon,
-                        .layer = polygon.layer,
-                        .mask = polygon.mask,
-                        .is_trigger = polygon.is_trigger,
-                        .friction = polygon.friction,
-                        .restitution = polygon.restitution,
-                };
-                item.polygon_count = std::min(static_cast<int>(polygon.count), kPolygonCollider2DCapacity);
-                for (int i = 0; i < item.polygon_count; ++i) {
-                    item.polygon[i] = polygon.vertices[i];
-                }
-                colliders.push_back(item);
-            });
-    return colliders;
 }
 
 void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem2D>& colliders,
@@ -252,6 +189,12 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         if (left_b.shape != right_b.shape) {
             return static_cast<int>(left_b.shape) < static_cast<int>(right_b.shape);
         }
+        if (left_a.part != right_a.part) {
+            return left_a.part < right_a.part;
+        }
+        if (left_b.part != right_b.part) {
+            return left_b.part < right_b.part;
+        }
         if (lhs.item_a != rhs.item_a) {
             return lhs.item_a < rhs.item_a;
         }
@@ -299,7 +242,9 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
 
     std::vector<int> shape_of(colliders.size(), -1);
     std::vector<SolverShape2D> shapes;
+    std::vector<int> item_of_shape;  // collider index behind each solver shape: its shape kind and part key the cache
     shapes.reserve(max_touched);
+    item_of_shape.reserve(max_touched);
     auto shape_for = [&](int item) {
         const std::size_t index = static_cast<std::size_t>(item);
         if (shape_of[index] >= 0) {
@@ -310,6 +255,7 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
         fill_solver_shape(shape, colliders[index]);
         shape_of[index] = static_cast<int>(shapes.size());
         shapes.push_back(shape);
+        item_of_shape.push_back(item);
         return shape_of[index];
     };
 
@@ -353,11 +299,15 @@ void solve_physics_contacts_2d(ecs::World& world, const std::vector<ColliderItem
     auto cache_key_for = [&](const SolverPair2D& pair) {
         const SolverShape2D& shape_a = shapes[static_cast<std::size_t>(pair.shape_a)];
         const SolverShape2D& shape_b = shapes[static_cast<std::size_t>(pair.shape_b)];
+        const ColliderItem2D& item_a = colliders[static_cast<std::size_t>(item_of_shape[pair.shape_a])];
+        const ColliderItem2D& item_b = colliders[static_cast<std::size_t>(item_of_shape[pair.shape_b])];
         ContactCacheKey2D key;
         key.a = slots[static_cast<std::size_t>(shape_a.body)].entity;
         key.b = slots[static_cast<std::size_t>(shape_b.body)].entity;
-        key.shape_a = static_cast<std::uint8_t>(shape_a.kind);
-        key.shape_b = static_cast<std::uint8_t>(shape_b.kind);
+        key.shape_a = static_cast<std::uint8_t>(item_a.shape);
+        key.shape_b = static_cast<std::uint8_t>(item_b.shape);
+        key.part_a = item_a.part;
+        key.part_b = item_b.part;
         return key;
     };
 

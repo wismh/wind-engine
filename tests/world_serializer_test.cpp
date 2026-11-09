@@ -598,6 +598,56 @@ polygon_collider_2d = { vertices = [[0.0, 0.0], [4.0, 0.0], [4.0, 2.0]], frictio
     EXPECT_FLOAT_EQ(round_polygon.friction, 0.25f);
 }
 
+TEST(WorldSerializer, CompoundCollider2DRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "chunk"
+transform = { position = [0.0, 0.0, 0.0] }
+compound_collider_2d = { shapes = [{ vertices = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]] }, { vertices = [[1.0, 0.0], [2.0, 0.0], [1.0, 1.0]] }], layer = 4, mask = 6, friction = 0.25, restitution = 0.5 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto& compound = world.get<engine::CompoundCollider2D>(loaded->by_id.at("chunk"));
+    ASSERT_EQ(compound.shapes.size(), 2u);
+    EXPECT_EQ(compound.shapes[0].count, 4);
+    EXPECT_EQ(compound.shapes[1].count, 3);
+    EXPECT_FLOAT_EQ(compound.shapes[1].vertices[1].x, 2.f);
+    EXPECT_EQ(compound.layer, 4u);
+    EXPECT_EQ(compound.mask, 6u);
+    EXPECT_FLOAT_EQ(compound.friction, 0.25f);
+    EXPECT_FLOAT_EQ(compound.restitution, 0.5f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto& round = again.get<engine::CompoundCollider2D>(reloaded->by_id.at("chunk"));
+    ASSERT_EQ(round.shapes.size(), 2u);
+    EXPECT_EQ(round.shapes[0].count, 4);
+    EXPECT_FLOAT_EQ(round.shapes[0].vertices[2].x, 1.f);
+    EXPECT_FLOAT_EQ(round.shapes[0].vertices[2].y, 1.f);
+    EXPECT_EQ(round.shapes[1].count, 3);
+    EXPECT_EQ(round.layer, 4u);
+    EXPECT_FLOAT_EQ(round.restitution, 0.5f);
+}
+
+TEST(WorldSerializer, CompoundCollider2DRejectsMoreThanEightVertices) {
+    engine::ecs::World world;
+    const auto res = engine::ecs::load_world_from_toml(world, R"(
+version = 1
+
+[[entities]]
+id = "chunk"
+compound_collider_2d = { shapes = [{ vertices = [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [4.0, 0.0], [5.0, 0.0], [6.0, 0.0], [7.0, 0.0], [8.0, 0.0]] }] }
+)");
+    ASSERT_FALSE(res.has_value());
+    EXPECT_NE(res.error().message.find("more than 8"), std::string::npos);
+}
+
 TEST(WorldSerializer, RigidBody2DRejectsUnknownTypeString) {
     engine::ecs::World world;
     const auto res = engine::ecs::load_world_from_toml(world, R"(

@@ -7,114 +7,90 @@
 #include "physics_2d_internal.h"
 
 #include <algorithm>
+#include <span>
 #include <utility>
 #include <vector>
 
 namespace engine {
 
 std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
-        ecs::World& world, const std::vector<ColliderItem2D>& colliders) {
-    if (colliders.empty()) {
-        return {};
-    }
-
-    struct DynamicItem {
-        int collider_index;
-        Aabb box;
-    };
-
-    std::vector<StaticColliderItem2D> static_items;
-    std::vector<DynamicItem> dynamic_items;
-    static_items.reserve(colliders.size());
-    dynamic_items.reserve(colliders.size());
-
-    for (std::size_t i = 0; i < colliders.size(); ++i) {
-        const ColliderItem2D& item = colliders[i];
-        const bool is_movable = has_movable_body_2d(world, item.entity);
-        const bool is_active = is_movable || item.is_trigger;
-        const Aabb box = aabb_of_2d(item);
-
-        if (is_active) {
-            dynamic_items.push_back(DynamicItem{.collider_index = static_cast<int>(i), .box = box});
-        } else {
-            static_items.push_back(StaticColliderItem2D{
-                    .entity = item.entity,
-                    .box = box,
-                    .collider_index = static_cast<int>(i),
-            });
-        }
-    }
-
-    // Static-static pairs are never queried. If there are no dynamic, kinematic or trigger colliders,
-    // there are no candidate pairs to produce.
-    if (dynamic_items.empty()) {
-        return {};
-    }
-
+        ecs::World& world, std::span<const ColliderItem2D> active, std::vector<ColliderItem2D>& colliders) {
     PhysicsBroadphase2D& bp = world.ctx<PhysicsBroadphase2D>();
 
-    // Static tree remains valid across ticks until static scene geometry changes.
-    bool static_changed = bp.static_dirty || (static_items.size() != bp.static_items.size());
-    if (!static_changed) {
-        for (std::size_t s = 0; s < static_items.size(); ++s) {
-            if (static_items[s].entity != bp.static_items[s].entity ||
-                static_items[s].box.min != bp.static_items[s].box.min ||
-                static_items[s].box.max != bp.static_items[s].box.max) {
-                static_changed = true;
-                break;
-            }
-        }
+    // Active colliders and static triggers are queried every tick. Static-static pairs are never queried.
+    std::vector<ColliderItem2D> queried;
+    queried.reserve(active.size() + bp.static_triggers.size());
+    queried.insert(queried.end(), active.begin(), active.end());
+    queried.insert(queried.end(), bp.static_triggers.begin(), bp.static_triggers.end());
+    colliders.clear();
+    if (queried.empty()) {
+        return {};
     }
 
-    if (static_changed) {
-        bp.static_items = std::move(static_items);
-        std::vector<Aabb> static_boxes;
-        static_boxes.reserve(bp.static_items.size());
-        for (const auto& s_item : bp.static_items) {
-            static_boxes.push_back(s_item.box);
+    std::vector<Aabb> boxes;
+    boxes.reserve(queried.size());
+    for (const ColliderItem2D& item : queried) {
+        boxes.push_back(aabb_of_2d(item));
+    }
+    bp.dynamic_tree.rebuild(boxes);
+    std::vector<std::pair<int, int>> queried_pairs;
+    bp.dynamic_tree.query_pairs(queried_pairs);
+
+    // Queried item against cached static leaf.
+    std::vector<std::pair<int, int>> static_hits;
+    if (!bp.static_keys.empty()) {
+        for (std::size_t i = 0; i < queried.size(); ++i) {
+            bp.static_tree.query(boxes[i], [&](int leaf) { static_hits.emplace_back(static_cast<int>(i), leaf); });
         }
-        bp.static_tree.rebuild(static_boxes);
-        bp.static_dirty = false;
-    } else {
-        // Reuse static tree; update collider index mappings for the current frame.
-        for (std::size_t s = 0; s < static_items.size(); ++s) {
-            bp.static_items[s].collider_index = static_items[s].collider_index;
-        }
+    }
+    std::vector<int> touched;
+    touched.reserve(static_hits.size());
+    for (const auto& hit : static_hits) {
+        touched.push_back(hit.second);
+    }
+    std::sort(touched.begin(), touched.end());
+    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
+
+    // Index space before the order sort: queried items, then the touched statics.
+    std::vector<ColliderItem2D> unordered = std::move(queried);
+    const int static_base = static_cast<int>(unordered.size());
+    for (int leaf : touched) {
+        unordered.push_back(bp.static_slots[static_cast<std::size_t>(leaf)].item);
+    }
+    auto static_index = [&](int leaf) {
+        const auto it = std::lower_bound(touched.begin(), touched.end(), leaf);
+        return static_base + static_cast<int>(it - touched.begin());
+    };
+
+    std::vector<int> order(unordered.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        order[i] = static_cast<int>(i);
+    }
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return collider_order_less_2d(unordered[static_cast<std::size_t>(a)], unordered[static_cast<std::size_t>(b)]);
+    });
+    std::vector<int> rank(unordered.size());
+    colliders.reserve(unordered.size());
+    for (std::size_t r = 0; r < order.size(); ++r) {
+        rank[static_cast<std::size_t>(order[r])] = static_cast<int>(r);
+        colliders.push_back(unordered[static_cast<std::size_t>(order[r])]);
     }
 
     std::vector<std::pair<int, int>> candidates;
-
-    // 1. Query Dynamic vs Dynamic
-    std::vector<Aabb> dynamic_boxes;
-    dynamic_boxes.reserve(dynamic_items.size());
-    for (const auto& d_item : dynamic_items) {
-        dynamic_boxes.push_back(d_item.box);
+    candidates.reserve(queried_pairs.size() + static_hits.size());
+    auto add = [&](int a, int b) {
+        const int ra = rank[static_cast<std::size_t>(a)];
+        const int rb = rank[static_cast<std::size_t>(b)];
+        candidates.emplace_back(std::min(ra, rb), std::max(ra, rb));
+    };
+    for (const auto& [a, b] : queried_pairs) {
+        add(a, b);
     }
-    bp.dynamic_tree.rebuild(dynamic_boxes);
-
-    std::vector<std::pair<int, int>> dyn_pairs;
-    bp.dynamic_tree.query_pairs(dyn_pairs);
-    candidates.reserve(dyn_pairs.size() + dynamic_items.size());
-    for (const auto& [d1, d2] : dyn_pairs) {
-        const int idx_a = dynamic_items[static_cast<std::size_t>(d1)].collider_index;
-        const int idx_b = dynamic_items[static_cast<std::size_t>(d2)].collider_index;
-        candidates.emplace_back(std::min(idx_a, idx_b), std::max(idx_a, idx_b));
+    for (const auto& [item, leaf] : static_hits) {
+        add(item, static_index(leaf));
     }
-
-    // 2. Query Dynamic vs Static (Never Static vs Static)
-    if (!bp.static_items.empty()) {
-        for (const auto& d_item : dynamic_items) {
-            bp.static_tree.query(d_item.box, [&](int s) {
-                const int static_idx = bp.static_items[static_cast<std::size_t>(s)].collider_index;
-                candidates.emplace_back(std::min(d_item.collider_index, static_idx),
-                                        std::max(d_item.collider_index, static_idx));
-            });
-        }
-    }
-
     std::sort(candidates.begin(), candidates.end());
-    const auto last = std::unique(candidates.begin(), candidates.end());
-    candidates.erase(last, candidates.end());
+    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
     return candidates;
 }
 
@@ -125,21 +101,20 @@ void run_physics_2d(ecs::World& world, JobSystem* jobs) {
     integrate_kinematic_2d(world, dt);
     ecs::update_world_transforms(world);
 
+    // One gather per tick: colliders on movable bodies. Statics come from the cache in PhysicsBroadphase2D.
+    std::vector<ecs::Entity> movable_entities;
+    std::vector<ColliderItem2D> active = gather_active_colliders_2d(world, movable_entities);
+    prepare_static_colliders_2d(world, std::move(movable_entities));
+
     // The platform has already moved. Wake before the sleeper integrates so it is not frozen this step.
-    wake_sleepers_by_overlap_2d(world);
+    wake_sleepers_by_overlap_2d(world, active);
     integrate_dynamic_2d(world, dt);
     ecs::update_world_transforms(world);
+    refresh_collider_poses_2d(world, active);
 
     // Events use this pose (pre-solve). The solver runs after publish and must not change their order.
-    const std::vector<ColliderItem2D> colliders = gather_colliders_2d(world);
-    if (colliders.empty()) {
-        publish_collision_events_2d(world, colliders, {});
-        solve_physics_contacts_2d(world, colliders, {}, jobs);
-        ecs::update_world_transforms(world);
-        return;
-    }
-
-    const std::vector<std::pair<int, int>> candidates = compute_broadphase_candidates_2d(world, colliders);
+    std::vector<ColliderItem2D> colliders;
+    const std::vector<std::pair<int, int>> candidates = compute_broadphase_candidates_2d(world, active, colliders);
 
     publish_collision_events_2d(world, colliders, candidates);
     solve_physics_contacts_2d(world, colliders, candidates, jobs);
