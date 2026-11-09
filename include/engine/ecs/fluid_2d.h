@@ -54,8 +54,8 @@ struct Fluid2DParams {
 
 // A 2D liquid: Position Based Fluids (Macklin and Mueller 2013) particles in world XY, stepped by `run_fluid_2d` on
 // Fixed / Physics after `run_physics_2d` and `run_physics_3d`, on a world `install_fluid_2d` ran on. Without the
-// install a Fluid2D keeps its particles and never moves. `params` is plain data (serialized as `fluid_2d`); the particles are
-// owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
+// install a Fluid2D keeps its particles and never moves. `params` is plain data (serialized as `fluid_2d`); the
+// particles are owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
 // The entity needs no Transform: positions are world XY.
 //
 // Boundaries are one-way. The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D` and
