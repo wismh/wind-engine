@@ -387,10 +387,10 @@ TEST(Physics2DCompound, CompoundUnderADynamicBodyIsIgnoredAndWarned) {
     for (const engine::ecs::Entity ignored : {own, child}) {
         EXPECT_FALSE(has_event(events, probe, ignored, engine::CollisionPhase::Enter));
         EXPECT_FALSE(has_event(events, wall, ignored, engine::CollisionPhase::Enter));
-        EXPECT_TRUE(contains(world.ctx<engine::PhysicsBroadphase2D>().dynamic_compound_warned, ignored));
+        EXPECT_TRUE(contains(world.ctx<engine::PhysicsBroadphase2D>().dynamic_terrain_warned, ignored));
         EXPECT_FALSE(contains(world.ctx<engine::PhysicsBroadphase2D>().static_entities, ignored));
     }
-    EXPECT_EQ(world.ctx<engine::PhysicsBroadphase2D>().dynamic_compound_warned.size(), 2u);
+    EXPECT_EQ(world.ctx<engine::PhysicsBroadphase2D>().dynamic_terrain_warned.size(), 2u);
 
     // Retyped to Static: the compound becomes static terrain with no mark.
     world.get<engine::RigidBody2D>(own).type = engine::BodyType::Static;

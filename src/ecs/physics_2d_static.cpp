@@ -30,7 +30,7 @@ inline constexpr std::size_t kStaticAuditPerTick = 32;
     return same_bits(a.x, b.x) && same_bits(a.y, b.y) && same_bits(a.z, b.z);
 }
 
-// Bitwise, so a NaN field that has not changed still compares equal.
+// Bitwise, so a NaN field that has not changed still compares equal. The `sdf` pointer is not data: not compared.
 [[nodiscard]] bool same_item(const ColliderItem2D& a, const ColliderItem2D& b) {
     if (a.entity != b.entity || a.shape != b.shape || a.part != b.part || a.layer != b.layer || a.mask != b.mask ||
         a.is_trigger != b.is_trigger || a.movable != b.movable || a.polygon_count != b.polygon_count) {
@@ -38,7 +38,7 @@ inline constexpr std::size_t kStaticAuditPerTick = 32;
     }
     if (!same_bits(a.position, b.position) || !same_bits(a.angle, b.angle) || !same_bits(a.friction, b.friction) ||
         !same_bits(a.restitution, b.restitution) || !same_bits(a.box_size, b.box_size) ||
-        !same_bits(a.radius, b.radius)) {
+        !same_bits(a.radius, b.radius) || a.sdf_revision != b.sdf_revision) {
         return false;
     }
     for (int i = 0; i < a.polygon_count; ++i) {
@@ -97,10 +97,10 @@ void warn_once(PhysicsBroadphase2D& cache, ecs::Entity entity) {
     return part_a < part_b;
 }
 
-// Re-reads the one collider behind `cached` and compares it. A compound part also compares the shape count it was
-// read with, so a compound that grew or shrank in place is found as well.
-[[nodiscard]] bool static_item_matches(const ecs::World& world, const ColliderItem2D& cached,
-                                       std::uint32_t compound_size) {
+// Re-reads the one collider behind `cached` and compares it, with the slot's `stamp`: a compound part compares the
+// shape count it was read with, so a compound that grew or shrank in place is found as well, and an SDF chunk compares
+// the field's edit count, so any edit of the field (a new chunk included) is found from any of its slots.
+[[nodiscard]] bool static_item_matches(const ecs::World& world, const ColliderItem2D& cached, std::uint64_t stamp) {
     if (!world.valid(cached.entity)) {
         return false;
     }
@@ -124,8 +124,14 @@ void warn_once(PhysicsBroadphase2D& cache, ecs::Entity entity) {
     }
     case ColliderShape2D::Compound: {
         const CompoundCollider2D* compound = world.try_get<CompoundCollider2D>(cached.entity);
-        return compound != nullptr && compound->shapes.size() == compound_size && cached.part < compound_size &&
+        return compound != nullptr && compound->shapes.size() == stamp && cached.part < stamp &&
                same_item(make_compound_item_2d(cached.entity, matrix, *compound, cached.part, false), cached);
+    }
+    case ColliderShape2D::Sdf: {
+        const SdfCollider2D* sdf = world.try_get<SdfCollider2D>(cached.entity);
+        const glm::ivec2 chunk = sdf_chunk_of_part_2d(cached.part);
+        return sdf != nullptr && sdf->field.edit_count() == stamp && sdf->field.has_chunk(chunk) &&
+               same_item(make_sdf_item_2d(cached.entity, matrix, *sdf, chunk, false), cached);
     }
     }
     return false;
@@ -142,18 +148,18 @@ void audit_static_cache(const ecs::World& world, PhysicsBroadphase2D& cache) {
         const std::size_t index = cache.audit_cursor % total;
         cache.audit_cursor = (index + 1) % total;
         const ColliderItem2D* cached = nullptr;
-        std::uint32_t compound_size = 0;
+        std::uint64_t stamp = 0;
         if (index < cache.static_slots.size()) {
             const PhysicsBroadphase2D::Slot& slot = cache.static_slots[index];
             if (!slot.live) {
                 continue;
             }
             cached = &slot.item;
-            compound_size = slot.compound_size;
+            stamp = slot.stamp;
         } else {
             cached = &cache.static_triggers[index - cache.static_slots.size()];
         }
-        if (!static_item_matches(world, *cached, compound_size)) {
+        if (!static_item_matches(world, *cached, stamp)) {
             cache.dirty = true;
             warn_once(cache, cached->entity);
             return;
@@ -177,27 +183,40 @@ void audit_static_cache(const ecs::World& world, PhysicsBroadphase2D& cache) {
 
 // Merges `old_keys` with the solids among `items`, both sorted by (entity, shape, part), into `out`: a key with no item
 // drops its slot and tree leaf, an item with no key gets a new slot and leaf, and a kept key whose item changed has its
-// slot and leaf updated. Triggers in `items` are skipped.
+// slot and leaf updated. Triggers in `items` are skipped. Once the cache was built, the bounds of every SDF chunk slot
+// added, changed or dropped go to `sdf_wake_boxes`.
 void merge_static_slots(const ecs::World& world, PhysicsBroadphase2D& cache,
                         std::span<const PhysicsBroadphase2D::Key> old_keys, std::span<const ColliderItem2D> items,
                         std::vector<PhysicsBroadphase2D::Key>& out) {
     std::size_t old_index = 0;
     std::size_t new_index = 0;
+    const bool wakes = cache.rebuild_count > 0;
     auto skip_triggers = [&] {
         while (new_index < items.size() && items[new_index].is_trigger) {
             ++new_index;
         }
     };
-    auto drop = [&](int slot) {
-        cache.static_tree.erase(slot);
-        cache.static_slots[static_cast<std::size_t>(slot)] = PhysicsBroadphase2D::Slot{};
-        cache.free_slots.push_back(slot);
-    };
-    auto compound_size_of = [&](const ColliderItem2D& item) -> std::uint32_t {
-        if (item.shape != ColliderShape2D::Compound) {
-            return 0;
+    auto wake_over = [&](const ColliderItem2D& item) {
+        if (wakes && item.shape == ColliderShape2D::Sdf) {
+            cache.sdf_wake_boxes.push_back(aabb_of_2d(item));
         }
-        return static_cast<std::uint32_t>(world.get<CompoundCollider2D>(item.entity).shapes.size());
+    };
+    auto drop = [&](int slot) {
+        PhysicsBroadphase2D::Slot& dropped = cache.static_slots[static_cast<std::size_t>(slot)];
+        wake_over(dropped.item);
+        cache.static_tree.erase(slot);
+        dropped = PhysicsBroadphase2D::Slot{};
+        cache.free_slots.push_back(slot);
+        ++cache.last_rebuild_changes;
+    };
+    auto stamp_of = [&](const ColliderItem2D& item) -> std::uint64_t {
+        if (item.shape == ColliderShape2D::Compound) {
+            return world.get<CompoundCollider2D>(item.entity).shapes.size();
+        }
+        if (item.shape == ColliderShape2D::Sdf) {
+            return world.get<SdfCollider2D>(item.entity).field.edit_count();
+        }
+        return 0;
     };
     skip_triggers();
     while (old_index < old_keys.size() || new_index < items.size()) {
@@ -214,18 +233,23 @@ void merge_static_slots(const ecs::World& world, PhysicsBroadphase2D& cache,
         if (has_old && old_key->entity == item->entity && old_key->shape == item->shape &&
             old_key->part == item->part) {
             PhysicsBroadphase2D::Slot& slot = cache.static_slots[static_cast<std::size_t>(old_key->slot)];
-            slot.compound_size = compound_size_of(*item);
+            slot.stamp = stamp_of(*item);
             if (!same_item(slot.item, *item)) {
+                wake_over(slot.item);
+                wake_over(*item);
                 slot.item = *item;
                 cache.static_tree.set(old_key->slot, aabb_of_2d(*item));
+                ++cache.last_rebuild_changes;
             }
             out.push_back(*old_key);
             ++old_index;
         } else {
             const int slot = allocate_slot(cache);
             cache.static_slots[static_cast<std::size_t>(slot)] =
-                    PhysicsBroadphase2D::Slot{.item = *item, .compound_size = compound_size_of(*item), .live = true};
+                    PhysicsBroadphase2D::Slot{.item = *item, .stamp = stamp_of(*item), .live = true};
             cache.static_tree.set(slot, aabb_of_2d(*item));
+            wake_over(*item);
+            ++cache.last_rebuild_changes;
             out.push_back(PhysicsBroadphase2D::Key{
                     .entity = item->entity, .shape = item->shape, .part = item->part, .slot = slot});
         }
@@ -270,6 +294,12 @@ void rebuild_static_cache(ecs::World& world, PhysicsBroadphase2D& cache) {
                     items.push_back(make_compound_item_2d(entity, matrix, compound, part, false));
                 }
             });
+    world.view<Transform, SdfCollider2D>().each(
+            [&](ecs::Entity entity, const Transform& transform, const SdfCollider2D& sdf) {
+                if (!is_active(entity)) {
+                    append_sdf_items_2d(entity, collider_world_matrix_2d(world, entity, transform), sdf, false, items);
+                }
+            });
     std::sort(items.begin(), items.end(), item_key_less);
 
     cache.static_entities.clear();
@@ -286,12 +316,14 @@ void rebuild_static_cache(ecs::World& world, PhysicsBroadphase2D& cache) {
 
     std::vector<PhysicsBroadphase2D::Key> keys;
     keys.reserve(items.size());
+    cache.last_rebuild_changes = 0;
     merge_static_slots(world, cache, cache.static_keys, items, keys);
     cache.static_keys = std::move(keys);
     cache.box_version = world.structure_version<BoxCollider2D>();
     cache.circle_version = world.structure_version<CircleCollider2D>();
     cache.polygon_version = world.structure_version<PolygonCollider2D>();
     cache.compound_version = world.structure_version<CompoundCollider2D>();
+    cache.sdf_version = world.structure_version<SdfCollider2D>();
     cache.marked_entities.clear();
     cache.audit_cursor = 0;
     cache.dirty = false;
@@ -332,11 +364,13 @@ void rebuild_static_cache(ecs::World& world, PhysicsBroadphase2D& cache) {
     return entities;
 }
 
-// Re-reads only the static colliders of the marked subtrees and replaces only their keys, slots and tree leaves. The
-// cache ends as a full rebuild would leave it: keys, static entities and triggers keep their canonical order.
+// Re-reads only the static colliders of the marked subtrees and replaces only their keys, slots and tree leaves (an SDF
+// chunk whose revision, pose and material are unchanged keeps its slot and leaf). The cache ends as a full rebuild
+// would leave it: keys, static entities and triggers keep their canonical order.
 void rebuild_marked_statics(ecs::World& world, PhysicsBroadphase2D& cache) {
     const std::vector<ecs::Entity> entities = marked_static_subtrees(world, cache);
     cache.marked_entities.clear();
+    cache.last_rebuild_changes = 0;
 
     std::vector<ColliderItem2D> items;
     for (ecs::Entity entity : entities) {
@@ -405,7 +439,8 @@ void prepare_static_colliders_2d(ecs::World& world, std::vector<ecs::Entity> mov
     if (cache.box_version != world.structure_version<BoxCollider2D>() ||
         cache.circle_version != world.structure_version<CircleCollider2D>() ||
         cache.polygon_version != world.structure_version<PolygonCollider2D>() ||
-        cache.compound_version != world.structure_version<CompoundCollider2D>()) {
+        cache.compound_version != world.structure_version<CompoundCollider2D>() ||
+        cache.sdf_version != world.structure_version<SdfCollider2D>()) {
         cache.dirty = true;
     }
 

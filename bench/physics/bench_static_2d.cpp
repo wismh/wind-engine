@@ -26,12 +26,12 @@ inline constexpr int kEditEvery = 30;
 inline constexpr int kDroppers = 64;
 
 // How the terrain cells become entities: one entity per cell, one per cell under 9 chunk parents, or 9 chunk entities
-// each with one CompoundCollider2D (LQ-23).
-enum class Layout { Separate, Parented, Compound };
+// each with one CompoundCollider2D (LQ-23), or one entity with an SdfCollider2D over the same block (LQ-26).
+enum class Layout { Separate, Parented, Compound, Sdf };
 
 struct StaticScene {
     ecs::World world;
-    std::vector<ecs::Entity> terrain;  // Separate / Parented: one per cell. Compound: the 9 chunks
+    std::vector<ecs::Entity> terrain;  // Separate / Parented: one per cell. Compound: the 9 chunks. Sdf: the field
     std::vector<ecs::Entity> fallers;
     int dynamic_count{0};
     int static_count{0};
@@ -99,7 +99,24 @@ ecs::Entity add_dynamic_box(ecs::World& world, glm::vec3 position, BodyType type
         }
     }
 
-    for (int i = 0; i < static_count; ++i) {
+    if (layout == Layout::Sdf) {
+        // The same 100 x rows block as one field (0.25-unit cells, a 1-unit band), with a crater every 10 columns.
+        SdfField2D field{SdfField2DDesc{.cell_size = 0.25f, .band = 1.f}};
+        const float depth = static_cast<float>(rows);
+        const glm::vec2 block[4] = {{0.f, -depth}, {static_cast<float>(kTerrainColumns), -depth},
+                                    {static_cast<float>(kTerrainColumns), 0.f}, {0.f, 0.f}};
+        (void) field.fill_polygon(block);
+        for (int x = 5; x < kTerrainColumns; x += 10) {
+            (void) field.carve_circle({static_cast<float>(x), 0.f}, 1.5f);
+        }
+        const ecs::Entity terrain = world.create();
+        world.emplace<Transform>(terrain, Transform{});
+        world.emplace<SdfCollider2D>(terrain, SdfCollider2D{.field = std::move(field), .friction = 0.4f});
+        scene.terrain.push_back(terrain);
+    }
+
+    const int cell_count = layout == Layout::Sdf ? 0 : static_count;
+    for (int i = 0; i < cell_count; ++i) {
         const int col = i % kTerrainColumns;
         const int row = i / kTerrainColumns;
         const glm::vec3 position{static_cast<float>(col) + 0.5f, -static_cast<float>(row) - 0.5f, 0.f};
@@ -180,8 +197,8 @@ ecs::Entity add_dynamic_box(ecs::World& world, glm::vec3 position, BodyType type
     (void) add_dynamic_box(world, glm::vec3{60.f, 25.f, 0.f}, BodyType::Kinematic, glm::vec3{-3.f, 0.f, 0.f});
 
     scene.dynamic_count = 10;
-    // Static entities: the cells (or the 9 compound chunks), the chunk parents, and the platform.
-    scene.static_count = (compound ? 9 : static_count) + (parented ? 9 : 0) + 1;
+    // Static entities: the cells (or the 9 compound chunks, or the field), the chunk parents, and the platform.
+    scene.static_count = (compound ? 9 : layout == Layout::Sdf ? 1 : static_count) + (parented ? 9 : 0) + 1;
     return scene;
 }
 
@@ -291,7 +308,8 @@ enum class Churn { Spawn, EditMarkEntity, EditMarkWorld };
 
 // Every kEditEvery ticks: either move one terrain cell in place and mark it, or spawn a dynamic box with a collider far
 // away. The edit ticks and the other ticks are reported as separate rows. In the compound layout the edit moves one
-// shape of a chunk in place and marks the chunk.
+// shape of a chunk in place and marks the chunk; in the SDF layout it carves a 0.6-unit circle into the surface and
+// marks the field entity.
 void bench_static_churn(std::vector<BenchResult>& out, std::string name, Churn churn, Layout layout, int steps,
                         JobSystem* jobs) {
     StaticScene scene = build_scene(2000, layout);
@@ -307,7 +325,13 @@ void bench_static_churn(std::vector<BenchResult>& out, std::string name, Churn c
                                        BodyType::Dynamic, glm::vec3{0.f});
             } else {
                 ecs::Entity edited{};
-                if (layout == Layout::Compound) {
+                if (layout == Layout::Sdf) {
+                    // Blast a small crater into the top surface, a different spot each time.
+                    edited = scene.terrain.front();
+                    const float x = static_cast<float>(next_cell % kTerrainColumns) + 0.3f;
+                    (void) scene.world.get<SdfCollider2D>(edited).field.carve_circle({x, 0.f}, 0.6f);
+                    next_cell = (next_cell + 37) % 2000;
+                } else if (layout == Layout::Compound) {
                     edited = scene.terrain[next_cell % scene.terrain.size()];
                     CompoundCollider2D& chunk = scene.world.get<CompoundCollider2D>(edited);
                     CompoundShape2D& shape = chunk.shapes[(next_cell / scene.terrain.size()) % chunk.shapes.size()];
@@ -355,6 +379,7 @@ std::vector<BenchResult> run_static_2d_benchmarks(const BenchOptions& options, J
             {"static_far_2k_parented", 2000, Layout::Parented},
             {"static_far_2k_compound", 2000, Layout::Compound},
             {"static_far_8k_compound", 8000, Layout::Compound},
+            {"static_sdf_far", 2000, Layout::Sdf},
     };
     for (const FarCase& c : far_cases) {
         if (matches(c.name, options.filter)) {
@@ -373,6 +398,8 @@ std::vector<BenchResult> run_static_2d_benchmarks(const BenchOptions& options, J
             {"static_edit_2k_compound_world", Churn::EditMarkWorld, Layout::Compound},
             {"static_spawn_2k", Churn::Spawn, Layout::Separate},
             {"static_spawn_2k_compound", Churn::Spawn, Layout::Compound},
+            {"static_sdf_edit", Churn::EditMarkEntity, Layout::Sdf},
+            {"static_sdf_edit_world", Churn::EditMarkWorld, Layout::Sdf},
     };
     for (const ChurnCase& c : churn_cases) {
         if (matches(c.name, options.filter)) {
@@ -386,6 +413,7 @@ std::vector<BenchResult> run_static_2d_benchmarks(const BenchOptions& options, J
     const ContactCase contact_cases[] = {
             {"static_contact_2k", Layout::Separate},
             {"static_contact_2k_compound", Layout::Compound},
+            {"static_sdf_contact", Layout::Sdf},
     };
     for (const ContactCase& c : contact_cases) {
         if (matches(c.name, options.filter)) {

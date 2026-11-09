@@ -107,6 +107,10 @@ public:
     [[nodiscard]] float sample_at(glm::ivec2 index) const;
     // Bilinear distance at world position `p`.
     [[nodiscard]] float sample(glm::vec2 p) const;
+    // `sample` at each of `points` into `out` (the first `min(points.size(), out.size())`), bit-identical to calling
+    // it per point, but a run of points in one chunk finds the chunk once: for many nearby points (a collider's
+    // outline).
+    void sample_many(std::span<const glm::vec2> points, std::span<float> out) const;
     // Unit normal at `p`: the analytic gradient of the bilinear cell, or central differences half a cell to each side
     // when that is degenerate (a saddle or a flat cell); zero when both are flat.
     [[nodiscard]] glm::vec2 gradient(glm::vec2 p) const;
@@ -171,6 +175,11 @@ public:
     // depend on the list's order and equals renormalizing them all at once. Duplicates are ignored.
     std::vector<glm::ivec2> renormalize(std::span<const glm::ivec2> chunks);
 
+    // Overwrites the chunk's samples with `samples` (the layout of `chunk_samples`), for loading a saved field. The
+    // chunk is allocated if it was not; the returned dirty list follows the edit rules above, and a newly allocated
+    // chunk is always in it. A span that is not `kSdfChunkSamples` long is a no-op.
+    std::vector<glm::ivec2> assign_chunk(glm::ivec2 chunk, std::span<const std::int16_t> samples);
+
     // --- Chunks.
     [[nodiscard]] bool has_chunk(glm::ivec2 chunk) const;
     [[nodiscard]] std::size_t chunk_count() const {
@@ -184,6 +193,11 @@ public:
     // The chunk's quantized samples, row-major from the bottom row: local (x, y) is `y * kSdfChunkCells + x`. Empty
     // for an unallocated chunk.
     [[nodiscard]] std::span<const std::int16_t> chunk_samples(glm::ivec2 chunk) const;
+    // Bumped once by every edit that dirties at least one chunk; 0 for a field never edited. A cache of the field (the
+    // 2D solver's SdfCollider2D slots) compares it to find an edit it was not told about.
+    [[nodiscard]] std::uint64_t edit_count() const {
+        return edit_count_;
+    }
 
 private:
     struct Chunk {
@@ -214,6 +228,7 @@ private:
     // The rectangle of allocated chunks; valid when `chunks_` is not empty.
     glm::ivec2 chunk_min_{0};
     glm::ivec2 chunk_max_{0};
+    std::uint64_t edit_count_ = 0;
 };
 
 }

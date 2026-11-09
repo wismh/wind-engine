@@ -55,7 +55,11 @@ std::vector<std::pair<int, int>> compute_broadphase_candidates_2d(
     std::vector<ColliderItem2D> unordered = std::move(queried);
     const int static_base = static_cast<int>(unordered.size());
     for (int leaf : touched) {
-        unordered.push_back(bp.static_slots[static_cast<std::size_t>(leaf)].item);
+        ColliderItem2D& item = unordered.emplace_back(bp.static_slots[static_cast<std::size_t>(leaf)].item);
+        if (item.shape == ColliderShape2D::Sdf) {
+            // The cache holds no live pointer: the component pool may have moved since the slot was read.
+            item.sdf = &world.get<SdfCollider2D>(item.entity).field;
+        }
     }
     auto static_index = [&](int leaf) {
         const auto it = std::lower_bound(touched.begin(), touched.end(), leaf);
@@ -106,7 +110,9 @@ void run_physics_2d(ecs::World& world, JobSystem* jobs) {
     std::vector<ColliderItem2D> active = gather_active_colliders_2d(world, movable_entities);
     prepare_static_colliders_2d(world, std::move(movable_entities));
 
-    // The platform has already moved. Wake before the sleeper integrates so it is not frozen this step.
+    // The platform has already moved, or the terrain under a sleeper changed. Wake before the sleeper integrates so it
+    // is not frozen this step.
+    wake_sleepers_by_static_edit_2d(world, active);
     wake_sleepers_by_overlap_2d(world, active);
     integrate_dynamic_2d(world, dt);
     ecs::update_world_transforms(world);

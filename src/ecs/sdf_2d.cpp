@@ -376,6 +376,14 @@ float SdfField2D::sample(glm::vec2 p) const {
     return Cursor{*this}.sample(p);
 }
 
+void SdfField2D::sample_many(std::span<const glm::vec2> points, std::span<float> out) const {
+    Cursor cursor{*this};
+    const std::size_t count = std::min(points.size(), out.size());
+    for (std::size_t i = 0; i < count; ++i) {
+        out[i] = cursor.sample(points[i]);
+    }
+}
+
 glm::vec2 SdfField2D::gradient(glm::vec2 p) const {
     return Cursor{*this}.gradient(p);
 }
@@ -558,7 +566,41 @@ std::vector<glm::ivec2> SdfField2D::finish(DirtyTracker& dirty) {
     for (const glm::ivec2 c : out) {
         ++allocate(c).revision;
     }
+    if (!out.empty()) {
+        ++edit_count_;
+    }
     return out;
+}
+
+std::vector<glm::ivec2> SdfField2D::assign_chunk(glm::ivec2 chunk, std::span<const std::int16_t> samples) {
+    if (samples.size() != static_cast<std::size_t>(kSdfChunkSamples)) {
+        return {};
+    }
+    const bool allocated = has_chunk(chunk);
+    Chunk& target = allocate(chunk);
+    bool changed = !allocated;
+    bool column0 = false;
+    bool row0 = false;
+    bool corner = false;
+    for (int k = 0; k < kSdfChunkSamples; ++k) {
+        const std::int16_t next = samples[static_cast<std::size_t>(k)];
+        std::int16_t& slot = target.samples[static_cast<std::size_t>(k)];
+        if (next == slot) {
+            continue;
+        }
+        slot = next;
+        changed = true;
+        const int lx = k % kSdfChunkCells;
+        const int ly = k / kSdfChunkCells;
+        column0 = column0 || lx == 0;
+        row0 = row0 || ly == 0;
+        corner = corner || (lx == 0 && ly == 0);
+    }
+    DirtyTracker dirty;
+    if (changed) {
+        dirty.add(chunk, column0, row0, corner);
+    }
+    return finish(dirty);
 }
 
 namespace {

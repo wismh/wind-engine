@@ -72,6 +72,32 @@ void wake_sleepers_by_velocity_2d(ecs::World& world) {
     return has_sleeping;
 }
 
+void wake_sleepers_by_static_edit_2d(ecs::World& world, std::span<const ColliderItem2D> active) {
+    std::vector<Aabb>& boxes = world.ctx<PhysicsBroadphase2D>().sdf_wake_boxes;
+    if (boxes.empty()) {
+        return;
+    }
+    // Only colliders on a body's own entity take part, as for the overlap wake below.
+    std::vector<ecs::Entity> wake;
+    for (const ColliderItem2D& item : active) {
+        if (claimed_by_physics_3d(world, item.entity) ||
+            !is_sleeping_dynamic(world.try_get<RigidBody2D>(item.entity))) {
+            continue;
+        }
+        const Aabb bounds = aabb_of_2d(item);
+        for (const Aabb& box : boxes) {
+            if (aabb_overlaps(bounds, box)) {
+                wake.push_back(item.entity);
+                break;
+            }
+        }
+    }
+    boxes.clear();
+    for (ecs::Entity entity : wake) {
+        clear_sleep(world, entity);
+    }
+}
+
 void wake_sleepers_by_overlap_2d(ecs::World& world, std::span<const ColliderItem2D> active) {
     if (!has_sleeping_dynamic_2d(world)) {
         return;
