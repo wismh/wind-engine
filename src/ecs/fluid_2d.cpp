@@ -572,6 +572,18 @@ struct Fluid2DScratch {
     std::vector<glm::vec2> x;
     std::vector<glm::vec2> v;
     std::vector<float> density;
+    // SDF clearance cache (LQ-55): where each particle's SDF fields were last sampled and how far it then was from
+    // pushing distance (the smallest `distance - radius` over the fields, or the distance to a field's allocated box).
+    // An interpolated field changes at most sqrt(2) times as fast as the point moves, so while the particle is closer
+    // to that point than half its clearance no field can push it and the samples are skipped; the result is the same.
+    // -1: sample. Reset every step, since fields change between ticks.
+    std::vector<glm::vec2> sdf_anchor;
+    std::vector<float> sdf_clearance;
+    std::vector<float> sdf_probe;
+    std::vector<char> sdf_skip;
+    // The neighbour search's candidates in bucket order, copied so its inner loop reads them in sequence.
+    std::vector<glm::vec2> sorted_position;
+    std::vector<glm::ivec2> sorted_cell;
     // Per selected shape and SDF field: the members it bounds (bit k for member k).
     std::vector<std::uint32_t> shape_members;
     std::vector<std::uint32_t> sdf_members;
@@ -834,9 +846,13 @@ void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* j
     s.cell.resize(n);
     s.bucket_start.assign(static_cast<std::size_t>(table) + 1, 0);
     s.sorted.resize(n);
+    for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            const glm::vec2 q = s.predicted[i] * p.inv_h;
+            s.cell[i] = glm::ivec2{cell_coord(q.x), cell_coord(q.y)};
+        }
+    });
     for (std::size_t i = 0; i < n; ++i) {
-        const glm::vec2 q = s.predicted[i] * p.inv_h;
-        s.cell[i] = glm::ivec2{cell_coord(q.x), cell_coord(q.y)};
         ++s.bucket_start[cell_hash(s.cell[i], mask) + 1];
     }
     for (std::uint32_t b = 0; b < table; ++b) {
@@ -845,9 +861,14 @@ void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* j
     // Counting sort, stable: a bucket lists its particles in index order. The neighbour counts are free until below.
     std::vector<std::uint32_t>& fill = s.neighbor_count;
     fill.assign(table, 0);
+    s.sorted_position.resize(n);
+    s.sorted_cell.resize(n);
     for (std::size_t i = 0; i < n; ++i) {
         const std::uint32_t b = cell_hash(s.cell[i], mask);
-        s.sorted[s.bucket_start[b] + fill[b]++] = static_cast<std::uint32_t>(i);
+        const std::uint32_t at = s.bucket_start[b] + fill[b]++;
+        s.sorted[at] = static_cast<std::uint32_t>(i);
+        s.sorted_position[at] = s.predicted[i];
+        s.sorted_cell[at] = s.cell[i];
     }
 
     s.neighbor_count.assign(n, 0);
@@ -864,11 +885,14 @@ void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* j
                     const glm::ivec2 c{ci.x + dx, ci.y + dy};
                     const std::uint32_t b = cell_hash(c, mask);
                     for (std::uint32_t k = s.bucket_start[b]; k < s.bucket_start[b + 1]; ++k) {
-                        const std::uint32_t j = s.sorted[k];
-                        if (j == i || s.cell[j] != c) {
+                        if (s.sorted_cell[k] != c) {
                             continue;
                         }
-                        const glm::vec2 d = pi - s.predicted[j];
+                        const std::uint32_t j = s.sorted[k];
+                        if (j == i) {
+                            continue;
+                        }
+                        const glm::vec2 d = pi - s.sorted_position[k];
                         if (glm::dot(d, d) < h2) {
                             out[count++] = j;
                             if (count == kMaxNeighbors) {
@@ -1130,6 +1154,17 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
     std::array<glm::vec2, kSdfBatch> local{};
     std::array<float, kSdfBatch> distance{};
     std::array<std::uint32_t, kSdfBatch> index{};
+    if (s.sdf.empty()) {
+        return;
+    }
+    // Which particles may skip their samples this pass; the others start a new probe of their clearance.
+    for (std::size_t i = begin; i < end; ++i) {
+        const glm::vec2 moved = s.predicted[i] - s.sdf_anchor[i];
+        const float clearance = s.sdf_clearance[i];
+        const bool skip = clearance > 0.0f && 4.0f * glm::dot(moved, moved) < clearance * clearance;
+        s.sdf_skip[i] = skip ? 1 : 0;
+        s.sdf_probe[i] = std::numeric_limits<float>::max();
+    }
     for (std::size_t field_index = 0; field_index < s.sdf.size(); ++field_index) {
         const SdfBoundary* sdf = s.sdf[field_index];
         const std::uint32_t members = s.sdf_members[field_index];
@@ -1144,13 +1179,17 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
             const std::size_t batch_end = std::min(end, batch + kSdfBatch);
             std::size_t count = 0;
             for (std::size_t i = batch; i < batch_end; ++i) {
-                if ((members & (1u << s.owner[i])) == 0) {
+                if ((members & (1u << s.owner[i])) == 0 || s.sdf_skip[i] != 0) {
                     continue;
                 }
                 const float radius = std::min(s.radius[i], band_radius);
                 const glm::vec2 l = sdf->frame.to_local(s.predicted[i]);
                 if (!solid_outside && (l.x < bounds->min.x - radius || l.x > bounds->max.x + radius ||
                                        l.y < bounds->min.y - radius || l.y > bounds->max.y + radius)) {
+                    // Outside the field's box: the clearance is at least the way to that box.
+                    const glm::vec2 outside{std::max({bounds->min.x - l.x, l.x - bounds->max.x, 0.0f}),
+                                            std::max({bounds->min.y - l.y, l.y - bounds->max.y, 0.0f})};
+                    s.sdf_probe[i] = std::min(s.sdf_probe[i], std::sqrt(glm::dot(outside, outside)) - radius);
                     continue;
                 }
                 local[count] = l;
@@ -1167,8 +1206,10 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
                 const std::uint32_t i = index[k];
                 const float radius = std::min(s.radius[i], band_radius);
                 if (d >= radius) {
+                    s.sdf_probe[i] = std::min(s.sdf_probe[i], d - radius);
                     continue;
                 }
+                s.sdf_probe[i] = -1.0f;  // pushed (or in contact): sample again next time
                 const glm::vec2 g = field.gradient(local[k]);
                 if (g.x == 0.0f && g.y == 0.0f) {
                     continue;
@@ -1176,6 +1217,19 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
                 s.predicted[i] = sdf->frame.to_world(local[k] + g * (radius - d));
                 s.normal[i] = sdf->frame.rotate_to_world(g);
             }
+        }
+    }
+    // A particle that was sampled and pushed by none keeps its new clearance from where it is now.
+    for (std::size_t i = begin; i < end; ++i) {
+        if (s.sdf_skip[i] != 0) {
+            continue;
+        }
+        const float probe = s.sdf_probe[i];
+        if (probe > 0.0f && probe < std::numeric_limits<float>::max()) {
+            s.sdf_anchor[i] = s.predicted[i];
+            s.sdf_clearance[i] = probe;
+        } else {
+            s.sdf_clearance[i] = -1.0f;
         }
     }
 }
@@ -1275,6 +1329,10 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
     s.velocity.resize(n);
     s.lambda.resize(n);
     s.from.resize(n);
+    s.sdf_anchor.assign(n, glm::vec2{0.0f});
+    s.sdf_clearance.assign(n, -1.0f);
+    s.sdf_probe.resize(n);
+    s.sdf_skip.resize(n);
     s.boundaries = &boundaries;
     // A particle's mass in world units: its fluid's density times the area of one lattice cell (the rest spacing
     // squared). The reaction of a push `moved` over a substep is an impulse of mass * moved / sub_dt on the body.
@@ -1369,8 +1427,8 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
                     }
                     s.delta[i] = delta;
                 }
-            });
-            for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+                // Apply, sweep and project the same range in the same pass: the delta pass reads no positions,
+                // only the lambdas and the kept kernel terms, so moving these particles here races with nothing.
                 for (std::size_t i = begin; i < end; ++i) {
                     s.predicted[i] += s.delta[i];
                 }
@@ -1561,9 +1619,9 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
     std::size_t at = 0;
     for (Fluid2D* fluid : group.fluids) {
         for (std::size_t i = 0; i < fluid->positions_.size(); ++i, ++at) {
-            fluid->positions_[i] = x[at];
-            fluid->velocities_[i] = v[at];
-            fluid->densities_[i] = density[at];
+            fluid->positions_[i] = s.x[at];
+            fluid->velocities_[i] = s.v[at];
+            fluid->densities_[i] = s.density[at];
         }
     }
 }
