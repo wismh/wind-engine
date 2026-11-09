@@ -48,8 +48,9 @@ inline constexpr float kRadius = 0.05f;
     return field;
 }
 
-// A `side` x `side` column of particles at rest spacing against the tank's left wall, released at once.
-[[nodiscard]] BenchResult bench_dam(const std::string& name, int side, int steps, JobSystem* jobs) {
+// A `side` x `side` column of particles at rest spacing against the tank's left wall, released at once. With `warmup`
+// ticks the column first runs that long untimed: a pool that has spread and come to rest.
+[[nodiscard]] BenchResult bench_dam(const std::string& name, int side, int steps, int warmup, JobSystem* jobs) {
     const float column = static_cast<float>(side) * 2.f * kRadius;
     const float width = column * 2.5f;
     ecs::World world;
@@ -62,6 +63,9 @@ inline constexpr float kRadius = 0.05f;
     world.emplace<Fluid2D>(entity, Fluid2DParams{.radius = kRadius, .max_particles = 1u << 20});
     (void) world.get<Fluid2D>(entity).spawn_box({0.f, 0.f}, {column, column});
     const auto count = static_cast<int>(world.get<Fluid2D>(entity).count());
+    for (int s = 0; s < warmup; ++s) {
+        run_fluid_2d(world, jobs);
+    }
 
     double sum_us = 0.0;
     double min_us = 1e9;
@@ -111,15 +115,17 @@ std::vector<BenchResult> run_fluid_2d_benchmarks(const BenchOptions& options, Jo
     struct Case {
         const char* name;
         int side;
+        int warmup;
     };
     const Case cases[] = {
-            {"fluid_dam_4k", 64},
-            {"fluid_dam_16k", 128},
+            {"fluid_dam_4k", 64, 0},
+            {"fluid_dam_16k", 128, 0},
+            {"fluid_rest_4k", 64, 600},
     };
     std::vector<BenchResult> results;
     for (const Case& c : cases) {
         if (matches(c.name, options.filter)) {
-            results.push_back(bench_dam(c.name, c.side, steps, jobs));
+            results.push_back(bench_dam(c.name, c.side, steps, c.warmup, jobs));
         }
     }
     return results;

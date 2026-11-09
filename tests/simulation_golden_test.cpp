@@ -39,7 +39,7 @@ namespace {
 constexpr std::uint64_t kGoldenStack2D = 0xe8d28498f5232f35ull;
 constexpr std::uint64_t kGoldenTerrain2D = 0x79d87f3c8c4d5979ull;
 constexpr std::uint64_t kGoldenTerrainField = 0xcf18cbc3cbefb34eull;
-constexpr std::uint64_t kGoldenDamBreakFluid = 0xbd100cb742fd5569ull;
+constexpr std::uint64_t kGoldenDamBreakFluid = 0x3eaab8c3a6cca61full;  // LQ-59: swept boundaries
 constexpr std::uint64_t kGoldenDamBreakBodies = 0x2cfe0a4e170c99e7ull;
 constexpr std::uint64_t kGoldenStack3D = 0xd0aa1e5806fe43faull;
 

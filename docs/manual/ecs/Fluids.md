@@ -75,7 +75,7 @@ Coupling is one way: colliders push the fluid, the fluid never pushes back. A cr
 
 Leave `rest_density`, `relaxation` and `tensile_strength` at their defaults unless you know Position Based Fluids: they are in the solver's normalized units, and a `tensile_strength` above about 0.01 makes the fluid swell.
 
-Fast fluid against thin walls can leak through: raise `substeps`, or keep walls thicker than a few radii. A particle pushed deep into terrain (deeper than the field's `band`) stays there.
+Fast fluid does not leak through thin walls: a particle that moves more than half its radius in a substep is swept along its step and stops at the first box, circle or terrain surface on the way. An `SdfCollider2D` wall thinner than one field cell exists only where it covers a sample of the field, so keep terrain walls at least a cell thick (or straddling a sample). A particle pushed deep into terrain (deeper than the field's `band`) stays there.
 
 ## 6. Cost and saving
 
