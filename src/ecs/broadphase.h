@@ -46,6 +46,12 @@ struct Aabb {
 class Broadphase {
 public:
     void rebuild(std::span<const Aabb> boxes);
+    // Incremental edit of one index, as if rebuild had been given `box` there: an existing leaf is removed, then an
+    // inverted or non-finite box leaves the index empty and any other box is inserted. Queries return the same set;
+    // the tree's shape depends on the order of edits.
+    void set(int index, const Aabb& box);
+    // Leaves the index empty.
+    void erase(int index);
     void query_pairs(std::vector<std::pair<int, int>>& out) const;
     void query(const Aabb& box, std::vector<int>& out) const;
 
@@ -109,6 +115,8 @@ private:
 
     [[nodiscard]] int allocate_node();
     void insert_leaf(int leaf);
+    void remove_leaf(int leaf);
+    void free_node(int index);
     [[nodiscard]] int balance(int index);
     [[nodiscard]] float leaf_cost(const Aabb& leaf_box, int child, float inheritance) const;
 

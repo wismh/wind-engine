@@ -96,7 +96,9 @@ void World::destroy_immediate(Entity entity) {
 void World::release(Entity entity) {
     for (auto& [type, pool] : pools_) {
         (void) type;
-        pool->remove(entity);
+        if (pool->remove(entity)) {
+            pool->stamp_ = ++structure_counter_;
+        }
     }
     alive_[entity.index] = 0;
     generations_[entity.index] += 1;

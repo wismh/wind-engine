@@ -221,6 +221,81 @@ void Broadphase::rebuild(std::span<const Aabb> boxes) {
     }
 }
 
+void Broadphase::free_node(int index) {
+    nodes_[static_cast<std::size_t>(index)] = Node{};
+    nodes_[static_cast<std::size_t>(index)].next = free_;
+    nodes_[static_cast<std::size_t>(index)].height = -1;
+    free_ = index;
+}
+
+void Broadphase::remove_leaf(int leaf) {
+    if (leaf == root_) {
+        root_ = -1;
+        return;
+    }
+    const int parent = nodes_[static_cast<std::size_t>(leaf)].parent;
+    const int grand_parent = nodes_[static_cast<std::size_t>(parent)].parent;
+    const int sibling = nodes_[static_cast<std::size_t>(parent)].child1 == leaf
+                                ? nodes_[static_cast<std::size_t>(parent)].child2
+                                : nodes_[static_cast<std::size_t>(parent)].child1;
+    if (grand_parent < 0) {
+        root_ = sibling;
+        nodes_[static_cast<std::size_t>(sibling)].parent = -1;
+        free_node(parent);
+        return;
+    }
+    Node& grand = nodes_[static_cast<std::size_t>(grand_parent)];
+    if (grand.child1 == parent) {
+        grand.child1 = sibling;
+    } else {
+        grand.child2 = sibling;
+    }
+    nodes_[static_cast<std::size_t>(sibling)].parent = grand_parent;
+    free_node(parent);
+
+    int walk = grand_parent;
+    while (walk >= 0) {
+        walk = balance(walk);
+        Node& node = nodes_[static_cast<std::size_t>(walk)];
+        const Node& child1 = nodes_[static_cast<std::size_t>(node.child1)];
+        const Node& child2 = nodes_[static_cast<std::size_t>(node.child2)];
+        node.height = 1 + std::max(child1.height, child2.height);
+        node.box = combine_aabb(child1.box, child2.box);
+        walk = node.parent;
+    }
+}
+
+void Broadphase::erase(int index) {
+    if (index < 0 || index >= static_cast<int>(leaf_of_.size())) {
+        return;
+    }
+    const int leaf = leaf_of_[static_cast<std::size_t>(index)];
+    if (leaf < 0) {
+        return;
+    }
+    remove_leaf(leaf);
+    free_node(leaf);
+    leaf_of_[static_cast<std::size_t>(index)] = -1;
+}
+
+void Broadphase::set(int index, const Aabb& box) {
+    if (index < 0) {
+        return;
+    }
+    erase(index);
+    if (index >= static_cast<int>(leaf_of_.size())) {
+        leaf_of_.resize(static_cast<std::size_t>(index) + 1, -1);
+    }
+    if (!aabb_valid(box)) {
+        return;
+    }
+    const int leaf = allocate_node();
+    nodes_[static_cast<std::size_t>(leaf)].box = box;
+    nodes_[static_cast<std::size_t>(leaf)].leaf = index;
+    leaf_of_[static_cast<std::size_t>(index)] = leaf;
+    insert_leaf(leaf);
+}
+
 void Broadphase::query_pairs(std::vector<std::pair<int, int>>& out) const {
     out.clear();
     if (root_ < 0) {

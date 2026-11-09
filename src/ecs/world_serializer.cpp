@@ -803,6 +803,71 @@ void register_builtin_components(
                 (void)in.field("restitution", c.restitution);
             });
 
+    serializer.register_component<CompoundCollider2D>(
+            "compound_collider_2d",
+            [](ComponentWriter& out, const CompoundCollider2D& c) {
+                FieldArray shapes;
+                shapes.reserve(c.shapes.size());
+                for (const CompoundShape2D& shape : c.shapes) {
+                    std::vector<glm::vec2> vertices;
+                    const int count = std::min(static_cast<int>(shape.count), kPolygonCollider2DCapacity);
+                    vertices.reserve(static_cast<std::size_t>(count));
+                    for (int i = 0; i < count; ++i) {
+                        vertices.push_back(shape.vertices[i]);
+                    }
+                    FieldTable table;
+                    ComponentWriter nested = out.nested(table);
+                    nested.field("vertices", vertices);
+                    shapes.push_back(FieldValue{std::move(table)});
+                }
+                out.table().insert_or_assign("shapes", FieldValue{std::move(shapes)});
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, CompoundCollider2D& c) {
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+                c.shapes.clear();
+                const auto found = in.table().find("shapes");
+                if (found == in.table().end()) {
+                    return;
+                }
+                const FieldArray* shapes = found->second.as_array();
+                if (shapes == nullptr) {
+                    in.fail("compound_collider_2d shapes is not an array");
+                    return;
+                }
+                c.shapes.reserve(shapes->size());
+                for (const FieldValue& element : *shapes) {
+                    const FieldTable* table = element.as_table();
+                    if (table == nullptr) {
+                        in.fail("compound_collider_2d shape is not a table");
+                        return;
+                    }
+                    ComponentReader nested = in.nested(*table);
+                    std::vector<glm::vec2> vertices;
+                    (void)nested.field("vertices", vertices);
+                    if (!nested.ok()) {
+                        in.fail(std::string(nested.error()));
+                        return;
+                    }
+                    if (vertices.size() > static_cast<std::size_t>(kPolygonCollider2DCapacity)) {
+                        in.fail("compound_collider_2d shape has more than 8 vertices");
+                        return;
+                    }
+                    CompoundShape2D shape;
+                    shape.count = static_cast<std::uint8_t>(vertices.size());
+                    for (std::size_t i = 0; i < vertices.size(); ++i) {
+                        shape.vertices[i] = vertices[i];
+                    }
+                    c.shapes.push_back(shape);
+                }
+            });
+
     serializer.register_component<CircleCollider2D>(
             "circle_collider_2d",
             [](ComponentWriter& out, const CircleCollider2D& c) {
