@@ -154,6 +154,7 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 | `fluid_dam_4k` | a 64 x 64 column (4,096 particles, 6.4 units) collapsing across a 16-unit tank |
 | `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
 | `fluid_rest_4k` | `fluid_dam_4k` after 600 untimed ticks: the pool has spread and come to rest (LQ-59) |
+| `fluid_compound_dam_4k`, `fluid_compound_rest_4k` | the same two in a tank of `CompoundCollider2D` parts instead of the SDF: 0.25-unit square tiles, 1 unit thick (about 2,000 parts), plus a second compound of 4,000 tiles far below that the fluid never reaches. `run_physics_2d` runs once before timing, so the fluid reads the static parts from the solver's cache (LQ-57) |
 
 Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
 
@@ -175,6 +176,19 @@ Particles that move more than half a radius in an iteration are swept against th
 | `fluid_rest_4k` | 20,322 | 20,378 (+0.3%) | 3,440 | 3,518 (+2%) |
 
 A resting pool pays one length test per particle per iteration. The collapse pays for the particles that fall faster than half a radius per substep, swept once (the first iteration's move holds the predicted step; later iterations move by the solver delta, which rarely passes the threshold). Sweeping every fast particle from the substep start in every iteration instead cost +15 and +28 percent on the two dam rows.
+
+### Polygon and compound boundaries (LQ-57)
+
+Same settings, best of two runs. Before LQ-57 a compound does not hold the fluid (the rows fail their stability check), so only the after column counts for them; the SDF rows show that the shape grid and the polygon gather cost the SDF tank nothing.
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 19,986 | 19,926 | 3,334 | 3,390 |
+| `fluid_rest_4k` | 20,442 | 20,308 | 3,483 | 3,427 |
+| `fluid_compound_dam_4k` | (falls through) | 18,329 | (falls through) | 3,329 |
+| `fluid_compound_rest_4k` | (falls through) | 19,037 | (falls through) | 3,357 |
+
+A tiled compound tank costs about what the SDF tank costs: a particle against a wall tests the few tiles of its grid cell (two kernel supports wide), not the 2,000 parts, and the 4,000 far tiles never leave the solver's tree.
 
 ## Deterministic simulation (LQ-63)
 
