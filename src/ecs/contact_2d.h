@@ -8,7 +8,9 @@
 
 namespace engine {
 
-enum class ContactShapeKind : std::uint8_t { Aabb, Circle, Polygon };
+class SdfField2D;
+
+enum class ContactShapeKind : std::uint8_t { Aabb, Circle, Polygon, Sdf };
 
 // Matches PolygonCollider2D's vertex cap.
 inline constexpr int kContactPolygonCapacity = 8;
@@ -16,6 +18,8 @@ inline constexpr int kContactPolygonCapacity = 8;
 // XY shape in world space. An AABB with angle exactly 0 uses the legacy overlap.
 // A nonzero angle turns a box into four corners. Polygon vertices are world-space and CCW.
 // Circles ignore angle. half_extents is full box size / 2.
+// Sdf is one chunk of an SdfCollider2D: `sdf` in the frame at `center` turned by `angle`; only body samples that
+// fall in chunk `sdf_chunk` of the field count (contact_2d_sdf.cpp).
 struct ContactShape2D {
     ContactShapeKind kind{ContactShapeKind::Aabb};
     glm::vec2 center{0.f};
@@ -24,6 +28,8 @@ struct ContactShape2D {
     float angle{0.f};
     glm::vec2 vertices[kContactPolygonCapacity]{};
     int vertex_count{0};
+    const SdfField2D* sdf{nullptr};
+    glm::ivec2 sdf_chunk{0};
 };
 
 struct ContactPoint2D {
@@ -43,11 +49,15 @@ struct ContactManifold2D {
 
 // No World. count == 0 is separation (no event). A penetration of 0 is a touch and still a hit.
 // A non-finite component, a negative half extent, a negative radius, or a polygon that is not a
-// convex CCW ring returns an empty manifold.
+// convex CCW ring returns an empty manifold. Two Sdf shapes return an empty manifold.
 [[nodiscard]] ContactManifold2D make_contact_2d(const ContactShape2D& a, const ContactShape2D& b);
 
 // Polygon-polygon and polygon-circle, including boxes whose angle is not exactly 0.
 // Defined in contact_2d_polygon.cpp.
 [[nodiscard]] ContactManifold2D contact_convex_2d(const ContactShape2D& a, const ContactShape2D& b);
+
+// A circle, box or polygon (`body`) against one SDF chunk (`field`). The normal points from `body` toward the field
+// (into the solid). Defined in contact_2d_sdf.cpp.
+[[nodiscard]] ContactManifold2D contact_sdf_2d(const ContactShape2D& body, const ContactShape2D& field);
 
 }

@@ -7,6 +7,7 @@
 #endif
 #include "cli/cli_server.h"
 #include "cli/screenshot.h"
+#include "core/base64.h"
 
 #include <engine/log.h>
 
@@ -116,22 +117,6 @@ namespace engine::cli {
             return out;
         }
 
-        std::string base64_encode(const unsigned char *data, std::size_t length) {
-            static constexpr char kTable[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-            std::string out;
-            out.reserve((length + 2) / 3 * 4);
-            for (std::size_t i = 0; i < length; i += 3) {
-                const unsigned b0 = data[i];
-                const unsigned b1 = i + 1 < length ? data[i + 1] : 0;
-                const unsigned b2 = i + 2 < length ? data[i + 2] : 0;
-                const unsigned triple = (b0 << 16) | (b1 << 8) | b2;
-                out += kTable[(triple >> 18) & 63u];
-                out += kTable[(triple >> 12) & 63u];
-                out += i + 1 < length ? kTable[(triple >> 6) & 63u] : '=';
-                out += i + 2 < length ? kTable[triple & 63u] : '=';
-            }
-            return out;
-        }
 
         std::string random_token() {
             std::array<unsigned char, 32> bytes{};
@@ -157,7 +142,7 @@ namespace engine::cli {
                 return {};
             }
 #endif
-            return base64_encode(bytes.data(), bytes.size());
+            return base64_encode(std::span<const std::uint8_t>(bytes));
         }
 
         bool token_equal(std::string_view a, std::string_view b) {

@@ -24,15 +24,24 @@ namespace {
     return std::atan2(y, x);
 }
 
-void warn_dynamic_compound(ecs::World& world, ecs::Entity entity) {
-    std::vector<ecs::Entity>& warned = world.ctx<PhysicsBroadphase2D>().dynamic_compound_warned;
+void warn_dynamic_terrain(ecs::World& world, ecs::Entity entity) {
+    const bool compound = world.try_get<CompoundCollider2D>(entity) != nullptr;
+    const bool sdf = world.try_get<SdfCollider2D>(entity) != nullptr;
+    if (!compound && !sdf) {
+        return;
+    }
+    std::vector<ecs::Entity>& warned = world.ctx<PhysicsBroadphase2D>().dynamic_terrain_warned;
     const auto it = std::lower_bound(warned.begin(), warned.end(), entity);
     if (it != warned.end() && *it == entity) {
         return;
     }
     warned.insert(it, entity);
-    log::warn("physics 2D: the CompoundCollider2D on entity " + std::to_string(entity.index) +
-              " is under a Dynamic RigidBody2D and is ignored. Compounds are static or kinematic only.");
+    const std::string what = compound && sdf ? "CompoundCollider2D and SdfCollider2D"
+                             : compound      ? "CompoundCollider2D"
+                                             : "SdfCollider2D";
+    log::warn("physics 2D: the " + what + " on entity " + std::to_string(entity.index) +
+              " is under a Dynamic RigidBody2D and is ignored. Compounds and SDF colliders are static or kinematic "
+              "only.");
 }
 
 }
@@ -120,14 +129,52 @@ ColliderItem2D make_compound_item_2d(ecs::Entity entity, const glm::mat4& matrix
     return item;
 }
 
+ColliderItem2D make_sdf_item_2d(ecs::Entity entity, const glm::mat4& matrix, const SdfCollider2D& sdf,
+                                glm::ivec2 chunk, bool movable) {
+    ColliderItem2D item{
+            .entity = entity,
+            .position = glm::vec3(matrix[3]),
+            .angle = yaw_of(matrix),
+            .shape = ColliderShape2D::Sdf,
+            .layer = sdf.layer,
+            .mask = sdf.mask,
+            .friction = sdf.friction,
+            .restitution = sdf.restitution,
+            .movable = movable,
+            .part = sdf_part_of_chunk_2d(chunk),
+            .sdf = &sdf.field,
+            .sdf_revision = sdf.field.revision(chunk),
+    };
+    // The chunk's cells in the field's frame, grown so a sample on the rectangle's edge is inside the AABB.
+    const float cell = sdf.field.cell_size();
+    const float grow = 0.01f * cell;
+    const glm::vec2 lo = sdf.field.origin() + glm::vec2(chunk * kSdfChunkCells) * cell - grow;
+    const glm::vec2 hi = lo + glm::vec2(static_cast<float>(kSdfChunkCells) * cell + 2.f * grow);
+    item.polygon_count = 4;
+    item.polygon[0] = lo;
+    item.polygon[1] = {hi.x, lo.y};
+    item.polygon[2] = hi;
+    item.polygon[3] = {lo.x, hi.y};
+    return item;
+}
+
+void append_sdf_items_2d(ecs::Entity entity, const glm::mat4& matrix, const SdfCollider2D& sdf, bool movable,
+                         std::vector<ColliderItem2D>& out) {
+    for (const glm::ivec2 chunk : sdf.field.chunk_coords()) {
+        if (sdf_chunk_has_part_2d(chunk)) {
+            out.push_back(make_sdf_item_2d(entity, matrix, sdf, chunk, movable));
+        }
+    }
+}
+
 bool has_collider_2d(const ecs::World& world, ecs::Entity entity) {
     return world.try_get<Transform>(entity) != nullptr &&
            (world.try_get<BoxCollider2D>(entity) != nullptr || world.try_get<CircleCollider2D>(entity) != nullptr ||
             world.try_get<PolygonCollider2D>(entity) != nullptr ||
-            world.try_get<CompoundCollider2D>(entity) != nullptr);
+            world.try_get<CompoundCollider2D>(entity) != nullptr || world.try_get<SdfCollider2D>(entity) != nullptr);
 }
 
-void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movable, bool with_compound,
+void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movable, bool with_terrain,
                          std::vector<ColliderItem2D>& out) {
     const Transform* transform = world.try_get<Transform>(entity);
     if (transform == nullptr) {
@@ -136,8 +183,9 @@ void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movab
     const BoxCollider2D* box = world.try_get<BoxCollider2D>(entity);
     const CircleCollider2D* circle = world.try_get<CircleCollider2D>(entity);
     const PolygonCollider2D* polygon = world.try_get<PolygonCollider2D>(entity);
-    const CompoundCollider2D* compound = with_compound ? world.try_get<CompoundCollider2D>(entity) : nullptr;
-    if (box == nullptr && circle == nullptr && polygon == nullptr && compound == nullptr) {
+    const CompoundCollider2D* compound = with_terrain ? world.try_get<CompoundCollider2D>(entity) : nullptr;
+    const SdfCollider2D* sdf = with_terrain ? world.try_get<SdfCollider2D>(entity) : nullptr;
+    if (box == nullptr && circle == nullptr && polygon == nullptr && compound == nullptr && sdf == nullptr) {
         return;
     }
     const glm::mat4 matrix = collider_world_matrix_2d(world, entity, *transform);
@@ -155,6 +203,9 @@ void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movab
         for (std::uint32_t part = 0; part < count; ++part) {
             out.push_back(make_compound_item_2d(entity, matrix, *compound, part, movable));
         }
+    }
+    if (sdf != nullptr) {
+        append_sdf_items_2d(entity, matrix, *sdf, movable, out);
     }
 }
 
@@ -181,8 +232,8 @@ std::vector<ColliderItem2D> gather_active_colliders_2d(ecs::World& world, std::v
             movable_entities.push_back(entity);
         }
         append_colliders_2d(world, entity, true, !visit.dynamic, active);
-        if (visit.dynamic && world.try_get<CompoundCollider2D>(entity) != nullptr) {
-            warn_dynamic_compound(world, entity);
+        if (visit.dynamic) {
+            warn_dynamic_terrain(world, entity);
         }
         const Children* children = world.try_get<Children>(entity);
         if (children == nullptr) {

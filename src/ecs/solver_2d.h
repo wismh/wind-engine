@@ -30,6 +30,9 @@ struct SolverShape2D {
     int vertex_count{0};
     float friction{0.f};
     float restitution{0.f};
+    // Sdf only: the field and the chunk this shape is (ContactShape2D).
+    const SdfField2D* sdf{nullptr};
+    glm::ivec2 sdf_chunk{0};
 };
 
 // shape_a / shape_b are indices into the shape span. The caller orders them so entity A < entity B.

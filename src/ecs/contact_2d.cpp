@@ -21,6 +21,9 @@ namespace {
     if (shape.kind == ContactShapeKind::Circle) {
         return std::isfinite(shape.radius) && shape.radius >= 0.f;
     }
+    if (shape.kind == ContactShapeKind::Sdf) {
+        return shape.sdf != nullptr;
+    }
     if (shape.vertex_count < 3 || shape.vertex_count > kContactPolygonCapacity) {
         return false;
     }
@@ -187,6 +190,17 @@ struct BoxCircleHit {
 ContactManifold2D make_contact_2d(const ContactShape2D& a, const ContactShape2D& b) {
     if (!supported(a) || !supported(b)) {
         return empty_manifold();
+    }
+    if (a.kind == ContactShapeKind::Sdf || b.kind == ContactShapeKind::Sdf) {
+        if (a.kind == b.kind) {
+            return empty_manifold();
+        }
+        if (b.kind == ContactShapeKind::Sdf) {
+            return finite_or_fallback(contact_sdf_2d(a, b), a);
+        }
+        ContactManifold2D manifold = contact_sdf_2d(b, a);
+        manifold.normal = -manifold.normal;
+        return finite_or_fallback(manifold, a);
     }
 
     const bool a_aabb = a.kind == ContactShapeKind::Aabb && a.angle == 0.f;
