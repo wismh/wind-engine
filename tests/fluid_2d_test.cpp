@@ -419,6 +419,8 @@ TEST(Fluid2D, SerializerRoundTripsParametersOnly) {
                            .friction = 0.3f,
                            .restitution = 0.4f,
                            .density = 0.75f,
+                           .cohesion = 6.f,
+                           .vorticity = 0.04f,
                            .layer = 1u << 4,
                            .mask = 0x0Fu}};
     (void)fluid.spawn({1.f, 1.f});
@@ -446,6 +448,8 @@ TEST(Fluid2D, SerializerRoundTripsParametersOnly) {
     EXPECT_FLOAT_EQ(c.params.friction, 0.3f);
     EXPECT_FLOAT_EQ(c.params.restitution, 0.4f);
     EXPECT_FLOAT_EQ(c.params.density, 0.75f);
+    EXPECT_FLOAT_EQ(c.params.cohesion, 6.f);
+    EXPECT_FLOAT_EQ(c.params.vorticity, 0.04f);
     EXPECT_EQ(c.params.layer, 1u << 4);
     EXPECT_EQ(c.params.mask, 0x0Fu);
     // Particles are transient.
@@ -1274,4 +1278,134 @@ TEST(Fluid2DSources, StateHashCoversTheSourceCarry) {
     EXPECT_EQ(a.state_hash(), b.state_hash());
     b.sources[0].carry = 0.5f;
     EXPECT_NE(a.state_hash(), b.state_hash());
+}
+
+// LQ-58: cohesion (surface tension) and vorticity confinement.
+
+namespace {
+
+float farthest_from_centroid(const engine::Fluid2D& fluid) {
+    glm::vec2 centroid{0.f};
+    for (const glm::vec2 p : fluid.positions()) {
+        centroid += p;
+    }
+    centroid /= static_cast<float>(fluid.count());
+    float far = 0.f;
+    for (const glm::vec2 p : fluid.positions()) {
+        far = std::max(far, glm::length(p - centroid));
+    }
+    return far;
+}
+
+float angular_momentum(const engine::Fluid2D& fluid) {
+    float sum = 0.f;
+    for (std::size_t i = 0; i < fluid.count(); ++i) {
+        const glm::vec2 p = fluid.positions()[i];
+        const glm::vec2 v = fluid.velocities()[i];
+        sum += p.x * v.y - p.y * v.x;
+    }
+    return sum;
+}
+
+// A disc of fluid turning rigidly at 3 rad/s in zero gravity.
+engine::ecs::Entity spinning_disc(engine::ecs::World& world, float vorticity) {
+    const engine::ecs::Entity entity =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .vorticity = vorticity});
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    for (int y = -12; y <= 12; ++y) {
+        for (int x = -12; x <= 12; ++x) {
+            const glm::vec2 p{static_cast<float>(x) * 0.1f, static_cast<float>(y) * 0.1f};
+            if (glm::length(p) <= 1.2f) {
+                (void)fluid.spawn(p, glm::vec2{-p.y, p.x} * 3.f);
+            }
+        }
+    }
+    return entity;
+}
+
+}
+
+TEST(Fluid2DCohesion, FallingBlobStaysTogetherAsADrop) {
+    auto fall = [](float cohesion) {
+        engine::ecs::World world = fluid_world();
+        const engine::ecs::Entity entity =
+                add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .cohesion = cohesion});
+        (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {0.8f, 0.8f});
+        step(world, 60);
+        EXPECT_EQ(world.get<engine::Fluid2D>(entity).count(), 64u);
+        EXPECT_TRUE(all_finite(world.get<engine::Fluid2D>(entity)));
+        return farthest_from_centroid(world.get<engine::Fluid2D>(entity));
+    };
+    // The 8 x 8 block starts with its corners 0.5 from its center. Without cohesion its free surface frays as it
+    // falls; with it the drop keeps together.
+    const float loose = fall(0.f);
+    const float tight = fall(64.f);
+    EXPECT_GT(loose, 1.2f);
+    EXPECT_LT(tight, 0.6f);
+}
+
+TEST(Fluid2DCohesion, ZeroGravityBlockRoundsWithoutGainingEnergy) {
+    engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+    const engine::ecs::Entity entity =
+            add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .tensile_strength = 0.f, .cohesion = 4.f});
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.6f, 1.6f});
+    const float corners = farthest_from_centroid(world.get<engine::Fluid2D>(entity));
+    step(world, 120);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    EXPECT_LT(farthest_from_centroid(fluid), corners * 0.95f) << "surface tension pulls the corners in";
+    EXPECT_LT(kinetic_energy(fluid) / static_cast<float>(fluid.count()), 1.e-3f);
+}
+
+TEST(Fluid2DCohesion, RestingPoolStillSettles) {
+    for (const float cohesion : {4.f, 16.f}) {
+        engine::ecs::World world = fluid_world();
+        (void)add_terrain(world, tank_field());
+        const engine::ecs::Entity entity =
+                add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .cohesion = cohesion});
+        (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.5f, 1.5f});
+        step(world, 600);
+        const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+        ASSERT_TRUE(all_finite(fluid));
+        EXPECT_LT(kinetic_energy(fluid) / static_cast<float>(fluid.count()), 1.e-3f) << "cohesion " << cohesion;
+    }
+}
+
+TEST(Fluid2DVorticity, ConfinementKeepsASwirlTurning) {
+    auto spin = [](float vorticity) {
+        engine::ecs::World world = fluid_world(nullptr, {0.f, 0.f, 0.f});
+        const engine::ecs::Entity entity = spinning_disc(world, vorticity);
+        const float start = angular_momentum(world.get<engine::Fluid2D>(entity));
+        step(world, 120);
+        EXPECT_TRUE(all_finite(world.get<engine::Fluid2D>(entity)));
+        return angular_momentum(world.get<engine::Fluid2D>(entity)) / start;
+    };
+    const float damped = spin(0.f);
+    const float confined = spin(0.05f);
+    EXPECT_LT(damped, 0.99f) << "viscosity and the solver damp the swirl";
+    EXPECT_GT(confined, damped + 0.01f) << "confinement puts some of it back";
+    EXPECT_LT(confined, 1.01f) << "and adds no swirl of its own at a safe strength";
+}
+
+TEST(Fluid2DVorticity, RestingPoolStillSettles) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field());
+    const engine::ecs::Entity entity = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .vorticity = 0.1f});
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.5f, 1.5f});
+    step(world, 600);
+    const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    EXPECT_LT(kinetic_energy(fluid) / static_cast<float>(fluid.count()), 1.e-3f);
+}
+
+TEST(Fluid2DCohesion, BitIdenticalAcrossWorkerCountsWithCohesionAndVorticity) {
+    auto run = [](engine::JobSystem* jobs) {
+        engine::ecs::World world = fluid_world(jobs);
+        (void)add_terrain(world, tank_field());
+        const engine::ecs::Entity entity = add_fluid(
+                world, engine::Fluid2DParams{.radius = kRadius, .cohesion = 8.f, .vorticity = 0.05f});
+        (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.5f, 2.f});
+        step(world, 90);
+        return world.get<engine::Fluid2D>(entity).state_hash();
+    };
+    engine::JobSystem jobs{3};
+    EXPECT_EQ(run(nullptr), run(&jobs));
 }
