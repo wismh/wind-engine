@@ -95,8 +95,34 @@ New runs of the LQ-28 build, same machine and settings, two runs each (the range
 
 A marked cell edit now costs about one idle tick plus the re-read of that one cell; a marked chunk edit re-reads the chunk's ~222 parts instead of all 2,000. The world-wide mark is unchanged. The edit-tick rows are 20 ticks each and vary by about 20 % between runs.
 
+### SDF terrain (LQ-26)
+
+The `static_sdf_*` rows replace the cells with one entity carrying an `SdfCollider2D` over the same 100 x 20 block (0.25-unit cells, a 1-unit band, a 1.5-unit crater every 10 columns along the top): 56 allocated chunks, so 56 static cache slots, and 2 static entities with the platform. The terrain's top surface lies on a chunk row seam (y = 0), so a body resting on it meets two chunks.
+
+| Scenario | What it measures |
+| --- | --- |
+| `static_sdf_far` | the field, nothing touching it |
+| `static_sdf_edit`, `static_sdf_edit_world` | every 30th tick `carve_circle` (radius 0.6) bites into the top surface, then `mark_static_colliders_dirty_2d(world, field)` (or the world-wide mark). The carve itself runs before the timer, as the compound edit does; the edit tick is the re-read |
+| `static_sdf_contact` | the 64 boxes of `static_contact_*` dropped on the field |
+
+Two runs of the LQ-26 build, same machine and settings (the range is the two means), with the closest rows of the same runs:
+
+| Scenario | Mean (us/step) |
+| --- | ---: |
+| `static_far_2k_compound` | 33 |
+| `static_sdf_far` | 34 |
+| `static_edit_2k_compound`, edit ticks | 73 |
+| `static_sdf_edit`, edit ticks | 58-95 |
+| `static_sdf_edit_world`, edit ticks | 48-67 |
+| `static_sdf_edit`, other ticks | 40-56 |
+| `static_contact_2k_compound` (68 of 74 asleep at the end) | 918-926 |
+| `static_sdf_contact` (68 of 74 asleep at the end) | 2,124-2,146 |
+
+An idle field costs what idle compound chunks cost. An edit re-read is cheap either way: it reads 56 chunk items (coordinates and revision, not samples) and moves only the leaves of chunks whose revision changed, so the world-wide mark costs the same as the per-entity one for a world with a single field. The second run had one 3.8 ms outlier tick in `static_sdf_edit` other ticks, which lifts its edit and other means. Contacts are about 2.3 times the compound terrain's: a unit box reads the field at 16 points (corners and edge points one cell apart) for every chunk pair, each of the ~11 contact evaluations per tick (events, wake, warm start, 8 position iterations), and a sleeping body on static terrain is still evaluated. Batching the reads per contact (`SdfField2D::sample_many`, one chunk lookup per run of points) and not zero-filling the scratch arrays brought this row from 3.6 ms to 2.1 ms; a coarser sample spacing would cut it further at the cost of thinner features slipping through.
+
 ## See also
 
 - [ECS](../modules/ECS.md#physics), the static collider cache and `mark_static_colliders_dirty_2d`
 - [ECS](../modules/ECS.md#compound-colliders), `CompoundCollider2D`
+- [ECS](../modules/ECS.md#sdf-colliders), `SdfCollider2D`
 - [UI Bench](UI%20Bench.md)

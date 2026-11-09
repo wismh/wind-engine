@@ -135,7 +135,9 @@ void run_physics_2d(ecs::World& world, JobSystem* jobs = nullptr);
 // The next tick re-reads the static colliders on `entity` and on all of its descendants (an ancestor's Transform moves
 // the subtree) and edits only their cache slots, so an edit costs what the subtree holds, not the whole map. Mark the
 // edited entity, or the ancestor whose Transform changed. Several marks in one tick are batched. A dead entity is a
-// no-op; so is an entity with no static collider in its subtree (movable colliders are skipped).
+// no-op; so is an entity with no static collider in its subtree (movable colliders are skipped). An SdfCollider2D
+// re-reads its chunk list but moves only the chunks whose revision changed, and sleeping dynamics over a changed,
+// added or removed chunk wake that tick (so do they after a full re-read or a late audit).
 void mark_static_colliders_dirty_2d(ecs::World& world, ecs::Entity entity);
 
 // The next tick re-reads every static collider in the world. For bulk edits whose entities are not known (a loaded
