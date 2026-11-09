@@ -1,4 +1,5 @@
 #include "bench_2d.h"
+#include "bench_static_2d.h"
 
 #include <engine/core/job_system.h>
 #include <engine/core/time.h>
@@ -652,6 +653,8 @@ std::vector<BenchResult> run_all_2d_benchmarks(const BenchOptions& options) {
     if (matches_filter("zero_g_broadphase (1000 boxes)", options.filter)) {
         results.push_back(bench_broadphase_zero_g(general_steps, &jobs));
     }
+    std::vector<BenchResult> static_results = run_static_2d_benchmarks(options, &jobs);
+    results.insert(results.end(), static_results.begin(), static_results.end());
     return results;
 }
 
