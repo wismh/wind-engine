@@ -86,7 +86,7 @@ inline constexpr float kRadius = 0.05f;
     return compound;
 }
 
-enum class Tank { Sdf, Compound };
+enum class Tank { Sdf, Compound, SdfCrates };
 
 // A `side` x `side` column of particles at rest spacing against the tank's left wall, released at once. With `warmup`
 // ticks the column first runs that long untimed: a pool that has spread and come to rest. A compound tank also has
@@ -100,7 +100,7 @@ enum class Tank { Sdf, Compound };
     world.ctx<Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
     const ecs::Entity terrain = world.create();
     world.emplace<Transform>(terrain, Transform{});
-    if (tank == Tank::Sdf) {
+    if (tank == Tank::Sdf || tank == Tank::SdfCrates) {
         world.emplace<SdfCollider2D>(terrain, SdfCollider2D{.field = tank_field(width, column * 1.5f)});
     } else {
         world.emplace<CompoundCollider2D>(terrain, compound_tank(width, column * 1.5f));
@@ -113,7 +113,23 @@ enum class Tank { Sdf, Compound };
     world.emplace<Fluid2D>(entity, Fluid2DParams{.radius = kRadius, .max_particles = 1u << 20});
     (void) world.get<Fluid2D>(entity).spawn_box({0.f, 0.f}, {column, column});
     const auto count = static_cast<int>(world.get<Fluid2D>(entity).count());
+    // Crates: 16 light dynamic boxes (half the water's density) dropped across the tank, floating by the end. The
+    // 2D solver steps every tick before the fluid, untimed; the row times the fluid with its two-way coupling.
+    if (tank == Tank::SdfCrates) {
+        world.ctx<Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
+        for (int i = 0; i < 16; ++i) {
+            const ecs::Entity crate = world.create();
+            const float x = width * (static_cast<float>(i) + 0.5f) / 16.f;
+            world.emplace<Transform>(crate, Transform{.position = {x, column + 0.5f + static_cast<float>(i % 3), 0.f}});
+            world.emplace<BoxCollider2D>(crate, BoxCollider2D{.size = {0.4f, 0.4f, 1.f}});
+            world.emplace<RigidBody2D>(crate, RigidBody2D{.type = BodyType::Dynamic, .mass = 0.08f});
+        }
+    }
+    const bool physics = tank == Tank::SdfCrates;
     for (int s = 0; s < warmup; ++s) {
+        if (physics) {
+            run_physics_2d(world, jobs);
+        }
         run_fluid_2d(world, jobs);
     }
 
@@ -121,6 +137,9 @@ enum class Tank { Sdf, Compound };
     double min_us = 1e9;
     double max_us = 0.0;
     for (int s = 0; s < steps; ++s) {
+        if (physics) {
+            run_physics_2d(world, jobs);
+        }
         const auto start = Clock::now();
         run_fluid_2d(world, jobs);
         const double us = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
@@ -136,7 +155,7 @@ enum class Tank { Sdf, Compound };
     for (const glm::vec2 p : fluid.positions()) {
         if (!std::isfinite(p.x) || !std::isfinite(p.y)) {
             stable = false;
-        } else if (tank == Tank::Sdf) {
+        } else if (tank != Tank::Compound) {
             stable = stable && world.get<SdfCollider2D>(terrain).field.sample(p) >= kRadius * 0.5f;
         } else {
             stable = stable && p.x >= kRadius * 0.5f && p.x <= width - kRadius * 0.5f && p.y >= kRadius * 0.5f;
@@ -178,6 +197,7 @@ std::vector<BenchResult> run_fluid_2d_benchmarks(const BenchOptions& options, Jo
             {"fluid_rest_4k", 64, 600, Tank::Sdf},
             {"fluid_compound_dam_4k", 64, 0, Tank::Compound},
             {"fluid_compound_rest_4k", 64, 600, Tank::Compound},
+            {"fluid_crates_4k", 64, 0, Tank::SdfCrates},
     };
     std::vector<BenchResult> results;
     for (const Case& c : cases) {
