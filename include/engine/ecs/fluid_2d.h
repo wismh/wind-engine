@@ -58,11 +58,11 @@ struct Fluid2DParams {
 // particles are owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
 // The entity needs no Transform: positions are world XY.
 //
-// Boundaries are one-way. The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D` and
-// `CircleCollider2D` colliders that pass the layer rule (`mask & collider.layer` and `collider.mask & layer`), static,
-// kinematic or dynamic, at their pose after `run_physics_2d`; it never pushes them back and sends no
-// `CollisionEvent2D`. An `SdfCollider2D` under a Dynamic body is skipped, as the 2D solver skips it.
-// `PolygonCollider2D` and `CompoundCollider2D` do not bound a fluid. Two fluids do not see each other.
+// Boundaries are one-way. The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D`,
+// `CircleCollider2D`, `PolygonCollider2D` and `CompoundCollider2D` colliders that pass the layer rule
+// (`mask & collider.layer` and `collider.mask & layer`), static, kinematic or dynamic, at their pose after
+// `run_physics_2d`; it never pushes them back and sends no `CollisionEvent2D`. An `SdfCollider2D` or
+// `CompoundCollider2D` under a Dynamic body is skipped, as the 2D solver skips it. Two fluids do not see each other.
 //
 // Rendering is the game's: draw `positions()` with its own sprites or particles.
 class Fluid2D {

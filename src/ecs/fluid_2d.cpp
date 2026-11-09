@@ -11,6 +11,7 @@
 
 #include "core/state_hash.h"
 #include "fluid_2d_internal.h"
+#include "physics_2d_internal.h"
 
 #include <glm/geometric.hpp>
 #include <glm/mat4x4.hpp>
@@ -108,6 +109,23 @@ constexpr float kSweepSkinRadii = 0.01f;
     return false;
 }
 
+// The nearest RigidBody2D on the entity or above it is Dynamic or Kinematic: the 2D solver's movable collider, never in
+// its static cache.
+[[nodiscard]] bool under_movable_body(const ecs::World& world, ecs::Entity entity) {
+    ecs::Entity current = entity;
+    for (int step = 0; step < ecs::kMaxHierarchyDepth && world.valid(current); ++step) {
+        if (const RigidBody2D* body = world.try_get<RigidBody2D>(current)) {
+            return body->type == BodyType::Dynamic || body->type == BodyType::Kinematic;
+        }
+        const Parent* parent = world.try_get<Parent>(current);
+        if (parent == nullptr || !world.valid(parent->entity)) {
+            return false;
+        }
+        current = parent->entity;
+    }
+    return false;
+}
+
 [[nodiscard]] bool layers_match(const Fluid2DParams& fluid, uint32_t layer, uint32_t mask) {
     return (fluid.mask & layer) != 0 && (mask & fluid.layer) != 0;
 }
@@ -153,11 +171,16 @@ struct SdfBoundary {
 };
 
 struct ShapeBoundary {
-    enum class Kind { Box, Circle };
+    enum class Kind { Box, Circle, Polygon };
     Kind kind = Kind::Box;
     Frame2D frame{};
     glm::vec2 half{0.0f};  // Box
     float radius = 0.0f;   // Circle
+    // Polygon: convex, counter-clockwise, in world space, with each edge's outward unit normal (edge i runs from
+    // vertex i to vertex i + 1).
+    std::array<glm::vec2, kPolygonCollider2DCapacity> vertices{};
+    std::array<glm::vec2, kPolygonCollider2DCapacity> normals{};
+    int count = 0;
     uint32_t layer = 0;
     uint32_t mask = 0;
     // World AABB of the shape.
@@ -172,7 +195,53 @@ struct Boundaries {
     std::vector<ShapeBoundary> shapes;
 };
 
-Boundaries gather_boundaries(ecs::World& world) {
+// A polygon boundary from the 2D solver's item for a PolygonCollider2D or a CompoundCollider2D part, at the item's
+// pose (the solver's own vertices: `contact_shape_of_2d`). False for a polygon the solver's rules reject: fewer than 3
+// vertices, a non-finite one, a zero-length edge, or a clockwise turn.
+[[nodiscard]] bool polygon_boundary(const ColliderItem2D& item, ShapeBoundary& out) {
+    if (item.is_trigger || item.polygon_count < 3 || item.polygon_count > kPolygonCollider2DCapacity) {
+        return false;
+    }
+    const ContactShape2D shape = contact_shape_of_2d(item);
+    const int count = std::min(shape.vertex_count, kPolygonCollider2DCapacity);
+    if (count < 3) {
+        return false;
+    }
+    out = ShapeBoundary{.kind = ShapeBoundary::Kind::Polygon, .layer = item.layer, .mask = item.mask};
+    out.count = count;
+    glm::vec2 lo{std::numeric_limits<float>::max()};
+    glm::vec2 hi{-std::numeric_limits<float>::max()};
+    for (int i = 0; i < count; ++i) {
+        const glm::vec2 v = shape.vertices[i];
+        if (!finite(v)) {
+            return false;
+        }
+        out.vertices[static_cast<std::size_t>(i)] = v;
+        lo = glm::min(lo, v);
+        hi = glm::max(hi, v);
+    }
+    for (int i = 0; i < count; ++i) {
+        const glm::vec2 a = out.vertices[static_cast<std::size_t>(i)];
+        const glm::vec2 b = out.vertices[static_cast<std::size_t>((i + 1) % count)];
+        const glm::vec2 c = out.vertices[static_cast<std::size_t>((i + 2) % count)];
+        const glm::vec2 edge = b - a;
+        const float length = std::sqrt(glm::dot(edge, edge));
+        const glm::vec2 next = c - b;
+        if (!(length > 0.0f) || edge.x * next.y - edge.y * next.x < 0.0f) {
+            return false;
+        }
+        out.normals[static_cast<std::size_t>(i)] = glm::vec2{edge.y, -edge.x} / length;
+    }
+    out.lo = lo;
+    out.hi = hi;
+    return true;
+}
+
+// Every collider that can bound a fluid this tick. `reach` is where any fluid can be this tick (world XY): the static
+// polygon and compound parts are read from the 2D solver's static AABB tree within it, when that cache is up to date
+// (run_physics_2d ran this tick), so the cost follows the terrain near the fluid, not the whole map. Without it (a
+// world that does not run run_physics_2d) they come from the component views like everything else.
+Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 reach_hi) {
     Boundaries out;
     world.view<Transform, SdfCollider2D>().each([&](ecs::Entity entity, const Transform&, const SdfCollider2D& sdf) {
         if (under_dynamic_body(world, entity)) {
@@ -219,6 +288,57 @@ Boundaries gather_boundaries(ecs::World& world) {
         shape.hi = shape.frame.position + glm::vec2{circle.radius};
         out.shapes.push_back(shape);
     });
+
+    const PhysicsBroadphase2D* cache = world.try_ctx<PhysicsBroadphase2D>();
+    const bool from_cache = cache != nullptr && !cache->dirty && cache->marked_entities.empty();
+    world.view<Transform, PolygonCollider2D>().each(
+            [&](ecs::Entity entity, const Transform& transform, const PolygonCollider2D& polygon) {
+        const bool movable = under_movable_body(world, entity);
+        if (from_cache && !movable) {
+            return;  // in the static cache, read below
+        }
+        ShapeBoundary shape;
+        const glm::mat4 matrix = collider_world_matrix_2d(world, entity, transform);
+        if (polygon_boundary(make_polygon_item_2d(entity, matrix, polygon, movable), shape)) {
+            out.shapes.push_back(shape);
+        }
+    });
+    world.view<Transform, CompoundCollider2D>().each(
+            [&](ecs::Entity entity, const Transform& transform, const CompoundCollider2D& compound) {
+        // Under a Dynamic body the solver ignores a compound; so does the fluid.
+        const bool movable = under_movable_body(world, entity);
+        if ((from_cache && !movable) || under_dynamic_body(world, entity)) {
+            return;
+        }
+        const glm::mat4 matrix = collider_world_matrix_2d(world, entity, transform);
+        for (std::uint32_t part = 0; part < compound.shapes.size(); ++part) {
+            ShapeBoundary shape;
+            if (polygon_boundary(make_compound_item_2d(entity, matrix, compound, part, movable), shape)) {
+                out.shapes.push_back(shape);
+            }
+        }
+    });
+    if (from_cache) {
+        // Static polygons and compound parts near the fluid, in (entity, shape, part) order.
+        std::vector<const ColliderItem2D*> items;
+        const Aabb box{glm::vec3{reach_lo, -1.0f}, glm::vec3{reach_hi, 1.0f}};
+        cache->static_tree.query(box, [&](int leaf) {
+            const PhysicsBroadphase2D::Slot& slot = cache->static_slots[static_cast<std::size_t>(leaf)];
+            if (slot.live &&
+                (slot.item.shape == ColliderShape2D::Polygon || slot.item.shape == ColliderShape2D::Compound)) {
+                items.push_back(&slot.item);
+            }
+        });
+        std::sort(items.begin(), items.end(), [](const ColliderItem2D* a, const ColliderItem2D* b) {
+            return collider_order_less_2d(*a, *b);
+        });
+        for (const ColliderItem2D* item : items) {
+            ShapeBoundary shape;
+            if (polygon_boundary(*item, shape)) {
+                out.shapes.push_back(shape);
+            }
+        }
+    }
     return out;
 }
 
@@ -296,6 +416,74 @@ struct Params {
     return p;
 }
 
+// Where `fluid` can be during a step of `dt` (world XY): its particles' box grown by a bound on how far any of them can
+// move. Per substep a particle moves at most its speed times the substep plus the solver's reach (a radius of boundary
+// push and `iterations` deltas and SDF pushes); what it moved becomes velocity, so the bound grows with each substep.
+// False for an empty fluid.
+[[nodiscard]] bool fluid_reach(const Fluid2D& fluid, glm::vec2 gravity, float dt, glm::vec2& lo, glm::vec2& hi) {
+    if (fluid.count() == 0 || !(dt > 0.0f) || !std::isfinite(dt)) {
+        return false;
+    }
+    const Params p = resolve(fluid.params);
+    lo = glm::vec2{std::numeric_limits<float>::max()};
+    hi = glm::vec2{-std::numeric_limits<float>::max()};
+    float speed = 0.0f;
+    for (std::size_t i = 0; i < fluid.count(); ++i) {
+        lo = glm::min(lo, fluid.positions()[i]);
+        hi = glm::max(hi, fluid.positions()[i]);
+        speed = std::max(speed, glm::dot(fluid.velocities()[i], fluid.velocities()[i]));
+    }
+    speed = std::sqrt(speed);
+    const float sub_dt = dt / static_cast<float>(p.substeps);
+    const float g = finite(gravity) ? std::sqrt(glm::dot(gravity, gravity)) * std::abs(fluid.params.gravity_scale) : 0.0f;
+    const float solver = p.radius + (p.max_delta + p.radius) * static_cast<float>(p.iterations);
+    float travel = p.radius;
+    for (int sub = 0; sub < p.substeps; ++sub) {
+        speed += std::isfinite(g) ? g * sub_dt : 0.0f;
+        const float move = speed * sub_dt + solver;
+        travel += move;
+        speed = move / sub_dt;
+    }
+    if (!std::isfinite(travel) || !finite(lo) || !finite(hi)) {
+        lo = glm::vec2{-std::numeric_limits<float>::max()};
+        hi = glm::vec2{std::numeric_limits<float>::max()};
+        return true;
+    }
+    lo -= glm::vec2{travel};
+    hi += glm::vec2{travel};
+    return true;
+}
+
+// Selected shapes by grid cell, rebuilt per substep: a particle projects against the shapes listed in its cell only,
+// so terrain made of many compound parts costs a particle what is near it. A shape is listed in every cell its box,
+// grown by the particle radius, overlaps within the fluid's box. A cell lists its shapes in selection order.
+struct ShapeGrid2D {
+    float inv_cell = 1.0f;
+    std::uint32_t mask = 0;
+    std::vector<std::uint32_t> bucket_start;
+    std::vector<glm::ivec2> entry_cell;
+    std::vector<std::uint32_t> entry_shape;
+    std::vector<std::pair<glm::ivec2, std::uint32_t>> pairs;
+
+    [[nodiscard]] glm::ivec2 cell_of(glm::vec2 position) const {
+        return {cell_coord(position.x * inv_cell), cell_coord(position.y * inv_cell)};
+    }
+
+    template <class F>
+    void for_each(glm::vec2 position, F&& fn) const {
+        if (entry_shape.empty()) {
+            return;
+        }
+        const glm::ivec2 cell = cell_of(position);
+        const std::uint32_t b = cell_hash(cell, mask);
+        for (std::uint32_t k = bucket_start[b]; k < bucket_start[b + 1]; ++k) {
+            if (entry_cell[k] == cell) {
+                fn(entry_shape[k]);
+            }
+        }
+    }
+};
+
 }
 
 // Per-step buffers, reused across ticks and fluids. Not part of any fluid's state.
@@ -316,6 +504,8 @@ struct Fluid2DScratch {
     std::vector<float> weight;
     std::vector<const SdfBoundary*> sdf;
     std::vector<const ShapeBoundary*> shapes;
+    ShapeGrid2D grid;
+    std::vector<std::uint32_t> grid_fill;  // scratch of the grid's counting sort
     // Where each particle's sweep starts: its position at the start of the substep for the first iteration, then where
     // the previous iteration left it (outside every boundary).
     std::vector<glm::vec2> from;
@@ -422,6 +612,110 @@ namespace {
     return true;
 }
 
+// The same for a convex polygon grown by `radius` (each edge moved out along its normal: sharp corners), clipping the
+// segment against every edge plane (Cyrus-Beck). A start inside counts at 0 when the step goes deeper through the
+// face of least penetration.
+[[nodiscard]] bool sweep_polygon_shape(glm::vec2 from, glm::vec2 delta, const ShapeBoundary& shape, float radius,
+                                       float& best, glm::vec2& normal) {
+    float deepest = -std::numeric_limits<float>::max();
+    int face = 0;
+    for (int e = 0; e < shape.count; ++e) {
+        const float side = glm::dot(from - shape.vertices[static_cast<std::size_t>(e)],
+                                    shape.normals[static_cast<std::size_t>(e)]) - radius;
+        if (side > deepest) {
+            deepest = side;
+            face = e;
+        }
+    }
+    if (deepest < 0.0f) {
+        const glm::vec2 n = shape.normals[static_cast<std::size_t>(face)];
+        if (glm::dot(delta, n) >= 0.0f) {
+            return false;
+        }
+        best = 0.0f;
+        normal = n;
+        return true;
+    }
+    float enter = 0.0f;
+    float leave = best;
+    glm::vec2 n{0.0f};
+    for (int e = 0; e < shape.count; ++e) {
+        const glm::vec2 en = shape.normals[static_cast<std::size_t>(e)];
+        const float num = radius - glm::dot(from - shape.vertices[static_cast<std::size_t>(e)], en);
+        const float den = glm::dot(delta, en);
+        if (den == 0.0f) {
+            if (num < 0.0f) {
+                return false;
+            }
+            continue;
+        }
+        const float t = num / den;
+        if (den < 0.0f) {
+            if (t > enter) {
+                enter = t;
+                n = en;
+            }
+        } else {
+            leave = std::min(leave, t);
+        }
+        if (enter > leave) {
+            return false;
+        }
+    }
+    if ((n.x == 0.0f && n.y == 0.0f) || enter >= best) {
+        return false;
+    }
+    best = enter;
+    normal = n;
+    return true;
+}
+
+// Pushes `pos` out of the convex polygon `shape` to `radius` from it: along the face of least penetration from inside,
+// from the nearest boundary point outside. False when it is at least `radius` away.
+[[nodiscard]] bool project_polygon(const ShapeBoundary& shape, float radius, glm::vec2& pos, glm::vec2& normal) {
+    float deepest = -std::numeric_limits<float>::max();
+    int face = 0;
+    for (int e = 0; e < shape.count; ++e) {
+        const float side =
+                glm::dot(pos - shape.vertices[static_cast<std::size_t>(e)], shape.normals[static_cast<std::size_t>(e)]);
+        if (side > deepest) {
+            deepest = side;
+            face = e;
+        }
+    }
+    if (deepest >= radius) {
+        return false;  // a face plane at least `radius` away: the convex polygon is at least that far
+    }
+    if (deepest <= 0.0f) {
+        const glm::vec2 n = shape.normals[static_cast<std::size_t>(face)];
+        pos += n * (radius - deepest);
+        normal = n;
+        return true;
+    }
+    glm::vec2 closest{0.0f};
+    float closest_d2 = std::numeric_limits<float>::max();
+    for (int e = 0; e < shape.count; ++e) {
+        const glm::vec2 a = shape.vertices[static_cast<std::size_t>(e)];
+        const glm::vec2 b = shape.vertices[static_cast<std::size_t>((e + 1) % shape.count)];
+        const glm::vec2 ab = b - a;
+        const float t = std::clamp(glm::dot(pos - a, ab) / glm::dot(ab, ab), 0.0f, 1.0f);
+        const glm::vec2 q = a + ab * t;
+        const float d2 = glm::dot(pos - q, pos - q);
+        if (d2 < closest_d2) {
+            closest_d2 = d2;
+            closest = q;
+        }
+    }
+    if (closest_d2 >= radius * radius) {
+        return false;
+    }
+    const float d = std::sqrt(closest_d2);
+    const glm::vec2 n = d > 1.0e-6f ? (pos - closest) / d : shape.normals[static_cast<std::size_t>(face)];
+    pos = closest + n * radius;
+    normal = n;
+    return true;
+}
+
 }
 
 void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s) {
@@ -508,6 +802,45 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
             s.shapes.push_back(&shape);
         }
     }
+
+    // The grid: cells of two kernel supports, each shape in the cells its grown box covers inside the fluid's box.
+    ShapeGrid2D& grid = s.grid;
+    grid.inv_cell = 0.5f * p.inv_h;
+    grid.pairs.clear();
+    const glm::ivec2 fluid_lo = grid.cell_of(lo);
+    const glm::ivec2 fluid_hi = grid.cell_of(hi);
+    for (std::size_t k = 0; k < s.shapes.size(); ++k) {
+        const ShapeBoundary& shape = *s.shapes[k];
+        const glm::ivec2 c0 = glm::max(grid.cell_of(shape.lo - glm::vec2{p.radius}), fluid_lo);
+        const glm::ivec2 c1 = glm::min(grid.cell_of(shape.hi + glm::vec2{p.radius}), fluid_hi);
+        for (int y = c0.y; y <= c1.y; ++y) {
+            for (int x = c0.x; x <= c1.x; ++x) {
+                grid.pairs.emplace_back(glm::ivec2{x, y}, static_cast<std::uint32_t>(k));
+            }
+        }
+    }
+    std::uint32_t table = 64;
+    while (static_cast<std::size_t>(table) < 2 * grid.pairs.size()) {
+        table *= 2;
+    }
+    grid.mask = table - 1;
+    grid.bucket_start.assign(static_cast<std::size_t>(table) + 1, 0);
+    for (const auto& [cell, shape] : grid.pairs) {
+        ++grid.bucket_start[cell_hash(cell, grid.mask) + 1];
+    }
+    for (std::uint32_t b = 0; b < table; ++b) {
+        grid.bucket_start[b + 1] += grid.bucket_start[b];
+    }
+    grid.entry_cell.resize(grid.pairs.size());
+    grid.entry_shape.resize(grid.pairs.size());
+    std::vector<std::uint32_t>& fill = s.grid_fill;
+    fill.assign(table, 0);
+    for (const auto& [cell, shape] : grid.pairs) {
+        const std::uint32_t b = cell_hash(cell, grid.mask);
+        const std::uint32_t at = grid.bucket_start[b] + fill[b]++;
+        grid.entry_cell[at] = cell;
+        grid.entry_shape[at] = shape;
+    }
 }
 
 // Sweeps the step of each particle in [begin, end) that moved more than `kSweepRadii` radii in this iteration (from
@@ -534,6 +867,8 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
             }
             if (shape->kind == ShapeBoundary::Kind::Circle) {
                 (void)sweep_circle_shape(from, delta, shape->frame.position, shape->radius + p.radius, best, normal);
+            } else if (shape->kind == ShapeBoundary::Kind::Polygon) {
+                (void)sweep_polygon_shape(from, delta, *shape, p.radius, best, normal);
             } else {
                 glm::vec2 local_normal{0.0f};
                 if (sweep_box_shape(shape->frame.to_local(from), shape->frame.rotate_to_local(delta),
@@ -581,17 +916,20 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
 void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s) {
     for (std::size_t i = begin; i < end && !s.shapes.empty(); ++i) {
         glm::vec2 pos = s.predicted[i];
-        for (const ShapeBoundary* shape : s.shapes) {
+        s.grid.for_each(pos, [&](std::uint32_t index) {
+            const ShapeBoundary* shape = s.shapes[index];
             if (pos.x < shape->lo.x - p.radius || pos.x > shape->hi.x + p.radius || pos.y < shape->lo.y - p.radius ||
                 pos.y > shape->hi.y + p.radius) {
-                continue;
+                return;
             }
-            if (shape->kind == ShapeBoundary::Kind::Circle) {
+            if (shape->kind == ShapeBoundary::Kind::Polygon) {
+                (void)project_polygon(*shape, p.radius, pos, s.normal[i]);
+            } else if (shape->kind == ShapeBoundary::Kind::Circle) {
                 const glm::vec2 d = pos - shape->frame.position;
                 const float reach = shape->radius + p.radius;
                 const float dist2 = glm::dot(d, d);
                 if (dist2 >= reach * reach) {
-                    continue;
+                    return;
                 }
                 const float dist = std::sqrt(dist2);
                 const glm::vec2 n = dist > 1.0e-6f ? d / dist : glm::vec2{0.0f, 1.0f};
@@ -603,7 +941,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 const float px = half.x - std::abs(l.x);
                 const float py = half.y - std::abs(l.y);
                 if (px <= 0.0f || py <= 0.0f) {
-                    continue;
+                    return;
                 }
                 glm::vec2 n{0.0f};
                 glm::vec2 out = l;
@@ -617,7 +955,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 pos = shape->frame.to_world(out);
                 s.normal[i] = shape->frame.rotate_to_world(n);
             }
-        }
+        });
         s.predicted[i] = pos;
     }
     std::array<glm::vec2, kSdfBatch> local{};
@@ -887,8 +1225,19 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
     }
     const float dt = world.ctx<Time>().fixed_delta_time;
     const glm::vec3 gravity = world.ctx<Physics2DConfig>().gravity;
+    // Where any fluid can be this tick, for the static polygon and compound parts.
+    glm::vec2 reach_lo{std::numeric_limits<float>::max()};
+    glm::vec2 reach_hi{-std::numeric_limits<float>::max()};
+    for (ecs::Entity entity : view) {
+        glm::vec2 lo;
+        glm::vec2 hi;
+        if (fluid_reach(view.get<Fluid2D>(entity), glm::vec2{gravity.x, gravity.y}, dt, lo, hi)) {
+            reach_lo = glm::min(reach_lo, lo);
+            reach_hi = glm::max(reach_hi, hi);
+        }
+    }
     // run_physics_2d ends with update_world_transforms, so the collider matrices are this tick's.
-    const Boundaries boundaries = gather_boundaries(world);
+    const Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi);
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
     for (ecs::Entity entity : view) {
         Fluid2DSolver::step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch);
