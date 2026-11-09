@@ -135,7 +135,9 @@ Taps, drains and sensors are saved with the world: their settings, not how much 
 
 About 4.6 us per particle per tick on one thread with the defaults, and it scales across the job workers: 4,000 particles cost about 3 ms a tick on a 12-thread desktop, 16,000 about 10 ms. Results are the same for any number of workers.
 
-`fluid_2d` is saved with the world, parameters only: a loaded fluid is empty, so spawn into it after loading. Fluids are not replicated over the network.
+`fluid_2d` is saved with the world: its parameters, taps, drains and sensors. The water itself is saved only when you set `save_particles = true` on the fluid; then a loaded game has the same water, to the bit. Leave it off for large fluids you can spawn again (a few megabytes per 100,000 particles). Fluids are not replicated over the network.
+
+To place a pool in a scene, add a child entity to the fluid's entity with a Transform and a `FluidBox2D` (`size`, optional `velocity`): the fluid fills that box with water the first time it steps. In the editor the World tab shows the box and the water it will hold, and draws the particles of every fluid; move the box with the gizmo and size it in the Inspector.
 
 The fluid is built to give the same bits on every platform the engine supports, not only for any number of workers, so two peers that feed it the same inputs keep the same water (checked so far on Windows with MSVC and clang, and on Web). `fluid.state_hash()` is a 64-bit hash of its particles: compare it between peers to catch a desync.
 
