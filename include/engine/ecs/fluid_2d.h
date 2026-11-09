@@ -96,6 +96,10 @@ public:
     [[nodiscard]] std::span<const float> densities() const {
         return densities_;
     }
+    // FNV-1a 64 of the simulation state: the particle count, then each particle's position and velocity bits in
+    // spawn order. Equal on two peers exactly when their fluids are the same bits (desync detection, golden tests).
+    // Parameters and densities (output of the last step) are not in it.
+    [[nodiscard]] std::uint64_t state_hash() const;
 
 private:
     friend struct Fluid2DSolver;

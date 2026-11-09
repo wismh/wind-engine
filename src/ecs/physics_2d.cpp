@@ -2,8 +2,10 @@
 
 #include <engine/core/time.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/transform.h>
 
 #include "broadphase.h"
+#include "core/state_hash.h"
 #include "physics_2d_internal.h"
 
 #include <algorithm>
@@ -125,6 +127,69 @@ void run_physics_2d(ecs::World& world, JobSystem* jobs) {
     publish_collision_events_2d(world, colliders, candidates);
     solve_physics_contacts_2d(world, colliders, candidates, jobs);
     ecs::update_world_transforms(world);
+}
+
+namespace {
+
+void hash_entity(StateHasher& hasher, ecs::Entity entity) {
+    hasher.u32(entity.index);
+    hasher.u32(entity.generation);
+}
+
+}
+
+std::uint64_t physics_state_hash_2d(ecs::World& world) {
+    std::vector<ecs::Entity> bodies;
+    for (const ecs::Entity entity : world.view<RigidBody2D>()) {
+        bodies.push_back(entity);
+    }
+    std::sort(bodies.begin(), bodies.end());
+
+    StateHasher hasher;
+    hasher.u64(bodies.size());
+    for (const ecs::Entity entity : bodies) {
+        const RigidBody2D& body = world.get<RigidBody2D>(entity);
+        hash_entity(hasher, entity);
+        hasher.u8(static_cast<std::uint8_t>(body.type));
+        if (const Transform* transform = world.try_get<Transform>(entity)) {
+            hasher.u8(1);
+            hasher.vec3(transform->position);
+            hasher.quat(transform->rotation);
+        } else {
+            hasher.u8(0);
+        }
+        hasher.vec3(body.velocity);
+        hasher.f32(body.angular_velocity);
+        hasher.u8(body.sleeping ? 1 : 0);
+    }
+
+    const PhysicsContactCache2D* cache = world.try_ctx<PhysicsContactCache2D>();
+    hasher.u64(cache != nullptr ? cache->impulses.size() : 0);
+    if (cache != nullptr) {
+        for (const auto& [key, impulse] : cache->impulses) {
+            hash_entity(hasher, key.a);
+            hash_entity(hasher, key.b);
+        hasher.u8(key.shape_a);
+        hasher.u8(key.shape_b);
+        hasher.u32(key.part_a);
+        hasher.u32(key.part_b);
+        for (int i = 0; i < kContact2DPointCapacity; ++i) {
+            hasher.f32(impulse.normal[i]);
+            hasher.f32(impulse.tangent[i]);
+        }
+        hasher.vec2(impulse.normal_axis);
+        }
+    }
+
+    const PhysicsSleepState2D* sleep = world.try_ctx<PhysicsSleepState2D>();
+    hasher.u64(sleep != nullptr ? sleep->quiet.size() : 0);
+    if (sleep != nullptr) {
+        for (const auto& [entity, quiet] : sleep->quiet) {
+            hash_entity(hasher, entity);
+            hasher.i32(quiet);
+        }
+    }
+    return hasher.value();
 }
 
 }

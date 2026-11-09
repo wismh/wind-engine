@@ -208,6 +208,10 @@ public:
     [[nodiscard]] std::uint64_t edit_count() const {
         return edit_count_;
     }
+    // FNV-1a 64 of what the field answers: cell size, band, origin, `outside`, then every allocated chunk in row-major
+    // order (`chunk_coords`) with its samples. Two fields with the same hash sample the same everywhere; revisions and
+    // `edit_count` (bookkeeping) are not in it.
+    [[nodiscard]] std::uint64_t hash() const;
 
 private:
     struct Chunk {
