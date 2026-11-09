@@ -35,7 +35,7 @@ void apply_world_spin(ecs::World& world, ecs::Entity entity, glm::vec3 omega_dt)
     if (transform == nullptr) {
         return;
     }
-    const glm::quat delta = glm::angleAxis(angle, omega_dt / angle);
+    const glm::quat delta = angle_axis(angle, omega_dt / angle);
     const Parent* parent = world.try_get<Parent>(entity);
     if (parent == nullptr || !world.valid(parent->entity)) {
         transform->rotation = delta * transform->rotation;

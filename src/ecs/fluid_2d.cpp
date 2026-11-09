@@ -9,6 +9,7 @@
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 
+#include "core/state_hash.h"
 #include "fluid_2d_internal.h"
 
 #include <glm/geometric.hpp>
@@ -84,16 +85,6 @@ constexpr float kMaxDeltaRadii = 1.0f;
     return positive_or(params.radius, 0.05f);
 }
 
-// Heading of the matrix X axis in XY, as the 2D solver reads an entity's yaw.
-[[nodiscard]] float yaw_of(const glm::mat4& matrix) {
-    const float x = matrix[0][0];
-    const float y = matrix[0][1];
-    if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
-        return 0.0f;
-    }
-    return std::atan2(y, x);
-}
-
 // The nearest RigidBody2D on the entity or above it is Dynamic.
 [[nodiscard]] bool under_dynamic_body(const ecs::World& world, ecs::Entity entity) {
     ecs::Entity current = entity;
@@ -134,9 +125,17 @@ struct Frame2D {
     }
 };
 
+// The heading comes from the matrix X axis in XY itself, normalized (scale changes its length only), with the
+// solver's epsilon: no angle and no trigonometry on the way.
 [[nodiscard]] Frame2D frame_of(const glm::mat4& matrix) {
-    const float angle = yaw_of(matrix);
-    return Frame2D{.position = {matrix[3][0], matrix[3][1]}, .cos_a = std::cos(angle), .sin_a = std::sin(angle)};
+    const glm::vec2 position{matrix[3][0], matrix[3][1]};
+    const float x = matrix[0][0];
+    const float y = matrix[0][1];
+    if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
+        return Frame2D{.position = position, .cos_a = 1.0f, .sin_a = 0.0f};
+    }
+    const float length = std::sqrt(x * x + y * y);
+    return Frame2D{.position = position, .cos_a = x / length, .sin_a = y / length};
 }
 
 struct SdfBoundary {
@@ -687,6 +686,16 @@ void Fluid2D::clear() {
     positions_.clear();
     velocities_.clear();
     densities_.clear();
+}
+
+std::uint64_t Fluid2D::state_hash() const {
+    StateHasher hasher;
+    hasher.u64(positions_.size());
+    for (std::size_t i = 0; i < positions_.size(); ++i) {
+        hasher.vec2(positions_[i]);
+        hasher.vec2(velocities_[i]);
+    }
+    return hasher.value();
 }
 
 void run_fluid_2d(ecs::World& world, JobSystem* jobs) {

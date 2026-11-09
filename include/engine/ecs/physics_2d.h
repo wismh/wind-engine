@@ -125,6 +125,13 @@ struct CollisionEvent2D {
 
 void run_physics_2d(ecs::World& world, JobSystem* jobs = nullptr);
 
+// FNV-1a 64 of the 2D solver's state: every entity with a RigidBody2D in entity order (the entity, body type, Transform
+// position and rotation when present, velocity, angular velocity, sleeping), then the warm-start contact cache and
+// the sleep counters. Bits, not values. Two peers that stepped the same inputs have the same hash (desync detection,
+// golden tests). Colliders, masses and other inputs are not in it; neither are SDF fields (SdfField2D::hash).
+// Non-const only because views are.
+[[nodiscard]] std::uint64_t physics_state_hash_2d(ecs::World& world);
+
 // A static collider has no Dynamic or Kinematic RigidBody2D on its entity or above it. run_physics_2d caches static
 // colliders across ticks, so its cost does not follow their count. Adding or removing a collider, destroying an
 // entity, and adding, removing or retyping a RigidBody2D are noticed on their own. Editing static geometry in place is

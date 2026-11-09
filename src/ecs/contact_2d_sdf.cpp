@@ -1,5 +1,6 @@
 #include "contact_2d.h"
 
+#include <engine/core/det_math.h>
 #include <engine/ecs/sdf_2d.h>
 
 #include <glm/common.hpp>
@@ -80,8 +81,9 @@ struct FieldFrame {
                              int& count) {
     if (body.kind == ContactShapeKind::Aabb) {
         const glm::vec2 h = body.half_extents;
-        const float c = std::cos(body.angle);
-        const float s = std::sin(body.angle);
+        const SinCos rotation = det_sin_cos(body.angle);
+        const float c = rotation.cos;
+        const float s = rotation.sin;
         const glm::vec2 local[4] = {{-h.x, -h.y}, {h.x, -h.y}, {h.x, h.y}, {-h.x, h.y}};
         for (int i = 0; i < 4; ++i) {
             ring[static_cast<std::size_t>(i)] =
@@ -209,7 +211,8 @@ ContactManifold2D contact_sdf_2d(const ContactShape2D& body, const ContactShape2
     if (field.sdf == nullptr || body.kind == ContactShapeKind::Sdf) {
         return {};
     }
-    const FieldFrame frame{field.center, std::cos(field.angle), std::sin(field.angle)};
+    const SinCos rotation = det_sin_cos(field.angle);
+    const FieldFrame frame{field.center, rotation.cos, rotation.sin};
     if (body.kind == ContactShapeKind::Circle) {
         return circle_against(body, *field.sdf, frame, field.sdf_chunk);
     }

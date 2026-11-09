@@ -80,4 +80,9 @@ struct CollisionEvent3D {
 
 void run_physics_3d(ecs::World& world, JobSystem* jobs = nullptr);
 
+// FNV-1a 64 of the 3D solver's state, as `physics_state_hash_2d`: every entity with a RigidBody3D in entity order
+// (entity, type, Transform position and rotation when present, velocity, angular velocity, sleeping), then the
+// warm-start contact cache and the sleep counters.
+[[nodiscard]] std::uint64_t physics_state_hash_3d(ecs::World& world);
+
 }

@@ -5,6 +5,7 @@
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
+#include <engine/core/det_math.h>
 #include <engine/builtin_ids.h>
 #include <engine/core/bound_windows.h>
 #include <engine/core/input_system.h>
@@ -1249,7 +1250,7 @@ namespace engine {
         if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
             return 0.0f;
         }
-        return std::atan2(y, x);
+        return det_atan2(y, x);
     }
 
     // The nearest RigidBody2D on the entity or above it is Dynamic.

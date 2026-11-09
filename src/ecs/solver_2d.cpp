@@ -1,5 +1,6 @@
 #include "solver_2d.h"
 
+#include <engine/core/det_math.h>
 #include <engine/ecs/physics_2d.h>
 
 #include <glm/geometric.hpp>
@@ -63,8 +64,9 @@ ContactShape2D contact_shape_2d(const SolverShape2D& shape, glm::vec2 center) {
     if (shape.kind != ContactShapeKind::Polygon || shape.vertex_count <= 0) {
         return out;
     }
-    const float c = std::cos(shape.angle);
-    const float s = std::sin(shape.angle);
+    const SinCos rotation = det_sin_cos(shape.angle);
+    const float c = rotation.cos;
+    const float s = rotation.sin;
     const int count = std::min(shape.vertex_count, kContactPolygonCapacity);
     out.vertex_count = count;
     for (int i = 0; i < count; ++i) {

@@ -1,5 +1,6 @@
 #include <engine/core/job_system.h>
 
+#include "core/float_mode.h"
 #include "core/job_state.h"
 
 #include <algorithm>
@@ -219,6 +220,8 @@ struct JobSystem::Impl {
     }
 
     static void participate(const std::shared_ptr<Batch>& job) {
+        // Ranges are simulation work: same float mode as the caller, whatever a job before them left set.
+        set_simulation_float_mode();
         for (;;) {
             const std::size_t index = job->next.fetch_add(1, std::memory_order_relaxed);
             if (index >= job->ranges.size()) {
@@ -270,6 +273,7 @@ JobSystem::JobSystem(int workers) : impl_(std::make_unique<Impl>()) {
     for (int i = 0; i < count; ++i) {
         impl->threads.emplace_back([impl] {
             g_job_depth = 0;
+            set_simulation_float_mode();
             impl->run();
         });
     }

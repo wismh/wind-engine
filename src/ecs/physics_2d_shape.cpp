@@ -1,5 +1,7 @@
 #include "physics_2d_internal.h"
 
+#include <engine/core/det_math.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -15,8 +17,9 @@ namespace {
 }
 
 void rotate_polygon(const ColliderItem2D& item, ContactShape2D& shape) {
-    const float cosine = std::cos(item.angle);
-    const float sine = std::sin(item.angle);
+    const SinCos rotation = det_sin_cos(item.angle);
+    const float cosine = rotation.cos;
+    const float sine = rotation.sin;
     const glm::vec2 center{item.position.x, item.position.y};
     const int count = std::min(item.polygon_count, kPolygonCollider2DCapacity);
     shape.vertex_count = count;
@@ -38,8 +41,9 @@ void rotate_polygon(const ColliderItem2D& item, ContactShape2D& shape) {
 CompoundShape2D box_shape_2d(glm::vec2 center, glm::vec2 size, float angle) {
     const glm::vec2 half = size * 0.5f;
     const glm::vec2 corners[4] = {{-half.x, -half.y}, {half.x, -half.y}, {half.x, half.y}, {-half.x, half.y}};
-    const float cosine = std::cos(angle);
-    const float sine = std::sin(angle);
+    const SinCos rotation = det_sin_cos(angle);
+    const float cosine = rotation.cos;
+    const float sine = rotation.sin;
     CompoundShape2D shape;
     shape.count = 4;
     for (int i = 0; i < 4; ++i) {
@@ -93,8 +97,9 @@ Aabb aabb_of_2d(const ColliderItem2D& item) {
         if (item.angle == 0.f) {
             return aabb_from_xy(center - half, center + half);
         }
-        const float cosine = std::cos(item.angle);
-        const float sine = std::sin(item.angle);
+        const SinCos rotation = det_sin_cos(item.angle);
+        const float cosine = rotation.cos;
+        const float sine = rotation.sin;
         const glm::vec2 local[4] = {{-half.x, -half.y}, {half.x, -half.y}, {half.x, half.y}, {-half.x, half.y}};
         glm::vec2 lo = center;
         glm::vec2 hi = center;

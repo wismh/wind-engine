@@ -83,6 +83,8 @@ About 4.6 us per particle per tick on one thread with the defaults, and it scale
 
 `fluid_2d` is saved with the world, parameters only: a loaded fluid is empty, so spawn into it after loading. Fluids are not replicated over the network.
 
+The fluid is built to give the same bits on every platform the engine supports, not only for any number of workers, so two peers that feed it the same inputs keep the same water (checked so far on Windows with MSVC and clang, and on Web). `fluid.state_hash()` is a 64-bit hash of its particles: compare it between peers to catch a desync.
+
 ---
 
 ## Next Steps
