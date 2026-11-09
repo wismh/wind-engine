@@ -120,6 +120,31 @@ Two runs of the LQ-26 build, same machine and settings (the range is the two mea
 
 An idle field costs what idle compound chunks cost. An edit re-read is cheap either way: it reads 56 chunk items (coordinates and revision, not samples) and moves only the leaves of chunks whose revision changed, so the world-wide mark costs the same as the per-entity one for a world with a single field. The second run had one 3.8 ms outlier tick in `static_sdf_edit` other ticks, which lifts its edit and other means. Contacts are about 2.3 times the compound terrain's: a unit box reads the field at 16 points (corners and edge points one cell apart) for every chunk pair, each of the ~11 contact evaluations per tick (events, wake, warm start, 8 position iterations), and a sleeping body on static terrain is still evaluated. Batching the reads per contact (`SdfField2D::sample_many`, one chunk lookup per run of points) and not zero-filling the scratch arrays brought this row from 3.6 ms to 2.1 ms; a coarser sample spacing would cut it further at the cost of thinner features slipping through.
 
+## Particle collision (LQ-25)
+
+`bench/physics/bench_particles_2d.cpp`, in the `--2d` suite. Each row times `run_particles` alone (one emitter, gather included) for 600 frames of 1/60 s, from the first frame. The particles are placed, not emitted: a square grid with a fixed spread of 2-unit/s velocities, `collision_radius` 0.05, `bounce` 0.2, `friction` 0.1, gravity -10, and a lifetime longer than the run. The "Bodies" column is the particle count. Stability: no particle lost, and on SDF rows none ends with `sample < 0`.
+
+| Scenario | What it measures |
+| --- | --- |
+| `particles_free_4k` | 4,096 particles, `collision_enabled` off: integrate alone |
+| `particles_box_floor_4k` | the same over one `BoxCollider2D` floor: they land and rest on it |
+| `particles_sdf_far_4k` | the static-terrain SDF field (100 x 20, 0.25-unit cells, 1-unit band, craters), particles 200 units away: the bounds reject only |
+| `particles_sdf_terrain_4k`, `particles_sdf_terrain_16k` | 4,096 or 16,384 particles dropped from 1-9 units onto that field: falling, landing, resting and sliding into the craters |
+| `particles_sdf_pool_4k` | a `Solid` world with one radius-8 cavity holding 4,096 particles: a pool where every particle ends up on the surface |
+
+Windows, MSVC, RelWithDebInfo, mean microseconds per frame, ns per particle in brackets:
+
+| Scenario | `--threads 0` | `--threads 7` |
+| --- | ---: | ---: |
+| `particles_free_4k` | 60 (15) | 24 (6) |
+| `particles_box_floor_4k` | 181 (44) | 42 (10) |
+| `particles_sdf_far_4k` | 88 (22) | 31 (7) |
+| `particles_sdf_terrain_4k` | 848 (207) | 141 (34) |
+| `particles_sdf_terrain_16k` | 3,374 (206) | 535 (33) |
+| `particles_sdf_pool_4k` | 769 (188) | 131 (32) |
+
+An SDF boundary costs about 200 ns per particle on one thread, linear in the count, and scales with the workers. While the particles fall (the minimum, about 85 ns) the cost is one `sample` at each end; a particle at rest adds one `gradient`. The first build swept every contact with `sweep_circle` and spent 1.3 us per resting particle (5.3 ms for the 4k terrain row); projecting short steps into the surface along the gradient, and reading the starts only for particles the end distance cannot clear, brought it to the numbers above.
+
 ## See also
 
 - [ECS](../modules/ECS.md#physics), the static collider cache and `mark_static_colliders_dirty_2d`
