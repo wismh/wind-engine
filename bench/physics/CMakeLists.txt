@@ -1,6 +1,7 @@
 add_executable(wind_physics_bench
     main.cpp
     bench_2d.cpp
+    bench_particles_2d.cpp
     bench_static_2d.cpp
     bench_3d.cpp
 )

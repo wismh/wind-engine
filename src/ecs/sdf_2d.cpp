@@ -340,6 +340,16 @@ SdfField2D::Chunk& SdfField2D::allocate(glm::ivec2 chunk) {
     return it->second;
 }
 
+std::optional<SdfBounds2D> SdfField2D::allocated_bounds() const {
+    if (chunks_.empty()) {
+        return std::nullopt;
+    }
+    return SdfBounds2D{
+            .min = origin_ + cell_size_ * (glm::vec2{chunk_min_ * kSdfChunkCells} - 1.0f),
+            .max = origin_ + cell_size_ * (glm::vec2{(chunk_max_ + 1) * kSdfChunkCells} + 1.0f),
+    };
+}
+
 bool SdfField2D::has_chunk(glm::ivec2 chunk) const {
     return find(chunk) != nullptr;
 }
@@ -394,11 +404,12 @@ std::optional<float> SdfField2D::march(glm::vec2 origin, glm::vec2 direction, fl
     if (outside_ == SdfOutside::Empty) {
         // Beyond the allocated chunks (and the one cell next to them that still reads their samples) the field is
         // +band, so nothing is hit there: clip the ray to that rectangle.
-        if (chunks_.empty()) {
+        const std::optional<SdfBounds2D> bounds = allocated_bounds();
+        if (!bounds) {
             return std::nullopt;
         }
-        const glm::vec2 lo = origin_ + cell_size_ * (glm::vec2{chunk_min_ * kSdfChunkCells} - 1.0f);
-        const glm::vec2 hi = origin_ + cell_size_ * (glm::vec2{(chunk_max_ + 1) * kSdfChunkCells} + 1.0f);
+        const glm::vec2 lo = bounds->min;
+        const glm::vec2 hi = bounds->max;
         float t_near = 0.0f;
         float t_far = max_distance;
         for (int a = 0; a < 2; ++a) {

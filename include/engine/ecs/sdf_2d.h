@@ -63,6 +63,12 @@ struct SdfHit2D {
     float distance = 0.0f;
 };
 
+// An axis-aligned rectangle in the field's frame.
+struct SdfBounds2D {
+    glm::vec2 min{0.0f};
+    glm::vec2 max{0.0f};
+};
+
 struct SdfSweep2D {
     // Of `delta`, in [0, 1]: where the circle first touches. 0 when it starts touching or penetrating.
     float fraction = 0.0f;
@@ -185,6 +191,10 @@ public:
     [[nodiscard]] std::size_t chunk_count() const {
         return chunks_.size();
     }
+    // Where the field can read anything but `outside`: the rectangle of allocated chunks grown by one cell on each
+    // side (the cells next to it still read its samples). Beyond it every query reads `outside`. nullopt when no chunk
+    // is allocated.
+    [[nodiscard]] std::optional<SdfBounds2D> allocated_bounds() const;
     // Allocated chunks, sorted by y then x.
     [[nodiscard]] std::vector<glm::ivec2> chunk_coords() const;
     // Bumped once by every edit that dirties the chunk; 0 for an unallocated chunk. A chunk allocated by an edit
