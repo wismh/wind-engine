@@ -1,5 +1,7 @@
 #include <engine/ecs/transform.h>
 
+#include <engine/core/det_math.h>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
@@ -13,13 +15,21 @@ glm::mat4 model_matrix(const Transform& transform) {
 }
 
 glm::quat rotation_z(float radians) {
-    return glm::angleAxis(radians, glm::vec3{0.0f, 0.0f, 1.0f});
+    const SinCos half = det_sin_cos(radians * 0.5f);
+    return glm::quat{half.cos, 0.0f, 0.0f, half.sin};
 }
 
 glm::quat euler_xyz(glm::vec3 radians) {
-    return glm::angleAxis(radians.x, glm::vec3{1.0f, 0.0f, 0.0f}) *
-           glm::angleAxis(radians.y, glm::vec3{0.0f, 1.0f, 0.0f}) *
-           glm::angleAxis(radians.z, glm::vec3{0.0f, 0.0f, 1.0f});
+    const SinCos x = det_sin_cos(radians.x * 0.5f);
+    const SinCos y = det_sin_cos(radians.y * 0.5f);
+    const SinCos z = det_sin_cos(radians.z * 0.5f);
+    return glm::quat{x.cos, x.sin, 0.0f, 0.0f} * glm::quat{y.cos, 0.0f, y.sin, 0.0f} *
+           glm::quat{z.cos, 0.0f, 0.0f, z.sin};
+}
+
+glm::quat angle_axis(float radians, glm::vec3 axis) {
+    const SinCos half = det_sin_cos(radians * 0.5f);
+    return glm::quat{half.cos, axis * half.sin};
 }
 
 float angle_z(const glm::quat& rotation) {
@@ -27,7 +37,7 @@ float angle_z(const glm::quat& rotation) {
     if (std::abs(x_axis.x) < 1e-6f && std::abs(x_axis.y) < 1e-6f) {
         return 0.0f;
     }
-    return std::atan2(x_axis.y, x_axis.x);
+    return det_atan2(x_axis.y, x_axis.x);
 }
 
 }

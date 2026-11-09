@@ -1,5 +1,6 @@
 #include "physics_2d_internal.h"
 
+#include <engine/core/det_math.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 #include <engine/log.h>
@@ -21,7 +22,7 @@ namespace {
     if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
         return 0.f;
     }
-    return std::atan2(y, x);
+    return det_atan2(y, x);
 }
 
 void warn_dynamic_terrain(ecs::World& world, ecs::Entity entity) {
