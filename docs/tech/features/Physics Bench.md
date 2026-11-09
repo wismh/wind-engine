@@ -195,6 +195,10 @@ A tiled compound tank costs about what the SDF tank costs: a particle against a 
 
 `fluid_crates_4k`, best of two runs, before (one-way) and after: 20,806 to 20,788 us with `--threads 0`, 3,474 to 3,526 us with the default threads. Recording each push of a body's shape and the serial sum per substep cost nothing measurable; a fluid with no dynamic body in reach skips both.
 
+### Several fluids (LQ-62)
+
+A lone fluid now runs through the group solver (gather into per-particle arrays, per-particle parameter lookups, scatter back). Best of two runs, before and after, on a busier machine than the tables above: `fluid_dam_4k` 25,756 to 26,102 us serial and 4,087 to 4,274 us on the default threads, `fluid_dam_16k` 110,107 to 111,051 and 13,297 to 13,657, `fluid_rest_4k` 25,951 to 26,338 and 4,143 to 4,226. About 1 percent serial and up to 4 percent threaded, near the noise.
+
 ## Deterministic simulation (LQ-63)
 
 The switch from libm `sin`, `cos` and `atan2` to the engine's deterministic functions ([Principles](../architecture/Principles.md#deterministic-simulation)), measured against the commit before it: the whole suite, `--all --threads 0 --skip-large`, best of two runs each, Windows, MSVC, RelWithDebInfo. MSVC already compiled with `/fp:precise` and no contraction, so on this target the change is the trigonometry alone. Most rows move within the run-to-run noise (about 5 percent). Rows dominated by contacts on rotated shapes cost a little more: `tumbler` 21,724 to 22,612 us (+4 percent), `static_contact_2k` 998 to 1,045 (+5), `static_contact_2k_compound` 965 to 1,025 (+6), `3d_large_island` 2,198 to 2,300 (+5). The fluid gets slightly cheaper (`fluid_dam_4k` 20,087 to 19,747), since collider frames now come from the matrix axis without an angle. The cost per platform (clang, Emscripten, arm64) is a separate backlog ticket.
