@@ -88,7 +88,7 @@ flowchart TD
 
 | Schedule | Phases that run | Engine systems |
 | --- | --- | --- |
-| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d` then `run_physics_3d` on `Physics` |
+| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d`, `run_fluid_2d`, then `run_physics_3d` on `Physics` |
 | `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
 
 The engine registers nothing on `NetReceive` or `NetSend`. `install_net_server` puts `run_net_server_receive` (poll, buffer inputs, advance the tick, step the controlled entities) on `Fixed`/`NetReceive` and `run_net_server_send` (snapshots, then queued payloads, per peer within its budget) on `Fixed`/`NetSend`; `install_net_client` puts `run_net_client_receive` and `run_net_client_interpolate` on `Frame`/`NetReceive`, `run_net_client_predict` (reconcile, advance the predicted tick, collect and step) on `Fixed`/`NetReceive`, and `run_net_client_send_input` on `Fixed`/`NetSend` ([Net](../modules/Net.md#schedule)). A world whose `Fixed` schedule does not run (paused, not stepping) neither polls its server transport nor sends snapshots, and a client world that does not step neither predicts nor sends input.

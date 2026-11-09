@@ -1,6 +1,7 @@
 #include <engine/ecs/world_serializer.h>
 
 #include <engine/ecs/camera.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/prototype_asset.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
@@ -972,6 +973,42 @@ void register_builtin_components(
                     }
                 }
                 c.field = std::move(field);
+            });
+
+    // Parameters only: the particles are transient simulation state, neither saved nor replicated.
+    serializer.register_component<Fluid2D>(
+            "fluid_2d",
+            [](ComponentWriter& out, const Fluid2D& c) {
+                out.field("radius", c.params.radius);
+                out.field("smoothing_length", c.params.smoothing_length);
+                out.field("rest_density", c.params.rest_density);
+                out.field("viscosity", c.params.viscosity);
+                out.field("relaxation", c.params.relaxation);
+                out.field("tensile_strength", c.params.tensile_strength);
+                out.field("iterations", c.params.iterations);
+                out.field("substeps", c.params.substeps);
+                out.field("max_particles", c.params.max_particles);
+                out.field("gravity_scale", c.params.gravity_scale);
+                out.field("friction", c.params.friction);
+                out.field("restitution", c.params.restitution);
+                out.field("layer", c.params.layer);
+                out.field("mask", c.params.mask);
+            },
+            [](ComponentReader& in, Fluid2D& c) {
+                (void)in.field("radius", c.params.radius);
+                (void)in.field("smoothing_length", c.params.smoothing_length);
+                (void)in.field("rest_density", c.params.rest_density);
+                (void)in.field("viscosity", c.params.viscosity);
+                (void)in.field("relaxation", c.params.relaxation);
+                (void)in.field("tensile_strength", c.params.tensile_strength);
+                (void)in.field("iterations", c.params.iterations);
+                (void)in.field("substeps", c.params.substeps);
+                (void)in.field("max_particles", c.params.max_particles);
+                (void)in.field("gravity_scale", c.params.gravity_scale);
+                (void)in.field("friction", c.params.friction);
+                (void)in.field("restitution", c.params.restitution);
+                (void)in.field("layer", c.params.layer);
+                (void)in.field("mask", c.params.mask);
             });
 
     serializer.register_component<CircleCollider2D>(

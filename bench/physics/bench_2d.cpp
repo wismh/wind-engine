@@ -1,4 +1,5 @@
 #include "bench_2d.h"
+#include "bench_fluid_2d.h"
 #include "bench_particles_2d.h"
 #include "bench_static_2d.h"
 
@@ -658,6 +659,8 @@ std::vector<BenchResult> run_all_2d_benchmarks(const BenchOptions& options) {
     results.insert(results.end(), static_results.begin(), static_results.end());
     std::vector<BenchResult> particle_results = run_particle_2d_benchmarks(options, &jobs);
     results.insert(results.end(), particle_results.begin(), particle_results.end());
+    std::vector<BenchResult> fluid_results = run_fluid_2d_benchmarks(options, &jobs);
+    results.insert(results.end(), fluid_results.begin(), fluid_results.end());
     return results;
 }
 
