@@ -265,10 +265,9 @@ void warm_up(StaticScene& scene, JobSystem* jobs) {
                        "run_physics_2d only; statics untouched");
 }
 
-// After an in-place static edit. Before LQ-22 the engine noticed it on its own; now the caller signals it.
-void signal_static_edit(ecs::World& world) {
-    mark_static_colliders_dirty_2d(world);
-}
+// What a churn tick does: spawn a far dynamic box, or edit one terrain cell in place and mark the edited entity
+// (LQ-28), or edit it and mark the whole world (the only mark before LQ-28, kept for comparison).
+enum class Churn { Spawn, EditMarkEntity, EditMarkWorld };
 
 // After warm-up, kDroppers dynamic boxes are dropped onto the terrain; every tick from the drop on is timed, so the
 // row covers the landing, the resting contacts and the fall asleep.
@@ -290,10 +289,10 @@ void signal_static_edit(ecs::World& world) {
                        "run_physics_2d only; 64 boxes land on the terrain", 4 + kDroppers);
 }
 
-// Every kEditEvery ticks: either move one terrain cell in place (`spawn` false) or spawn a dynamic box with a
-// collider far away (`spawn` true). The edit ticks and the other ticks are reported as separate rows. In the compound
-// layout the edit moves one shape of a chunk in place.
-void bench_static_churn(std::vector<BenchResult>& out, std::string name, bool spawn, Layout layout, int steps,
+// Every kEditEvery ticks: either move one terrain cell in place and mark it, or spawn a dynamic box with a collider far
+// away. The edit ticks and the other ticks are reported as separate rows. In the compound layout the edit moves one
+// shape of a chunk in place and marks the chunk.
+void bench_static_churn(std::vector<BenchResult>& out, std::string name, Churn churn, Layout layout, int steps,
                         JobSystem* jobs) {
     StaticScene scene = build_scene(2000, layout);
     warm_up(scene, jobs);
@@ -303,24 +302,29 @@ void bench_static_churn(std::vector<BenchResult>& out, std::string name, bool sp
     for (int i = 0; i < steps; ++i) {
         const bool edit = (i % kEditEvery) == 0;
         if (edit) {
-            if (spawn) {
+            if (churn == Churn::Spawn) {
                 (void) add_dynamic_box(scene.world, glm::vec3{-900.f - static_cast<float>(i), 500.f, 0.f},
                                        BodyType::Dynamic, glm::vec3{0.f});
             } else {
+                ecs::Entity edited{};
                 if (layout == Layout::Compound) {
-                    CompoundCollider2D& chunk =
-                            scene.world.get<CompoundCollider2D>(scene.terrain[next_cell % scene.terrain.size()]);
+                    edited = scene.terrain[next_cell % scene.terrain.size()];
+                    CompoundCollider2D& chunk = scene.world.get<CompoundCollider2D>(edited);
                     CompoundShape2D& shape = chunk.shapes[(next_cell / scene.terrain.size()) % chunk.shapes.size()];
                     for (int v = 0; v < shape.count; ++v) {
                         shape.vertices[v].x += 0.001f;
                     }
                     next_cell = (next_cell + 37) % 2000;
                 } else {
-                    const ecs::Entity cell = scene.terrain[next_cell];
+                    edited = scene.terrain[next_cell];
                     next_cell = (next_cell + 37) % scene.terrain.size();
-                    scene.world.get<Transform>(cell).position.x += 0.001f;
+                    scene.world.get<Transform>(edited).position.x += 0.001f;
                 }
-                signal_static_edit(scene.world);
+                if (churn == Churn::EditMarkEntity) {
+                    mark_static_colliders_dirty_2d(scene.world, edited);
+                } else {
+                    mark_static_colliders_dirty_2d(scene.world);
+                }
             }
         }
         const auto start = Clock::now();
@@ -357,17 +361,23 @@ std::vector<BenchResult> run_static_2d_benchmarks(const BenchOptions& options, J
             results.push_back(bench_static_far(c.name, c.count, c.layout, steps, jobs));
         }
     }
-    if (matches("static_edit_2k", options.filter)) {
-        bench_static_churn(results, "static_edit_2k", false, Layout::Separate, steps, jobs);
-    }
-    if (matches("static_edit_2k_compound", options.filter)) {
-        bench_static_churn(results, "static_edit_2k_compound", false, Layout::Compound, steps, jobs);
-    }
-    if (matches("static_spawn_2k", options.filter)) {
-        bench_static_churn(results, "static_spawn_2k", true, Layout::Separate, steps, jobs);
-    }
-    if (matches("static_spawn_2k_compound", options.filter)) {
-        bench_static_churn(results, "static_spawn_2k_compound", true, Layout::Compound, steps, jobs);
+    struct ChurnCase {
+        const char* name;
+        Churn churn;
+        Layout layout;
+    };
+    const ChurnCase churn_cases[] = {
+            {"static_edit_2k", Churn::EditMarkEntity, Layout::Separate},
+            {"static_edit_2k_world", Churn::EditMarkWorld, Layout::Separate},
+            {"static_edit_2k_compound", Churn::EditMarkEntity, Layout::Compound},
+            {"static_edit_2k_compound_world", Churn::EditMarkWorld, Layout::Compound},
+            {"static_spawn_2k", Churn::Spawn, Layout::Separate},
+            {"static_spawn_2k_compound", Churn::Spawn, Layout::Compound},
+    };
+    for (const ChurnCase& c : churn_cases) {
+        if (matches(c.name, options.filter)) {
+            bench_static_churn(results, c.name, c.churn, c.layout, steps, jobs);
+        }
     }
     struct ContactCase {
         const char* name;

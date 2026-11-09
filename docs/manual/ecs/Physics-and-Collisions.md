@@ -186,7 +186,7 @@ world.emplace<engine::CompoundCollider2D>(chunk, std::move(ground));
 - Static, or under a Kinematic body (a moving platform). Under a Dynamic body it is ignored and a warning is logged once; dynamic compounds are not supported yet.
 - No trigger flag, and one `layer` / `mask` / `friction` / `restitution` for all shapes. Use separate entities for trigger zones.
 - A body touching several shapes of the chunk gets one `CollisionEvent2D` per tick, carrying the deepest contact. Sliding along the chunk is one Enter, then Stay.
-- Changing `shapes` in place (digging) needs `engine::mark_static_colliders_dirty_2d(world)`, as for any static collider edit. Adding or removing the component does not.
+- Changing `shapes` in place (digging) needs `engine::mark_static_colliders_dirty_2d(world, chunk)`, as for any static collider edit. Only that chunk is re-read, so digging costs the chunk, not the map. Adding or removing the component does not need a mark.
 - Particles do not collide with compound shapes.
 
 ---

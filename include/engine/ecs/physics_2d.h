@@ -78,7 +78,7 @@ struct CompoundShape2D {
 // Many convex shapes on one entity, for chunked static terrain: one entity per chunk instead of one per cell. Static
 // or under a Kinematic body. Under a Dynamic body (on the entity or above it) it is ignored and a warning is logged
 // once per entity; dynamic compounds are future work. No trigger: use separate trigger entities. One material for
-// every shape. Editing `shapes` in place is an in-place static edit (mark_static_colliders_dirty_2d).
+// every shape. Editing `shapes` in place is an in-place static edit: mark_static_colliders_dirty_2d(world, chunk).
 struct CompoundCollider2D {
     std::vector<CompoundShape2D> shapes{};
     uint32_t layer{1};
@@ -110,8 +110,17 @@ void run_physics_2d(ecs::World& world, JobSystem* jobs = nullptr);
 // colliders across ticks, so its cost does not follow their count. Adding or removing a collider, destroying an
 // entity, and adding, removing or retyping a RigidBody2D are noticed on their own. Editing static geometry in place is
 // not: after changing the Transform of a static collider or of any of its ancestors, its collider fields, or its
-// parent, call this so the next tick sees the change. Without the call a background audit finds the edit within a
-// few seconds and logs a warning. Geometry that moves every tick should carry a Kinematic body instead.
+// parent, mark it so the next tick sees the change. Without a mark a background audit finds the edit within a few
+// seconds and logs a warning. Geometry that moves every tick should carry a Kinematic body instead.
+
+// The next tick re-reads the static colliders on `entity` and on all of its descendants (an ancestor's Transform moves
+// the subtree) and edits only their cache slots, so an edit costs what the subtree holds, not the whole map. Mark the
+// edited entity, or the ancestor whose Transform changed. Several marks in one tick are batched. A dead entity is a
+// no-op; so is an entity with no static collider in its subtree (movable colliders are skipped).
+void mark_static_colliders_dirty_2d(ecs::World& world, ecs::Entity entity);
+
+// The next tick re-reads every static collider in the world. For bulk edits whose entities are not known (a loaded
+// level overwriting components in place). It wins over per-entity marks pending the same tick.
 void mark_static_colliders_dirty_2d(ecs::World& world);
 
 }

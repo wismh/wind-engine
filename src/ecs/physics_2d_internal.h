@@ -105,10 +105,13 @@ struct PhysicsBroadphase2D {
     std::uint64_t circle_version{0};
     std::uint64_t polygon_version{0};
     std::uint64_t compound_version{0};
-    bool dirty{true};
+    bool dirty{true};                          // re-read every static collider next tick
+    std::vector<ecs::Entity> marked_entities{};  // per-entity marks since the last tick; unsorted, may repeat
     std::size_t audit_cursor{0};
     std::vector<ecs::Entity> audit_warned{};  // sorted; each entity is warned about once
-    std::uint64_t rebuild_count{0};           // re-reads of the static colliders
+    std::uint64_t rebuild_count{0};           // re-reads of every static collider
+    std::uint64_t entity_rebuild_count{0};    // re-reads of the marked entities' subtrees only
+    std::size_t last_rebuild_reads{0};        // collider items (compound parts count one each) the last re-read made
     std::vector<ecs::Entity> dynamic_compound_warned{};  // sorted; compounds left out under a Dynamic body
 };
 
