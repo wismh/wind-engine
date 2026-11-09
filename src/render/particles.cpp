@@ -4,6 +4,7 @@
 
 #include <engine/core/job_system.h>
 #include <engine/ecs/grid_query.h>
+#include <engine/ecs/sdf_2d.h>
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -12,8 +13,10 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <random>
 #include <span>
 #include <vector>
@@ -547,9 +550,42 @@ struct ParticleStep {
     const glm::mat4* inverse = nullptr;
     std::span<const ParticleCollider2D> colliders;
     std::span<const ParticleCollider3D> colliders_3d;
+    // The Sdf entries of `colliders` with a field and a layer in the emitter's mask, in span order. Empty when
+    // collision is off.
+    std::span<const ParticleCollider2D> sdf_colliders;
 };
 
 constexpr std::size_t kParticleGrain = 64;
+// Particles per `sample_many` batch against one Sdf collider. Stack arrays, so a batch allocates nothing.
+constexpr std::size_t kSdfBatch = 64;
+// How far past the surface a resolved particle is placed, in world units. The box and circle tests use the same.
+constexpr float kHitEpsilon = 0.001f;
+// A step into an Sdf surface no longer than this many cells is projected out instead of swept.
+constexpr float kSdfProjectStep = 0.5f;
+
+// The response every collider shares: reflect the normal part of the velocity by `bounce`, damp the tangent part
+// by `friction`. `normal` is unit, in simulation space. A particle already leaving keeps its velocity.
+void reflect_velocity(Particle& p, const ParticleEmitter& emitter, const glm::vec3& normal) {
+    const float vn = glm::dot(p.velocity, normal);
+    if (vn < 0.0f) {
+        const glm::vec3 v_normal = vn * normal;
+        const glm::vec3 v_tangent = p.velocity - v_normal;
+        const float clamped_bounce = glm::clamp(emitter.bounce, 0.0f, 1.0f);
+        const float clamped_friction = glm::clamp(emitter.friction, 0.0f, 1.0f);
+        p.velocity = (-clamped_bounce * v_normal) + ((1.0f - clamped_friction) * v_tangent);
+    }
+}
+
+// `lifetime_loss` after a hit. False: the particle died.
+[[nodiscard]] bool lose_lifetime(Particle& p, const ParticleEmitter& emitter) {
+    if (emitter.lifetime_loss > 0.0f) {
+        p.age += p.lifetime * glm::clamp(emitter.lifetime_loss, 0.0f, 1.0f);
+        if (p.age >= p.lifetime) {
+            return false;
+        }
+    }
+    return true;
+}
 
 [[nodiscard]] bool step_particle(Particle& p, const ParticleStep& step) {
     const ParticleEmitter& emitter = *step.emitter;
@@ -582,6 +618,10 @@ constexpr std::size_t kParticleGrain = 64;
 
             HitResult candidate_hit;
             bool collided = false;
+            if (col.shape == ParticleCollider2D::Shape::Sdf) {
+                // After the swept shapes, in `collide_sdf_batch`.
+                continue;
+            }
             if (col.shape == ParticleCollider2D::Shape::Box) {
                 collided = check_box_collision(
                         seg_p0, seg_p1, emitter.collision_radius, col.position, col.box_size, candidate_hit);
@@ -636,28 +676,16 @@ constexpr std::size_t kParticleGrain = 64;
                         glm::vec3(glm::transpose(transform) * glm::vec4(closest_hit.normal, 0.0f)));
             }
 
-            constexpr float epsilon = 0.001f;
-            p.position = hit_point + hit_normal * epsilon;
-
-            const float vn = glm::dot(p.velocity, hit_normal);
-            if (vn < 0.0f) {
-                const glm::vec3 v_normal = vn * hit_normal;
-                const glm::vec3 v_tangent = p.velocity - v_normal;
-                const float clamped_bounce = glm::clamp(emitter.bounce, 0.0f, 1.0f);
-                const float clamped_friction = glm::clamp(emitter.friction, 0.0f, 1.0f);
-                p.velocity = (-clamped_bounce * v_normal) + ((1.0f - clamped_friction) * v_tangent);
-            }
+            p.position = hit_point + hit_normal * kHitEpsilon;
+            reflect_velocity(p, emitter, hit_normal);
 
             const float remaining_dt = dt * (1.0f - closest_hit.t);
             if (remaining_dt > 0.0f) {
                 p.position += p.velocity * remaining_dt;
             }
 
-            if (emitter.lifetime_loss > 0.0f) {
-                p.age += p.lifetime * glm::clamp(emitter.lifetime_loss, 0.0f, 1.0f);
-                if (p.age >= p.lifetime) {
-                    return false;
-                }
+            if (!lose_lifetime(p, emitter)) {
+                return false;
             }
         } else {
             p.position = next_pos;
@@ -683,6 +711,204 @@ constexpr std::size_t kParticleGrain = 64;
         p.size = glm::mix(p.start_size, p.end_size, t);
     }
     return true;
+}
+
+// The pose of an Sdf collider: field-local XY = R(-angle) * (world XY - position).
+struct SdfFrame {
+    glm::vec2 position{0.0f};
+    float cos_a = 1.0f;
+    float sin_a = 0.0f;
+
+    [[nodiscard]] glm::vec2 rotate_to_local(glm::vec2 v) const {
+        return {cos_a * v.x + sin_a * v.y, -sin_a * v.x + cos_a * v.y};
+    }
+    [[nodiscard]] glm::vec2 rotate_to_world(glm::vec2 v) const {
+        return {cos_a * v.x - sin_a * v.y, sin_a * v.x + cos_a * v.y};
+    }
+    [[nodiscard]] glm::vec2 to_local(glm::vec2 world) const {
+        return rotate_to_local(world - position);
+    }
+    [[nodiscard]] glm::vec2 to_world(glm::vec2 local) const {
+        return position + rotate_to_world(local);
+    }
+};
+
+// The particle's circle radius against `field`: `collision_radius` (a point when not positive), kept below the band,
+// which `sweep_circle` needs.
+[[nodiscard]] float sdf_particle_radius(const ParticleEmitter& emitter, const SdfField2D& field) {
+    const float radius = emitter.collision_radius > 0.0f ? emitter.collision_radius : 0.0f;
+    return std::min(radius, field.band() * 0.999f);
+}
+
+// Particles [0, particles.size()) of one batch against every Sdf collider, after `step_particle`. `starts` holds
+// each particle's simulation-space position before the step. A particle's result depends only on that particle and
+// the read-only fields, so it does not depend on how the ranges are split across workers.
+//
+// Per collider, with the field read as a distance bound:
+// 1. The step segment, grown by the radius, is rejected when it misses the field's `allocated_bounds` (no reject with
+//    `SdfOutside::Solid`).
+// 2. One `sample_many` reads the ends. A step no longer than the clearance at its end (`d1 - radius`) stays in the
+//    free disc there: no contact. A step into the surface (`d1 < radius`) of at most `kSdfProjectStep` cells, a
+//    resting or sliding particle, projects its end out along the gradient.
+// 3. A second `sample_many` reads the starts of the rest. A step no longer than the clearance at its two ends allows
+//    cannot reach the surface. Any other is swept with `sweep_circle` from its start: the contact is the touch point
+//    (pushed out along the gradient by `depth` when it started inside), and the rest of the step is spent along the
+//    new velocity, stopped by a second sweep. With no swept contact, an end within the radius is projected as in 2.
+// A resolved particle ends `kHitEpsilon` off the surface and gets the shared response. Deeper than the band the field
+// is flat: no normal, no contact.
+void collide_sdf_batch(
+        std::span<Particle> particles,
+        std::span<const glm::vec3> starts,
+        std::span<char> alive,
+        const ParticleStep& step) {
+    const ParticleEmitter& emitter = *step.emitter;
+    const bool local = emitter.simulation_space == SimulationSpace::Local;
+    const std::size_t count = particles.size();
+    std::array<std::uint32_t, kSdfBatch> index{};
+    std::array<glm::vec2, kSdfBatch> local_start{};
+    std::array<glm::vec2, kSdfBatch> local_end{};
+    std::array<float, kSdfBatch> end_distance{};
+    std::array<float, kSdfBatch> end_z{};
+    std::array<std::uint32_t, kSdfBatch> swept{};
+    std::array<glm::vec2, kSdfBatch> swept_start{};
+    std::array<float, kSdfBatch> start_distance{};
+
+    for (const ParticleCollider2D& col : step.sdf_colliders) {
+        const SdfField2D& field = *col.field;
+        const std::optional<SdfBounds2D> bounds = field.allocated_bounds();
+        const bool solid_outside = field.outside() == SdfOutside::Solid;
+        if (!bounds && !solid_outside) {
+            continue;
+        }
+        const float radius = sdf_particle_radius(emitter, field);
+        const float project_step = kSdfProjectStep * field.cell_size();
+        const SdfFrame frame{
+                .position = glm::vec2(col.position),
+                .cos_a = std::cos(col.angle),
+                .sin_a = std::sin(col.angle),
+        };
+
+        // Contact `k` at field-local `center` with unit `normal`, `fraction` of the step spent.
+        auto resolve = [&](std::size_t k, glm::vec2 center, glm::vec2 normal, float fraction) {
+            const std::size_t i = index[k];
+            Particle& p = particles[i];
+            if (emitter.kill_on_collision) {
+                p.age = p.lifetime;
+                alive[i] = 0;
+                return;
+            }
+
+            center += normal * kHitEpsilon;
+            glm::vec3 hit_normal{frame.rotate_to_world(normal), 0.0f};
+            if (local) {
+                hit_normal = glm::normalize(glm::vec3(glm::transpose(*step.transform) * glm::vec4(hit_normal, 0.0f)));
+            }
+            reflect_velocity(p, emitter, hit_normal);
+
+            const float remaining_dt = step.dt * (1.0f - fraction);
+            if (remaining_dt > 0.0f) {
+                glm::vec3 velocity = p.velocity;
+                if (local) {
+                    velocity = glm::mat3(*step.transform) * velocity;
+                }
+                const glm::vec2 delta = frame.rotate_to_local(glm::vec2(velocity)) * remaining_dt;
+                const std::optional<SdfSweep2D> rest = field.sweep_circle(center, radius, delta);
+                if (!rest) {
+                    center += delta;
+                } else if (rest->fraction > 0.0f) {
+                    center = rest->center;
+                }
+            }
+
+            glm::vec3 position{frame.to_world(center), end_z[k]};
+            if (local) {
+                position = glm::vec3((*step.inverse) * glm::vec4(position, 1.0f));
+            }
+            p.position = position;
+            if (!lose_lifetime(p, emitter)) {
+                alive[i] = 0;
+            }
+        };
+        // Projects end `k` out along the gradient; nothing where the field is flat.
+        auto project = [&](std::size_t k) {
+            const glm::vec2 normal = field.gradient(local_end[k]);
+            if (glm::dot(normal, normal) > 0.0f) {
+                resolve(k, local_end[k] + normal * (radius - end_distance[k]), normal, 1.0f);
+            }
+        };
+
+        // 1.
+        std::size_t n = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (alive[i] == 0) {
+                continue;
+            }
+            glm::vec3 ws = starts[i];
+            glm::vec3 we = particles[i].position;
+            if (local) {
+                ws = glm::vec3((*step.transform) * glm::vec4(ws, 1.0f));
+                we = glm::vec3((*step.transform) * glm::vec4(we, 1.0f));
+            }
+            const glm::vec2 ls = frame.to_local(glm::vec2(ws));
+            const glm::vec2 le = frame.to_local(glm::vec2(we));
+            if (!solid_outside) {
+                const glm::vec2 lo = glm::min(ls, le) - radius;
+                const glm::vec2 hi = glm::max(ls, le) + radius;
+                if (hi.x < bounds->min.x || lo.x > bounds->max.x || hi.y < bounds->min.y || lo.y > bounds->max.y) {
+                    continue;
+                }
+            }
+            index[n] = static_cast<std::uint32_t>(i);
+            local_start[n] = ls;
+            local_end[n] = le;
+            end_z[n] = we.z;
+            ++n;
+        }
+        if (n == 0) {
+            continue;
+        }
+
+        // 2.
+        field.sample_many(std::span<const glm::vec2>(local_end.data(), n), std::span<float>(end_distance.data(), n));
+        std::size_t m = 0;
+        for (std::size_t k = 0; k < n; ++k) {
+            const float travel = glm::length(local_end[k] - local_start[k]);
+            const float d1 = end_distance[k];
+            if (d1 - radius >= travel) {
+                continue;
+            }
+            if (d1 < radius && travel <= project_step) {
+                project(k);
+                continue;
+            }
+            swept[m] = static_cast<std::uint32_t>(k);
+            swept_start[m] = local_start[k];
+            ++m;
+        }
+        if (m == 0) {
+            continue;
+        }
+
+        // 3.
+        field.sample_many(
+                std::span<const glm::vec2>(swept_start.data(), m), std::span<float>(start_distance.data(), m));
+        for (std::size_t j = 0; j < m; ++j) {
+            const std::size_t k = swept[j];
+            const glm::vec2 ls = local_start[k];
+            const glm::vec2 le = local_end[k];
+            const float d0 = start_distance[j];
+            const float d1 = end_distance[k];
+            if (d1 >= radius && glm::length(le - ls) <= (d0 - radius) + (d1 - radius)) {
+                continue;
+            }
+            const std::optional<SdfSweep2D> sweep = field.sweep_circle(ls, radius, le - ls);
+            if (sweep && glm::dot(sweep->normal, sweep->normal) > 0.0f) {
+                resolve(k, sweep->center + sweep->normal * sweep->depth, sweep->normal, sweep->fraction);
+            } else if (!sweep && d1 < radius) {
+                project(k);
+            }
+        }
+    }
 }
 
 // Caller-only. The predicate calls game code, so this stays off the integrate job.
@@ -745,19 +971,9 @@ void sweep_particle_grid(
             continue;
         }
         p.position = center;
-        const float vn = glm::dot(p.velocity, normal);
-        if (vn < 0.0f) {
-            const glm::vec3 v_normal = vn * normal;
-            const glm::vec3 v_tangent = p.velocity - v_normal;
-            const float clamped_bounce = glm::clamp(emitter.bounce, 0.0f, 1.0f);
-            const float clamped_friction = glm::clamp(emitter.friction, 0.0f, 1.0f);
-            p.velocity = (-clamped_bounce * v_normal) + ((1.0f - clamped_friction) * v_tangent);
-        }
-        if (emitter.lifetime_loss > 0.0f) {
-            p.age += p.lifetime * glm::clamp(emitter.lifetime_loss, 0.0f, 1.0f);
-            if (p.age >= p.lifetime) {
-                alive[i] = 0;
-            }
+        reflect_velocity(p, emitter, normal);
+        if (!lose_lifetime(p, emitter)) {
+            alive[i] = 0;
         }
     }
 }
@@ -854,6 +1070,15 @@ void update_emitter(
             inverse = glm::inverse(transform);
             inverse_ptr = &inverse;
         }
+        std::vector<ParticleCollider2D> sdf_colliders;
+        if (shape_collide) {
+            for (const ParticleCollider2D& col : colliders) {
+                if (col.shape == ParticleCollider2D::Shape::Sdf && col.field != nullptr &&
+                    (col.layer & emitter.collision_mask) != 0) {
+                    sdf_colliders.push_back(col);
+                }
+            }
+        }
         const ParticleStep step{
                 .emitter = &emitter,
                 .dt = dt,
@@ -861,6 +1086,7 @@ void update_emitter(
                 .inverse = inverse_ptr,
                 .colliders = colliders,
                 .colliders_3d = colliders_3d,
+                .sdf_colliders = sdf_colliders,
         };
         std::vector<glm::vec3> grid_starts;
         if (grid_collide) {
@@ -871,8 +1097,25 @@ void update_emitter(
         }
         std::vector<char> alive(count, 1);
         auto integrate = [&](std::size_t begin, std::size_t end) {
-            for (std::size_t i = begin; i < end; ++i) {
-                alive[i] = step_particle(emitter.particles[i], step) ? 1 : 0;
+            if (step.sdf_colliders.empty()) {
+                for (std::size_t i = begin; i < end; ++i) {
+                    alive[i] = step_particle(emitter.particles[i], step) ? 1 : 0;
+                }
+                return;
+            }
+            std::array<glm::vec3, kSdfBatch> starts{};
+            for (std::size_t batch = begin; batch < end; batch += kSdfBatch) {
+                const std::size_t batch_end = std::min(end, batch + kSdfBatch);
+                for (std::size_t i = batch; i < batch_end; ++i) {
+                    starts[i - batch] = emitter.particles[i].position;
+                    alive[i] = step_particle(emitter.particles[i], step) ? 1 : 0;
+                }
+                const std::size_t size = batch_end - batch;
+                collide_sdf_batch(
+                        std::span<Particle>(emitter.particles.data() + batch, size),
+                        std::span<const glm::vec3>(starts.data(), size),
+                        std::span<char>(alive.data() + batch, size),
+                        step);
             }
         };
         if (jobs != nullptr) {

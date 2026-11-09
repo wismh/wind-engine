@@ -233,13 +233,13 @@ TEST(Physics2DCompound, ShapesFollowTheEntityAndItsParent) {
 
     // A quarter turn about +Z puts the shape at (0, 3).
     world.get<engine::Transform>(chunk).rotation = engine::rotation_z(1.5707963f);
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, chunk);
     events = step_and_read(world);
     EXPECT_TRUE(has_event(events, east, chunk, engine::CollisionPhase::Exit));
     EXPECT_TRUE(has_event(events, north, chunk, engine::CollisionPhase::Enter));
 
     world.get<engine::Transform>(root).position.x = 10.f;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, root);
     events = step_and_read(world);
     EXPECT_TRUE(has_event(events, north, chunk, engine::CollisionPhase::Exit));
     EXPECT_TRUE(has_event(events, moved, chunk, engine::CollisionPhase::Enter));
@@ -254,7 +254,7 @@ TEST(Physics2DCompound, LayerAndMaskApplyToEveryShape) {
     EXPECT_TRUE(step_and_read(world).empty());
 
     world.get<engine::CompoundCollider2D>(chunk).layer = 3u;
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, chunk);
     const std::vector<engine::CollisionEvent2D> events = step_and_read(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(has_event(events, probe, chunk, engine::CollisionPhase::Enter));
@@ -289,7 +289,7 @@ TEST(Physics2DCompound, MarkedShapeEditAppliesNextTick) {
     EXPECT_TRUE(step_and_read(world).empty());
 
     world.get<engine::CompoundCollider2D>(chunk).shapes.back() = engine::box_shape_2d({1.f, 0.f}, {1.f, 1.f});
-    engine::mark_static_colliders_dirty_2d(world);
+    engine::mark_static_colliders_dirty_2d(world, chunk);
     const std::vector<engine::CollisionEvent2D> events = step_and_read(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(has_event(events, probe, chunk, engine::CollisionPhase::Enter));
@@ -387,10 +387,10 @@ TEST(Physics2DCompound, CompoundUnderADynamicBodyIsIgnoredAndWarned) {
     for (const engine::ecs::Entity ignored : {own, child}) {
         EXPECT_FALSE(has_event(events, probe, ignored, engine::CollisionPhase::Enter));
         EXPECT_FALSE(has_event(events, wall, ignored, engine::CollisionPhase::Enter));
-        EXPECT_TRUE(contains(world.ctx<engine::PhysicsBroadphase2D>().dynamic_compound_warned, ignored));
+        EXPECT_TRUE(contains(world.ctx<engine::PhysicsBroadphase2D>().dynamic_terrain_warned, ignored));
         EXPECT_FALSE(contains(world.ctx<engine::PhysicsBroadphase2D>().static_entities, ignored));
     }
-    EXPECT_EQ(world.ctx<engine::PhysicsBroadphase2D>().dynamic_compound_warned.size(), 2u);
+    EXPECT_EQ(world.ctx<engine::PhysicsBroadphase2D>().dynamic_terrain_warned.size(), 2u);
 
     // Retyped to Static: the compound becomes static terrain with no mark.
     world.get<engine::RigidBody2D>(own).type = engine::BodyType::Static;

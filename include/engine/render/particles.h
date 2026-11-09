@@ -23,14 +23,21 @@
 
 namespace engine {
 class JobSystem;
+class SdfField2D;
 }
 
 namespace engine::render {
 
+// A 2D collider copied for particles, XY only. Box and Circle are axis-aligned shapes at `position` (box yaw is
+// ignored). Sdf is a non-owning view of an `SdfField2D` (an `SdfCollider2D`) whose field-local XY is placed at
+// `position.xy` and turned by `angle` (radians about +Z); scale is not applied, as in the 2D solver. `field` must stay
+// alive and unedited through the `update_emitter` call that reads it: `run_particles` points it into the component
+// pool for that call only. A null `field` is skipped.
 struct ParticleCollider2D {
     enum class Shape {
         Box,
         Circle,
+        Sdf,
     };
 
     Shape shape = Shape::Box;
@@ -38,6 +45,9 @@ struct ParticleCollider2D {
     glm::vec3 box_size{1.0f, 1.0f, 1.0f};
     float circle_radius = 0.5f;
     uint32_t layer = 1;
+    // Sdf only.
+    const SdfField2D* field = nullptr;
+    float angle = 0.0f;
 };
 
 // Box, sphere, and capsule copied from the non-trigger 3D colliders. A box is oriented: `rotation` is the world
@@ -250,7 +260,9 @@ struct ParticleEmitter {
         glm::vec3 velocity) noexcept;
 
 // `jobs` null integrates on the caller. Spawn stays on the caller either way. Dead particles are dropped
-// after the integrate joins, and the survivors keep their order. Both collider spans are read inside the job.
+// after the integrate joins, and the survivors keep their order. Both collider spans, and the fields of Sdf
+// colliders (read-only), are read inside the job; the result does not depend on the worker count. Per particle and
+// step: the swept box, circle and 3D tests first, then each Sdf collider in span order, then `grid` on the caller.
 // `grid` is swept on the caller after that join. A null grid, or a null `is_solid`, does nothing.
 void update_emitter(
         ParticleEmitter& emitter,

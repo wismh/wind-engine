@@ -1,6 +1,7 @@
 #include <engine/ecs/world_serializer.h>
 
 #include <engine/ecs/camera.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/prototype_asset.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
@@ -23,9 +24,13 @@
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 
+#include "core/base64.h"
+
 #include <algorithm>
+#include <cstdint>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -866,6 +871,144 @@ void register_builtin_components(
                     }
                     c.shapes.push_back(shape);
                 }
+            });
+
+    serializer.register_component<SdfCollider2D>(
+            "sdf_collider_2d",
+            [](ComponentWriter& out, const SdfCollider2D& c) {
+                const SdfField2D& field = c.field;
+                out.field("cell_size", field.cell_size());
+                out.field("band", field.band());
+                out.field("origin", field.origin());
+                out.field("outside", std::string_view{field.outside() == SdfOutside::Solid ? "solid" : "empty"});
+                FieldArray chunks;
+                const std::vector<glm::ivec2> coords = field.chunk_coords();
+                chunks.reserve(coords.size());
+                std::vector<std::uint8_t> bytes(static_cast<std::size_t>(kSdfChunkSamples) * 2);
+                for (const glm::ivec2 coord : coords) {
+                    const std::span<const std::int16_t> samples = field.chunk_samples(coord);
+                    for (std::size_t i = 0; i < samples.size(); ++i) {
+                        const auto value = static_cast<std::uint16_t>(samples[i]);
+                        bytes[2 * i] = static_cast<std::uint8_t>(value & 0xFFu);
+                        bytes[2 * i + 1] = static_cast<std::uint8_t>(value >> 8);
+                    }
+                    FieldTable table;
+                    ComponentWriter nested = out.nested(table);
+                    nested.field("x", coord.x);
+                    nested.field("y", coord.y);
+                    nested.field("samples", base64_encode(bytes));
+                    chunks.push_back(FieldValue{std::move(table)});
+                }
+                out.table().insert_or_assign("chunks", FieldValue{std::move(chunks)});
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, SdfCollider2D& c) {
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+                const FieldTable& table = in.table();
+                if (!table.contains("cell_size") && !table.contains("band") && !table.contains("origin") &&
+                    !table.contains("outside") && !table.contains("chunks")) {
+                    return;
+                }
+                // Any field key rebuilds the whole field: missing description keys keep the current values.
+                SdfField2DDesc desc{.cell_size = c.field.cell_size(),
+                                    .band = c.field.band(),
+                                    .origin = c.field.origin(),
+                                    .outside = c.field.outside()};
+                (void)in.field("cell_size", desc.cell_size);
+                (void)in.field("band", desc.band);
+                (void)in.field("origin", desc.origin);
+                std::string outside;
+                if (in.field("outside", outside) && !outside.empty()) {
+                    if (outside == "empty") {
+                        desc.outside = SdfOutside::Empty;
+                    } else if (outside == "solid") {
+                        desc.outside = SdfOutside::Solid;
+                    } else {
+                        in.fail("sdf_collider_2d outside is not \"empty\" or \"solid\"");
+                        return;
+                    }
+                }
+                SdfField2D field{desc};
+                const auto found = table.find("chunks");
+                if (found != table.end()) {
+                    const FieldArray* chunks = found->second.as_array();
+                    if (chunks == nullptr) {
+                        in.fail("sdf_collider_2d chunks is not an array");
+                        return;
+                    }
+                    std::vector<std::int16_t> samples(static_cast<std::size_t>(kSdfChunkSamples));
+                    for (const FieldValue& element : *chunks) {
+                        const FieldTable* chunk = element.as_table();
+                        if (chunk == nullptr || !chunk->contains("x") || !chunk->contains("y") ||
+                            !chunk->contains("samples")) {
+                            in.fail("sdf_collider_2d chunk is not a table with x, y and samples");
+                            return;
+                        }
+                        ComponentReader nested = in.nested(*chunk);
+                        glm::ivec2 coord{0};
+                        std::string text;
+                        (void)nested.field("x", coord.x);
+                        (void)nested.field("y", coord.y);
+                        (void)nested.field("samples", text);
+                        if (!nested.ok()) {
+                            in.fail(std::string(nested.error()));
+                            return;
+                        }
+                        const std::optional<std::vector<std::uint8_t>> bytes = base64_decode(text);
+                        if (!bytes || bytes->size() != samples.size() * 2) {
+                            in.fail("sdf_collider_2d chunk samples is not base64 of 1024 little-endian int16");
+                            return;
+                        }
+                        for (std::size_t i = 0; i < samples.size(); ++i) {
+                            const auto value = static_cast<std::uint16_t>((*bytes)[2 * i] | ((*bytes)[2 * i + 1] << 8));
+                            samples[i] = static_cast<std::int16_t>(value);
+                        }
+                        (void)field.assign_chunk(coord, samples);
+                    }
+                }
+                c.field = std::move(field);
+            });
+
+    // Parameters only: the particles are transient simulation state, neither saved nor replicated.
+    serializer.register_component<Fluid2D>(
+            "fluid_2d",
+            [](ComponentWriter& out, const Fluid2D& c) {
+                out.field("radius", c.params.radius);
+                out.field("smoothing_length", c.params.smoothing_length);
+                out.field("rest_density", c.params.rest_density);
+                out.field("viscosity", c.params.viscosity);
+                out.field("relaxation", c.params.relaxation);
+                out.field("tensile_strength", c.params.tensile_strength);
+                out.field("iterations", c.params.iterations);
+                out.field("substeps", c.params.substeps);
+                out.field("max_particles", c.params.max_particles);
+                out.field("gravity_scale", c.params.gravity_scale);
+                out.field("friction", c.params.friction);
+                out.field("restitution", c.params.restitution);
+                out.field("layer", c.params.layer);
+                out.field("mask", c.params.mask);
+            },
+            [](ComponentReader& in, Fluid2D& c) {
+                (void)in.field("radius", c.params.radius);
+                (void)in.field("smoothing_length", c.params.smoothing_length);
+                (void)in.field("rest_density", c.params.rest_density);
+                (void)in.field("viscosity", c.params.viscosity);
+                (void)in.field("relaxation", c.params.relaxation);
+                (void)in.field("tensile_strength", c.params.tensile_strength);
+                (void)in.field("iterations", c.params.iterations);
+                (void)in.field("substeps", c.params.substeps);
+                (void)in.field("max_particles", c.params.max_particles);
+                (void)in.field("gravity_scale", c.params.gravity_scale);
+                (void)in.field("friction", c.params.friction);
+                (void)in.field("restitution", c.params.restitution);
+                (void)in.field("layer", c.params.layer);
+                (void)in.field("mask", c.params.mask);
             });
 
     serializer.register_component<CircleCollider2D>(

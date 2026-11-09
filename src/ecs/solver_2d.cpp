@@ -58,6 +58,8 @@ ContactShape2D contact_shape_2d(const SolverShape2D& shape, glm::vec2 center) {
     out.radius = shape.radius;
     out.angle = shape.angle;
     out.vertex_count = shape.vertex_count;
+    out.sdf = shape.sdf;
+    out.sdf_chunk = shape.sdf_chunk;
     if (shape.kind != ContactShapeKind::Polygon || shape.vertex_count <= 0) {
         return out;
     }

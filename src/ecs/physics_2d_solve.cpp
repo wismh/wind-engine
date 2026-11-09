@@ -131,6 +131,10 @@ void fill_solver_shape(SolverShape2D& shape, const ColliderItem2D& collider) {
     } else if (collider.shape == ColliderShape2D::Circle) {
         shape.kind = ContactShapeKind::Circle;
         shape.radius = collider.radius;
+    } else if (collider.shape == ColliderShape2D::Sdf) {
+        shape.kind = ContactShapeKind::Sdf;
+        shape.sdf = collider.sdf;
+        shape.sdf_chunk = sdf_chunk_of_part_2d(collider.part);
     } else {
         shape.kind = ContactShapeKind::Polygon;
         shape.vertex_count = std::min(collider.polygon_count, kPolygonCollider2DCapacity);

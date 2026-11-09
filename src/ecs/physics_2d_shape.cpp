@@ -50,7 +50,8 @@ CompoundShape2D box_shape_2d(glm::vec2 center, glm::vec2 size, float angle) {
     return shape;
 }
 
-// ColliderShape2D::Compound is a polygon in every function below: the final else branch.
+// ColliderShape2D::Compound is a polygon in every function below: the final else branch. ColliderShape2D::Sdf is a
+// polygon (its chunk rectangle) for aabb_of_2d only.
 bool layers_match_2d(const ColliderItem2D& a, const ColliderItem2D& b) {
     return (a.layer & b.mask) != 0 && (b.layer & a.mask) != 0;
 }
@@ -65,6 +66,12 @@ ContactShape2D contact_shape_of_2d(const ColliderItem2D& item) {
     } else if (item.shape == ColliderShape2D::Circle) {
         shape.kind = ContactShapeKind::Circle;
         shape.radius = item.radius;
+    } else if (item.shape == ColliderShape2D::Sdf) {
+        // The rectangle vertices only feed aabb_of_2d; the contact reads the field.
+        shape.kind = ContactShapeKind::Sdf;
+        shape.sdf = item.sdf;
+        shape.sdf_chunk = sdf_chunk_of_part_2d(item.part);
+        rotate_polygon(item, shape);
     } else {
         shape.kind = ContactShapeKind::Polygon;
         rotate_polygon(item, shape);

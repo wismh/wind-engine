@@ -65,7 +65,7 @@ world.emplace<engine::BoxCollider2D>(crate, engine::BoxCollider2D{.size = {2.f, 
 
 The crate falls, then rests with its bottom within `kContactSlop` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations`). With the default restitution of 0 it does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
 
-Sleep is automatic. A dynamic body slower than `kSleepLinear` and `kSleepAngular` (both `0.05`) for `kSleepSteps` (8) fixed steps, with at least one solver contact, sets `RigidBody2D.sleeping`. It then skips gravity and integration, and the solver treats it as frozen (inverse mass 0 and inverse inertia 0). A body in the air does not sleep, so a zero-gravity hover stays awake. Writing a linear or angular speed at or above that threshold wakes it before integration. An overlap with an awake dynamic, or with a kinematic whose `velocity` is not exactly zero or whose `angular_velocity` is not exactly zero, also wakes it on that same step, before the sleeper integrates, so a platform can push a crate that was asleep. A sleeper whose contact disappears stays frozen: the quiet counter clears, and `sleeping` stays set until a speed at or above the threshold or such an overlap wakes it. The quiet counter is not serialized. `sleeping` is, and a missing key loads false. Events still fire while it is asleep. Kinematic and static bodies ignore the flag. The broadphase is a deterministic dynamic AABB tree, rebuilt from the current bounds each step and shared with the 3D solver. It only skips pairs whose bounds are strictly apart. A shared face is still tested, and the narrowphase is unchanged, so the tree does not change which pairs collide. Contact islands are solved separately, ordered by the lowest entity id.
+Sleep is automatic. A dynamic body slower than `kSleepLinear` and `kSleepAngular` (both `0.05`) for `kSleepSteps` (8) fixed steps, with at least one solver contact, sets `RigidBody2D.sleeping`. It then skips gravity and integration, and the solver treats it as frozen (inverse mass 0 and inverse inertia 0). A body in the air does not sleep, so a zero-gravity hover stays awake. Writing a linear or angular speed at or above that threshold wakes it before integration. An overlap with an awake dynamic, or with a kinematic whose `velocity` is not exactly zero or whose `angular_velocity` is not exactly zero, also wakes it on that same step, before the sleeper integrates, so a platform can push a crate that was asleep. A sleeper whose last solver contact disappears (the ground under it was removed) wakes at the end of that step. The quiet counter is not serialized. `sleeping` is, and a missing key loads false. Events still fire while it is asleep. Kinematic and static bodies ignore the flag. The broadphase is a deterministic dynamic AABB tree, rebuilt from the current bounds each step and shared with the 3D solver. It only skips pairs whose bounds are strictly apart. A shared face is still tested, and the narrowphase is unchanged, so the tree does not change which pairs collide. Contact islands are solved separately, ordered by the lowest entity id.
 
 A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. Friction defaults to 0, so a floor that slides sideways under a crate does not drag it. Set friction on both colliders and that floor's tangential velocity pulls the crate.
 
@@ -186,14 +186,38 @@ world.emplace<engine::CompoundCollider2D>(chunk, std::move(ground));
 - Static, or under a Kinematic body (a moving platform). Under a Dynamic body it is ignored and a warning is logged once; dynamic compounds are not supported yet.
 - No trigger flag, and one `layer` / `mask` / `friction` / `restitution` for all shapes. Use separate entities for trigger zones.
 - A body touching several shapes of the chunk gets one `CollisionEvent2D` per tick, carrying the deepest contact. Sliding along the chunk is one Enter, then Stay.
-- Changing `shapes` in place (digging) needs `engine::mark_static_colliders_dirty_2d(world)`, as for any static collider edit. Adding or removing the component does not.
+- Changing `shapes` in place (digging) needs `engine::mark_static_colliders_dirty_2d(world, chunk)`, as for any static collider edit. Only that chunk is re-read, so digging costs the chunk, not the map. Adding or removing the component does not need a mark.
 - Particles do not collide with compound shapes.
+
+### Destructible terrain that collides: `SdfCollider2D`
+
+Put an `SdfField2D` (see [Destructible terrain](#destructible-terrain-sdffield2d) below) in an `SdfCollider2D` and bodies land on it, slide over it and fall into the holes you carve:
+
+```cpp
+auto ground = world.create();
+world.emplace<engine::Transform>(ground, engine::Transform{});
+engine::SdfCollider2D terrain{.field = engine::SdfField2D{{.cell_size = 0.25f, .band = 1.0f}}, .friction = 0.4f};
+(void) terrain.field.fill_polygon(hills);   // or fill_from_mask from a tile layer
+world.emplace<engine::SdfCollider2D>(ground, std::move(terrain));
+
+// Later: an explosion.
+(void) world.get<engine::SdfCollider2D>(ground).field.carve_circle(blast, 2.0f);
+engine::mark_static_colliders_dirty_2d(world, ground);
+```
+
+- The field is in the entity's local XY: its world position and Z angle apply, scale does not. Static, or under a Kinematic body; under a Dynamic body it is ignored with a warning. No trigger flag; one `layer` / `mask` / `friction` / `restitution`.
+- Each allocated chunk of the field is one collider part. A body only touches the field through allocated chunks, so in a `Solid` world a body far from anything you carved gets no contact at all. A body sliding across chunks gets one `CollisionEvent2D` stream (Enter, then Stay), with the deepest contact.
+- After an edit, call `mark_static_colliders_dirty_2d(world, entity)`. The next tick re-reads only the chunks whose `revision` changed and wakes sleeping bodies over them, so a crate on a ledge you blasted away falls. A forgotten mark is found by the background audit within a few ticks and logs a warning.
+- A circle is tested at its center (keep its radius below `band`). A box or polygon is tested at its corners and at points along its edges one cell apart, so a spike thinner than a cell can poke between them, and a body pushed deeper than `band` into the solid has no direction out and gets no contact. Fields do not collide with each other.
+- The field is saved with the world (`sdf_collider_2d`) but is not replicated over the network: replicate your carve and fill calls and apply them on every peer.
+- Particle emitters with `collision_enabled` collide with it too, with the emitter's own bounce and friction.
+- A `Fluid2D` is held by it as well: see [2D Fluids](Fluids.md).
 
 ---
 
 ## 2. Physics Runs by Itself
 
-The engine registers `run_physics_2d` and, immediately after it, `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
+The engine registers `run_physics_2d`, then `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world (the fluid step `run_fluid_2d` comes after both, only on a world you call `install_fluid_2d` on: [2D Fluids](Fluids.md)). You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
 
 ```cpp
 void MyGame::on_start() {
@@ -361,10 +385,31 @@ box_min = origin + r.min * cell;
 box_max = origin + r.max * cell;
 ```
 
+### Destructible terrain: `SdfField2D`
+
+For terrain you dig into or blast holes in, `<engine/ecs/sdf_2d.h>` has `SdfField2D`: a signed distance field stored in 32 x 32 chunks, negative inside solid and positive in the air. Like the grid queries it is a plain object you own, not a component; to make bodies collide with it, put it in an `SdfCollider2D` (above).
+
+```cpp
+#include <engine/ecs/sdf_2d.h>
+
+engine::SdfField2D terrain{{.cell_size = 0.25f, .band = 2.0f, .outside = engine::SdfOutside::Solid}};
+const std::vector<glm::ivec2> dirty = terrain.carve_circle(explosion_point, 1.5f);   // chunks to rebuild
+terrain.renormalize(dirty);                                                        // keep it a true distance
+
+if (const auto hit = terrain.raymarch(muzzle, aim, 50.0f)) { /* hit->point, hit->normal */ }
+if (const auto c = terrain.sweep_circle(ball, 0.3f, velocity * dt)) { /* c->fraction, c->normal */ }
+```
+
+- `SdfOutside::Solid` starts as a solid world to dig into; `Empty` starts as air to build in with `fill_circle` and `fill_polygon` (convex, counter-clockwise).
+- `fill_from_mask` builds it from a tile layer, with the same lambda as the grid queries. Give it 2 or more field cells per tile if your platforms are one tile thick.
+- Every edit returns the chunks it changed and bumps their `revision`, so you rebuild only those (a mesh, a collider).
+- Keep `band` larger than the biggest circle you sweep.
+
 ---
 
 ## Next Steps
 
+- Pour water or lava into your terrain with [2D Fluids](Fluids.md).
 - Make tile layers solid with [Tilemaps](../rendering/Tilemaps.md).
 - Render your entities with sprites in [Sprites & Animation](../rendering/Sprites-and-Animation.md).
 - Control the viewport using the [Camera](../rendering/Camera.md).

@@ -45,6 +45,7 @@
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ecs/fluid_2d_internal.h"
 #include "ui/dock_runtime.h"
 #include "ui/input_batch.h"
 #include "ui/popup.h"
@@ -1241,6 +1242,32 @@ namespace engine {
         return world_rotation;
     }
 
+    // Heading of the matrix X axis in XY, as the 2D solver reads an entity's yaw. Scale changes its length only.
+    [[nodiscard]] float particle_collider_yaw(const glm::mat4 &matrix) {
+        const float x = matrix[0][0];
+        const float y = matrix[0][1];
+        if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
+            return 0.0f;
+        }
+        return std::atan2(y, x);
+    }
+
+    // The nearest RigidBody2D on the entity or above it is Dynamic.
+    [[nodiscard]] bool under_dynamic_body_2d(const ecs::World &world, ecs::Entity entity) {
+        ecs::Entity current = entity;
+        for (int step = 0; step < ecs::kMaxHierarchyDepth && world.valid(current); ++step) {
+            if (const RigidBody2D *body = world.try_get<RigidBody2D>(current)) {
+                return body->type == BodyType::Dynamic;
+            }
+            const Parent *parent = world.try_get<Parent>(current);
+            if (parent == nullptr || !world.valid(parent->entity)) {
+                return false;
+            }
+            current = parent->entity;
+        }
+        return false;
+    }
+
     } // namespace
 
     void run_particles(ecs::World &world, JobSystem *jobs) {
@@ -1288,6 +1315,24 @@ namespace engine {
                             .layer = circle.layer,
                     });
                 }
+            });
+            // The 2D solver ignores an SdfCollider2D under a Dynamic body, and so do particles. `field` points into
+            // the pool for this call only: no entity is created or destroyed before the emitters below are stepped.
+            world.view<Transform, SdfCollider2D>().each(
+                    [&](ecs::Entity entity, const Transform &, const SdfCollider2D &sdf) {
+                if (under_dynamic_body_2d(world, entity)) {
+                    return;
+                }
+                const glm::mat4 matrix = ecs::world_matrix(world, entity);
+                colliders.push_back(render::ParticleCollider2D{
+                        .shape = render::ParticleCollider2D::Shape::Sdf,
+                        .position = glm::vec3(matrix[3]),
+                        .box_size = glm::vec3{0.0f},
+                        .circle_radius = 0.0f,
+                        .layer = sdf.layer,
+                        .field = &sdf.field,
+                        .angle = particle_collider_yaw(matrix),
+                });
             });
             world.view<Transform, BoxCollider3D>().each(
                     [&](ecs::Entity entity, const Transform &, const BoxCollider3D &box) {
@@ -1360,6 +1405,8 @@ namespace engine {
                          [jobs = deps.jobs](ecs::World &w) { run_physics_2d(w, jobs); });
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics,
                          [jobs = deps.jobs](ecs::World &w) { run_physics_3d(w, jobs); });
+        // Opt-in: only a world `install_fluid_2d` ran on before now has the marker.
+        register_fluid_2d_system(world);
         nav::register_nav_systems(world);
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });

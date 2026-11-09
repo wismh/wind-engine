@@ -23,8 +23,9 @@
 
 namespace engine {
 
-// Compound is one part of a CompoundCollider2D; it is a polygon everywhere a shape is read.
-enum class ColliderShape2D : std::uint8_t { Box, Circle, Polygon, Compound };
+// Compound is one part of a CompoundCollider2D; it is a polygon everywhere a shape is read. Sdf is one allocated chunk
+// of an SdfCollider2D: its polygon is the chunk's cell rectangle grown by 1/100 of a cell, which gives its AABB.
+enum class ColliderShape2D : std::uint8_t { Box, Circle, Polygon, Compound, Sdf };
 
 struct ColliderItem2D {
     ecs::Entity entity{};
@@ -42,11 +43,35 @@ struct ColliderItem2D {
     float restitution{0.f};
     // The nearest RigidBody2D on the entity or above it is Dynamic or Kinematic. Set at gather.
     bool movable{false};
-    // Index into CompoundCollider2D::shapes; 0 for every other collider.
+    // Index into CompoundCollider2D::shapes, or sdf_part_of_chunk_2d of an Sdf chunk; 0 for every other collider.
     std::uint32_t part{0};
+    // Sdf only. The field read this tick: refreshed from the component whenever the item joins a tick's collider list,
+    // never dereferenced from the static cache. Not compared by the cache.
+    const SdfField2D* sdf{nullptr};
+    // Sdf only. SdfField2D::revision of the chunk when the item was read; compared by the cache.
+    std::uint64_t sdf_revision{0};
 };
 
-// Gather order and the per-tick collider order: shape (boxes, circles, polygons, compound parts), entity, part.
+// SDF chunk coordinates in [-32768, 32767] encode as a part, sorted by y then x like SdfField2D::chunk_coords. Chunks
+// past that range (about 1M cells from the field origin) have no collider.
+inline constexpr int kSdfPartBias2D = 32768;
+
+[[nodiscard]] inline bool sdf_chunk_has_part_2d(glm::ivec2 chunk) {
+    return chunk.x >= -kSdfPartBias2D && chunk.x < kSdfPartBias2D && chunk.y >= -kSdfPartBias2D &&
+           chunk.y < kSdfPartBias2D;
+}
+
+[[nodiscard]] inline std::uint32_t sdf_part_of_chunk_2d(glm::ivec2 chunk) {
+    return (static_cast<std::uint32_t>(chunk.y + kSdfPartBias2D) << 16) |
+           static_cast<std::uint32_t>(chunk.x + kSdfPartBias2D);
+}
+
+[[nodiscard]] inline glm::ivec2 sdf_chunk_of_part_2d(std::uint32_t part) {
+    return {static_cast<int>(part & 0xFFFFu) - kSdfPartBias2D, static_cast<int>(part >> 16) - kSdfPartBias2D};
+}
+
+// Gather order and the per-tick collider order: shape (boxes, circles, polygons, compound parts, SDF chunks), entity,
+// part.
 [[nodiscard]] inline bool collider_order_less_2d(const ColliderItem2D& a, const ColliderItem2D& b) {
     if (a.shape != b.shape) {
         return static_cast<int>(a.shape) < static_cast<int>(b.shape);
@@ -83,7 +108,9 @@ struct PhysicsOverlapState {
 struct PhysicsBroadphase2D {
     struct Slot {
         ColliderItem2D item{};
-        std::uint32_t compound_size{0};  // CompoundCollider2D::shapes.size() when the slot was read; audited
+        // When the slot was read, audited: CompoundCollider2D::shapes.size() for a compound part (a compound that
+        // grew or shrank), SdfField2D::edit_count() for an SDF chunk (an edit anywhere in the field); 0 otherwise.
+        std::uint64_t stamp{0};
         bool live{false};
     };
     struct Key {
@@ -105,11 +132,22 @@ struct PhysicsBroadphase2D {
     std::uint64_t circle_version{0};
     std::uint64_t polygon_version{0};
     std::uint64_t compound_version{0};
-    bool dirty{true};
+    std::uint64_t sdf_version{0};
+    bool dirty{true};                          // re-read every static collider next tick
+    std::vector<ecs::Entity> marked_entities{};  // per-entity marks since the last tick; unsorted, may repeat
     std::size_t audit_cursor{0};
     std::vector<ecs::Entity> audit_warned{};  // sorted; each entity is warned about once
-    std::uint64_t rebuild_count{0};           // re-reads of the static colliders
-    std::vector<ecs::Entity> dynamic_compound_warned{};  // sorted; compounds left out under a Dynamic body
+    std::uint64_t rebuild_count{0};           // re-reads of every static collider
+    std::uint64_t entity_rebuild_count{0};    // re-reads of the marked entities' subtrees only
+    // Collider items the last re-read made (a compound part, an SDF chunk counts one each), and the slots it added,
+    // updated or dropped.
+    std::size_t last_rebuild_reads{0};
+    std::size_t last_rebuild_changes{0};
+    // Sorted; compounds and SDF colliders left out under a Dynamic body, warned once per entity.
+    std::vector<ecs::Entity> dynamic_terrain_warned{};
+    // Bounds of SDF chunk slots a re-read added, changed or dropped (once the cache was built): sleeping dynamics over
+    // them wake this tick (wake_sleepers_by_static_edit_2d), then the list is cleared.
+    std::vector<Aabb> sdf_wake_boxes{};
 };
 
 // One key per shape pair: lower entity first, then the ColliderShape2D and part of each side. Not serialized.
@@ -161,6 +199,8 @@ struct PhysicsSleepState2D {
 [[nodiscard]] Aabb aabb_of_2d(const ColliderItem2D& item);
 
 void wake_sleepers_by_velocity_2d(ecs::World& world);
+// Sleeping dynamics in `active` whose AABB meets a PhysicsBroadphase2D::sdf_wake_boxes entry wake; the list is cleared.
+void wake_sleepers_by_static_edit_2d(ecs::World& world, std::span<const ColliderItem2D> active);
 // `active` is this tick's gather_active_colliders_2d.
 void wake_sleepers_by_overlap_2d(ecs::World& world, std::span<const ColliderItem2D> active);
 void update_sleep_2d(ecs::World& world, std::span<const ecs::Entity> contacting);
@@ -182,19 +222,25 @@ void integrate_dynamic_2d(ecs::World& world, float dt);
 [[nodiscard]] ColliderItem2D make_compound_item_2d(ecs::Entity entity, const glm::mat4& matrix,
                                                    const CompoundCollider2D& compound, std::uint32_t part,
                                                    bool movable);
+// Chunk `chunk` of `sdf`; the caller checks that it is allocated and sdf_chunk_has_part_2d.
+[[nodiscard]] ColliderItem2D make_sdf_item_2d(ecs::Entity entity, const glm::mat4& matrix, const SdfCollider2D& sdf,
+                                              glm::ivec2 chunk, bool movable);
+// One item per allocated chunk with a part, in chunk_coords order.
+void append_sdf_items_2d(ecs::Entity entity, const glm::mat4& matrix, const SdfCollider2D& sdf, bool movable,
+                         std::vector<ColliderItem2D>& out);
 
-// The entity has a Transform and at least one 2D collider, CompoundCollider2D included.
+// The entity has a Transform and at least one 2D collider, CompoundCollider2D and SdfCollider2D included.
 [[nodiscard]] bool has_collider_2d(const ecs::World& world, ecs::Entity entity);
 
-// Every collider of `entity` (box, circle, polygon, then each compound part when `with_compound`) at its current
-// world pose. None without Transform.
-void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movable, bool with_compound,
+// Every collider of `entity` (box, circle, polygon, then, when `with_terrain`, each compound part and SDF chunk) at
+// its current world pose. None without Transform.
+void append_colliders_2d(const ecs::World& world, ecs::Entity entity, bool movable, bool with_terrain,
                          std::vector<ColliderItem2D>& out);
 
 // Colliders on Dynamic and Kinematic bodies and on their descendants (down to the next RigidBody2D), sorted by
-// collider_order_less_2d. Cost follows the bodies, not the static colliders. A CompoundCollider2D under a Dynamic
-// body is left out (warned once per entity). `movable_entities` receives every walked entity that has a collider,
-// those left-out compounds included, sorted and unique: they are never cached as static.
+// collider_order_less_2d. Cost follows the bodies, not the static colliders. A CompoundCollider2D or SdfCollider2D
+// under a Dynamic body is left out (warned once per entity). `movable_entities` receives every walked entity that has
+// a collider, those left out included, sorted and unique: they are never cached as static.
 [[nodiscard]] std::vector<ColliderItem2D> gather_active_colliders_2d(ecs::World& world,
                                                                      std::vector<ecs::Entity>& movable_entities);
 // Re-reads position and angle of each item, after the dynamic integrate moved them.
