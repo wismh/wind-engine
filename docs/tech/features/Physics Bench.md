@@ -147,7 +147,7 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 
 ## Fluids (LQ-27)
 
-`bench/physics/bench_fluid_2d.cpp`, in the `--2d` suite. Each row times `run_fluid_2d` alone (gather included) for 300 fixed ticks of 1/60 s from the release: a dam break. A square column of particles at rest spacing (`radius` 0.05, every other parameter default: 2 substeps, 4 iterations) stands against the left wall of an open-top `SdfCollider2D` tank (0.1-unit cells, 0.4-unit band) 2.5 columns wide, gravity -10. The "Bodies" column is the particle count. Stability: no particle lost or non-finite, none closer than half a radius to the walls.
+`bench/physics/bench_fluid_2d.cpp`, in the `--2d` suite. Each row calls `run_fluid_2d` directly (no `install_fluid_2d`) and times it alone (gather included) for 300 fixed ticks of 1/60 s from the release: a dam break. A square column of particles at rest spacing (`radius` 0.05, every other parameter default: 2 substeps, 4 iterations) stands against the left wall of an open-top `SdfCollider2D` tank (0.1-unit cells, 0.4-unit band) 2.5 columns wide, gravity -10. The "Bodies" column is the particle count. Stability: no particle lost or non-finite, none closer than half a radius to the walls.
 
 | Scenario | What it measures |
 | --- | --- |

@@ -217,7 +217,7 @@ engine::mark_static_colliders_dirty_2d(world, ground);
 
 ## 2. Physics Runs by Itself
 
-The engine registers `run_physics_2d`, then the fluid step `run_fluid_2d` ([2D Fluids](Fluids.md)), then `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world. You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
+The engine registers `run_physics_2d`, then `run_physics_3d` as systems on `Schedule::Fixed`, `Phase::Physics` for every world (the fluid step `run_fluid_2d` comes after both, only on a world you call `install_fluid_2d` on: [2D Fluids](Fluids.md)). You do not call either one, and you do not register them again. A second registration integrates velocities twice. Put your own fixed logic on `Phase::Game`, which runs after both:
 
 ```cpp
 void MyGame::on_start() {
