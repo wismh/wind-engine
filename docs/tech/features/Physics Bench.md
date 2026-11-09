@@ -153,6 +153,7 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 | --- | --- |
 | `fluid_dam_4k` | a 64 x 64 column (4,096 particles, 6.4 units) collapsing across a 16-unit tank |
 | `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
+| `fluid_rest_4k` | `fluid_dam_4k` after 600 untimed ticks: the pool has spread and come to rest (LQ-59) |
 
 Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
 
@@ -162,6 +163,18 @@ Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, 
 | `fluid_dam_16k` | 78,954 (4,819) | 10,372 (633) |
 
 The cost is linear in the count and scales about 6 to 7.5 times on 11 workers (the hash fill is serial). Per substep, at 4k on one thread: the neighbour search is about 1.3 ms, each solver iteration about 1.4 ms (two passes over about 24 neighbours) plus about 0.5 ms of SDF projection, so 2 x 4 iterations dominate; halving `iterations` or `substeps` is the main knob. Keeping each neighbour's kernel gradient and weight from the lambda pass for the delta pass (instead of recomputing the square root and division) brought the 4k serial row from 28.5 ms to 19 ms. A 60 Hz game on one core fits about 3k particles in 15 ms; on a typical worker pool, 16k fits in about 10 ms.
+
+### Swept boundaries (LQ-59)
+
+Particles that move more than half a radius in an iteration are swept against the boundaries ([ECS](../modules/ECS.md#2d-fluids)). Same settings as above, best of two runs each, before and after:
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 19,255 | 20,056 (+4%) | 3,210 | 3,370 (+5%) |
+| `fluid_dam_16k` | 79,970 | 85,864 (+7%) | 10,765 | 11,499 (+7%) |
+| `fluid_rest_4k` | 20,322 | 20,378 (+0.3%) | 3,440 | 3,518 (+2%) |
+
+A resting pool pays one length test per particle per iteration. The collapse pays for the particles that fall faster than half a radius per substep, swept once (the first iteration's move holds the predicted step; later iterations move by the solver delta, which rarely passes the threshold). Sweeping every fast particle from the substep start in every iteration instead cost +15 and +28 percent on the two dam rows.
 
 ## Deterministic simulation (LQ-63)
 
