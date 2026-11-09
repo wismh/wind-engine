@@ -991,6 +991,7 @@ void register_builtin_components(
                 out.field("gravity_scale", c.params.gravity_scale);
                 out.field("friction", c.params.friction);
                 out.field("restitution", c.params.restitution);
+                out.field("density", c.params.density);
                 out.field("layer", c.params.layer);
                 out.field("mask", c.params.mask);
             },
@@ -1007,6 +1008,7 @@ void register_builtin_components(
                 (void)in.field("gravity_scale", c.params.gravity_scale);
                 (void)in.field("friction", c.params.friction);
                 (void)in.field("restitution", c.params.restitution);
+                (void)in.field("density", c.params.density);
                 (void)in.field("layer", c.params.layer);
                 (void)in.field("mask", c.params.mask);
             });

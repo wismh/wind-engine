@@ -11,6 +11,7 @@
 
 #include "core/state_hash.h"
 #include "fluid_2d_internal.h"
+#include "inertia_2d.h"
 #include "physics_2d_internal.h"
 
 #include <glm/geometric.hpp>
@@ -59,6 +60,8 @@ constexpr float kMaxDeltaRadii = 1.0f;
 constexpr float kSweepRadii = 0.5f;
 // A swept particle stops this many radii off the surface it touched.
 constexpr float kSweepSkinRadii = 0.01f;
+// Dynamic bodies a particle can push back in one substep (two-way coupling); a third one adds to the second slot.
+constexpr std::size_t kCouplingSlots = 2;
 
 [[nodiscard]] float poly6(float r2) {
     if (r2 >= 1.0f) {
@@ -183,6 +186,8 @@ struct ShapeBoundary {
     int count = 0;
     uint32_t layer = 0;
     uint32_t mask = 0;
+    // Index into `Boundaries::bodies` when the shape's own entity is a Dynamic RigidBody2D (two-way coupling), else -1.
+    int body = -1;
     // World AABB of the shape.
     glm::vec2 lo{0.0f};
     glm::vec2 hi{0.0f};
@@ -190,10 +195,42 @@ struct ShapeBoundary {
 
 // Every collider that can bound a fluid this tick, in view order. `field` points into the SdfCollider2D pool for this
 // call only: run_fluid_2d creates and destroys nothing.
+// A Dynamic body a fluid pushes back: the reaction impulses of every substep, summed in particle order, become a change
+// of its velocity at the end of run_fluid_2d, which the next run_physics_2d integrates.
+struct CouplingBody2D {
+    ecs::Entity entity{};
+    glm::vec2 origin{0.0f};  // world position of the body: the 2D solver's center of rotation
+    glm::vec2 impulse{0.0f};
+    float angular_impulse = 0.0f;
+    // The fastest particle that pushed it this tick (after its substep), and the longest contact arm: the change of
+    // velocity is capped by them (apply_coupling).
+    float particle_speed = 0.0f;
+    float arm = 0.0f;
+};
+
 struct Boundaries {
     std::vector<SdfBoundary> sdf;
     std::vector<ShapeBoundary> shapes;
+    std::vector<CouplingBody2D> bodies;
 };
+
+// The Dynamic RigidBody2D on `entity` itself, or null. Only a collider on the body's own entity is coupled, as only
+// such a collider gives the 2D solver the body's inertia.
+[[nodiscard]] const RigidBody2D* dynamic_body(const ecs::World& world, ecs::Entity entity) {
+    const RigidBody2D* body = world.try_get<RigidBody2D>(entity);
+    return body != nullptr && body->type == BodyType::Dynamic ? body : nullptr;
+}
+
+// The coupling index of `entity` in `out.bodies`, added on first use. Bodies keep the order of their first collider.
+[[nodiscard]] int coupling_index(Boundaries& out, ecs::Entity entity, glm::vec2 origin) {
+    for (std::size_t i = 0; i < out.bodies.size(); ++i) {
+        if (out.bodies[i].entity == entity) {
+            return static_cast<int>(i);
+        }
+    }
+    out.bodies.push_back(CouplingBody2D{.entity = entity, .origin = origin});
+    return static_cast<int>(out.bodies.size()) - 1;
+}
 
 // A polygon boundary from the 2D solver's item for a PolygonCollider2D or a CompoundCollider2D part, at the item's
 // pose (the solver's own vertices: `contact_shape_of_2d`). False for a polygon the solver's rules reject: fewer than 3
@@ -270,6 +307,9 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
                                std::abs(shape.frame.sin_a) * half.x + std::abs(shape.frame.cos_a) * half.y};
         shape.lo = shape.frame.position - extent;
         shape.hi = shape.frame.position + extent;
+        if (dynamic_body(world, entity) != nullptr) {
+            shape.body = coupling_index(out, entity, shape.frame.position);
+        }
         out.shapes.push_back(shape);
     });
     world.view<Transform, CircleCollider2D>().each(
@@ -286,6 +326,9 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
         };
         shape.lo = shape.frame.position - glm::vec2{circle.radius};
         shape.hi = shape.frame.position + glm::vec2{circle.radius};
+        if (dynamic_body(world, entity) != nullptr) {
+            shape.body = coupling_index(out, entity, shape.frame.position);
+        }
         out.shapes.push_back(shape);
     });
 
@@ -300,6 +343,9 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
         ShapeBoundary shape;
         const glm::mat4 matrix = collider_world_matrix_2d(world, entity, transform);
         if (polygon_boundary(make_polygon_item_2d(entity, matrix, polygon, movable), shape)) {
+            if (dynamic_body(world, entity) != nullptr) {
+                shape.body = coupling_index(out, entity, glm::vec2{matrix[3][0], matrix[3][1]});
+            }
             out.shapes.push_back(shape);
         }
     });
@@ -381,6 +427,7 @@ struct Params {
     float friction = 0.0f;
     float restitution = 0.0f;
     float max_delta = 0.05f;
+    float density = 1.0f;  // world mass per unit area, for two-way coupling
 };
 
 // Poly6 density (self included) of a square lattice at `spacing` (in h).
@@ -413,6 +460,7 @@ struct Params {
     p.friction = clamp01(fluid.friction);
     p.restitution = clamp01(fluid.restitution);
     p.max_delta = kMaxDeltaRadii * p.radius;
+    p.density = std::isfinite(fluid.density) ? std::max(fluid.density, 0.0f) : 0.0f;
     return p;
 }
 
@@ -505,6 +553,17 @@ struct Fluid2DScratch {
     std::vector<const SdfBoundary*> sdf;
     std::vector<const ShapeBoundary*> shapes;
     ShapeGrid2D grid;
+    // Two-way coupling, per particle and substep: up to kCouplingSlots bodies and how far each pushed the particle
+    // (the sum of its pushes), with the moment arm of the last push. Only when some selected shape has a body.
+    struct Push {
+        int body = -1;
+        glm::vec2 moved{0.0f};
+        float moment = 0.0f;  // cross(contact - origin, moved), summed
+        float arm = 0.0f;     // the longest |contact - origin|
+    };
+    std::vector<Push> pushes;
+    bool coupled = false;
+    const Boundaries* boundaries = nullptr;
     std::vector<std::uint32_t> grid_fill;  // scratch of the grid's counting sort
     // Where each particle's sweep starts: its position at the start of the substep for the first iteration, then where
     // the previous iteration left it (outside every boundary).
@@ -512,13 +571,16 @@ struct Fluid2DScratch {
 };
 
 struct Fluid2DSolver {
-    static void step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
+    static void step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
                      Fluid2DScratch& s);
     // Neighbour lists of `s.predicted` [0, n).
     static void build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s);
     static void select_boundaries(const Fluid2DParams& fluid, const Params& p, const Boundaries& boundaries,
                                   std::size_t n, Fluid2DScratch& s);
     static void sweep_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    // Two-way coupling: `shape` moved particle i by `moved`, leaving it at `position` with contact normal `normal`.
+    static void record_push(const Params& p, std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
+                            glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s);
     static void project_range(const Params& p, std::size_t begin, std::size_t end, Fluid2DScratch& s);
 };
 
@@ -843,6 +905,27 @@ void Fluid2DSolver::select_boundaries(const Fluid2DParams& fluid, const Params& 
     }
 }
 
+void Fluid2DSolver::record_push(const Params& p, std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
+                                glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s) {
+    if (shape.body < 0 || !s.coupled) {
+        return;
+    }
+    const glm::vec2 contact = position - normal * p.radius;
+    const glm::vec2 arm = contact - s.boundaries->bodies[static_cast<std::size_t>(shape.body)].origin;
+    const float moment = arm.x * moved.y - arm.y * moved.x;
+    Fluid2DScratch::Push* slots = &s.pushes[i * kCouplingSlots];
+    std::size_t k = 0;
+    while (k + 1 < kCouplingSlots && slots[k].body >= 0 && slots[k].body != shape.body) {
+        ++k;
+    }
+    if (slots[k].body < 0) {
+        slots[k].body = shape.body;
+    }
+    slots[k].moved += moved;
+    slots[k].moment += moment;
+    slots[k].arm = std::max(slots[k].arm, std::sqrt(glm::dot(arm, arm)));
+}
+
 // Sweeps the step of each particle in [begin, end) that moved more than `kSweepRadii` radii in this iteration (from
 // `from`) against every selected boundary, and stops it at the first contact: a circle (its radius plus the particle's), a box
 // grown by the radius (square corners), an SDF field (`SdfField2D::sweep_circle`). A particle that starts in contact
@@ -861,10 +944,12 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
         const glm::vec2 hi = glm::max(from, from + delta) + glm::vec2{p.radius};
         float best = 1.0f;
         glm::vec2 normal{0.0f};
+        const ShapeBoundary* stopper = nullptr;
         for (const ShapeBoundary* shape : s.shapes) {
             if (hi.x < shape->lo.x || lo.x > shape->hi.x || hi.y < shape->lo.y || lo.y > shape->hi.y) {
                 continue;
             }
+            const float before = best;
             if (shape->kind == ShapeBoundary::Kind::Circle) {
                 (void)sweep_circle_shape(from, delta, shape->frame.position, shape->radius + p.radius, best, normal);
             } else if (shape->kind == ShapeBoundary::Kind::Polygon) {
@@ -875,6 +960,9 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
                                     shape->half + glm::vec2{p.radius}, best, local_normal)) {
                     normal = shape->frame.rotate_to_world(local_normal);
                 }
+            }
+            if (best < before) {
+                stopper = shape;
             }
         }
         for (const SdfBoundary* sdf : s.sdf) {
@@ -902,9 +990,14 @@ void Fluid2DSolver::sweep_range(const Params& p, std::size_t begin, std::size_t 
             }
             best = hit->fraction;
             normal = sdf->frame.rotate_to_world(hit->normal);
+            stopper = nullptr;
         }
         if (best < 1.0f) {
-            s.predicted[i] = from + delta * best + normal * (kSweepSkinRadii * p.radius);
+            const glm::vec2 stop = from + delta * best + normal * (kSweepSkinRadii * p.radius);
+            if (stopper != nullptr) {
+                record_push(p, i, *stopper, stop - s.predicted[i], stop, normal, s);
+            }
+            s.predicted[i] = stop;
             s.normal[i] = normal;
         }
     }
@@ -922,8 +1015,11 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 pos.y > shape->hi.y + p.radius) {
                 return;
             }
+            const glm::vec2 before = pos;
             if (shape->kind == ShapeBoundary::Kind::Polygon) {
-                (void)project_polygon(*shape, p.radius, pos, s.normal[i]);
+                if (project_polygon(*shape, p.radius, pos, s.normal[i])) {
+                    record_push(p, i, *shape, pos - before, pos, s.normal[i], s);
+                }
             } else if (shape->kind == ShapeBoundary::Kind::Circle) {
                 const glm::vec2 d = pos - shape->frame.position;
                 const float reach = shape->radius + p.radius;
@@ -935,6 +1031,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 const glm::vec2 n = dist > 1.0e-6f ? d / dist : glm::vec2{0.0f, 1.0f};
                 pos = shape->frame.position + n * reach;
                 s.normal[i] = n;
+                record_push(p, i, *shape, pos - before, pos, n, s);
             } else {
                 const glm::vec2 l = shape->frame.to_local(pos);
                 const glm::vec2 half = shape->half + glm::vec2{p.radius};
@@ -954,6 +1051,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
                 }
                 pos = shape->frame.to_world(out);
                 s.normal[i] = shape->frame.rotate_to_world(n);
+                record_push(p, i, *shape, pos - before, pos, s.normal[i], s);
             }
         });
         s.predicted[i] = pos;
@@ -1004,7 +1102,7 @@ void Fluid2DSolver::project_range(const Params& p, std::size_t begin, std::size_
     }
 }
 
-void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
+void Fluid2DSolver::step(Fluid2D& fluid, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
                          Fluid2DScratch& s) {
     const std::size_t n = fluid.positions_.size();
     fluid.densities_.resize(n, 0.0f);
@@ -1026,6 +1124,11 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
     s.velocity.resize(n);
     s.lambda.resize(n);
     s.from.resize(n);
+    s.boundaries = &boundaries;
+    // A particle's mass in world units: the fluid's density times the area of one lattice cell (the rest spacing
+    // squared). The reaction of a push `moved` over a substep is an impulse of mass * moved / sub_dt on the body.
+    const float spacing = 2.0f * p.radius;
+    const float particle_mass = p.density * spacing * spacing;
 
     for (int sub = 0; sub < p.substeps; ++sub) {
         for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
@@ -1041,6 +1144,11 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
         s.gradient.resize(n * kMaxNeighbors);
         s.weight.resize(n * kMaxNeighbors);
         select_boundaries(fluid.params, p, boundaries, n, s);
+        s.coupled = particle_mass > 0.0f &&
+                    std::any_of(s.shapes.begin(), s.shapes.end(), [](const ShapeBoundary* shape) { return shape->body >= 0; });
+        if (s.coupled) {
+            s.pushes.assign(n * kCouplingSlots, Fluid2DScratch::Push{});
+        }
 
         for (int iteration = 0; iteration < p.iterations; ++iteration) {
             // Lambda: the density constraint C_i = rho_i / rho_0 - 1 >= 0 (only compression pushes). Keeps each
@@ -1145,7 +1253,96 @@ void Fluid2DSolver::step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2
                 x[i] = s.predicted[i];
             }
         });
+
+        // Two-way coupling: the bodies take the reaction of every push, summed serially in particle order, so the
+        // result does not depend on the worker count.
+        if (s.coupled) {
+            const float to_impulse = -particle_mass * inv_dt;
+            for (std::size_t i = 0; i < n; ++i) {
+                for (std::size_t k = 0; k < kCouplingSlots; ++k) {
+                    const Fluid2DScratch::Push& push = s.pushes[i * kCouplingSlots + k];
+                    if (push.body < 0) {
+                        break;
+                    }
+                    CouplingBody2D& body = boundaries.bodies[static_cast<std::size_t>(push.body)];
+                    body.impulse += push.moved * to_impulse;
+                    body.angular_impulse += push.moment * to_impulse;
+                    body.particle_speed = std::max(body.particle_speed, std::sqrt(glm::dot(v[i], v[i])));
+                    body.arm = std::max(body.arm, push.arm);
+                }
+            }
+        }
     }
+}
+
+namespace {
+
+// The 2D solver's inverse inertia of a Dynamic body: its first non-trigger collider of box, circle, polygon (in that
+// order) about the body origin, with the body's whole mass. 0 when it has none.
+[[nodiscard]] float inverse_inertia_of(const ecs::World& world, ecs::Entity entity, float mass) {
+    float inertia = 0.0f;
+    if (const BoxCollider2D* box = world.try_get<BoxCollider2D>(entity); box != nullptr && !box->is_trigger) {
+        inertia = inertia_2d_box(mass, box->size.x, box->size.y);
+    } else if (const CircleCollider2D* circle = world.try_get<CircleCollider2D>(entity);
+               circle != nullptr && !circle->is_trigger) {
+        inertia = inertia_2d_circle(mass, circle->radius);
+    } else if (const PolygonCollider2D* polygon = world.try_get<PolygonCollider2D>(entity);
+               polygon != nullptr && !polygon->is_trigger) {
+        inertia = inertia_2d_polygon(mass, polygon->vertices, polygon->count);
+    }
+    return inertia > 0.0f && std::isfinite(inertia) ? 1.0f / inertia : 0.0f;
+}
+
+// Gives each coupled body the fluids' reaction: velocity += impulse / mass, angular velocity += angular impulse /
+// inertia. The reaction is explicit (the body did not move while the fluid was solved), so a body much lighter than the
+// water that pushes it would overshoot: the change is capped so the body does not end faster, along the change, than
+// the fastest particle that pushed it plus gravity over the tick, nor spinning faster than that speed over its longest
+// contact arm (unless it already was). A floating body ends near rest and is never capped. A sleeping body stays
+// asleep unless the change would wake it (the solver's sleep thresholds).
+void apply_coupling(ecs::World& world, const Boundaries& boundaries, glm::vec2 gravity, float dt) {
+    const float gravity_step = finite(gravity) ? std::sqrt(glm::dot(gravity, gravity)) * dt : 0.0f;
+    for (const CouplingBody2D& coupled : boundaries.bodies) {
+        if (coupled.impulse == glm::vec2{0.0f} && coupled.angular_impulse == 0.0f) {
+            continue;
+        }
+        if (!finite(coupled.impulse) || !std::isfinite(coupled.angular_impulse)) {
+            continue;
+        }
+        RigidBody2D* body = world.try_get<RigidBody2D>(coupled.entity);
+        if (body == nullptr || body->type != BodyType::Dynamic) {
+            continue;
+        }
+        const float mass = body->mass > kMinDynamicMass ? body->mass : kMinDynamicMass;
+        glm::vec2 dv = coupled.impulse / mass;
+        float dw = coupled.angular_impulse * inverse_inertia_of(world, coupled.entity, mass);
+        const float cap = coupled.particle_speed + gravity_step;
+        const float dv_length = std::sqrt(glm::dot(dv, dv));
+        if (dv_length > 0.0f) {
+            const glm::vec2 direction = dv / dv_length;
+            const float along = glm::dot(glm::vec2{body->velocity.x, body->velocity.y}, direction) + dv_length;
+            if (along > cap) {
+                dv -= direction * std::min(along - cap, dv_length);
+            }
+        }
+        if (coupled.arm > 0.0f && dw != 0.0f) {
+            const float spin_cap = std::max(cap / coupled.arm, std::abs(body->angular_velocity));
+            dw = std::clamp(body->angular_velocity + dw, -spin_cap, spin_cap) - body->angular_velocity;
+        }
+        if (body->sleeping) {
+            if (glm::dot(dv, dv) < kSleepLinear * kSleepLinear && std::abs(dw) < kSleepAngular) {
+                continue;
+            }
+            body->sleeping = false;
+            if (PhysicsSleepState2D* sleep = world.try_ctx<PhysicsSleepState2D>()) {
+                sleep->quiet.erase(coupled.entity);
+            }
+        }
+        body->velocity.x += dv.x;
+        body->velocity.y += dv.y;
+        body->angular_velocity += dw;
+    }
+}
+
 }
 
 FluidNeighbors2D fluid_neighbors_2d(std::span<const glm::vec2> positions, float h, JobSystem* jobs) {
@@ -1237,11 +1434,12 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
         }
     }
     // run_physics_2d ends with update_world_transforms, so the collider matrices are this tick's.
-    const Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi);
+    Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi);
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
     for (ecs::Entity entity : view) {
         Fluid2DSolver::step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch);
     }
+    apply_coupling(world, boundaries, glm::vec2{gravity.x, gravity.y}, dt);
 }
 
 void register_fluid_2d_system(ecs::World& world) {

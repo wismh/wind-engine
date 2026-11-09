@@ -48,6 +48,10 @@ struct Fluid2DParams {
     float friction = 0.1f;
     // Fraction of the normal approach speed kept, reflected, after a boundary contact, clamped to [0, 1].
     float restitution = 0.0f;
+    // Mass per unit area in world units, the unit of `RigidBody2D::mass` over a collider's area: a Dynamic body lighter
+    // than that per area floats, a heavier one sinks. A particle weighs `density` times its lattice cell, (2 radius)^2.
+    // 0 (or negative, or non-finite) turns the reaction on bodies off: coupling one way again.
+    float density = 1.0f;
     uint32_t layer = 1;           // what the fluid is, for the colliders' masks
     uint32_t mask = 0xFFFFFFFFu;  // which collider layers bound it
 };
@@ -58,11 +62,13 @@ struct Fluid2DParams {
 // particles are owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
 // The entity needs no Transform: positions are world XY.
 //
-// Boundaries are one-way. The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D`,
-// `CircleCollider2D`, `PolygonCollider2D` and `CompoundCollider2D` colliders that pass the layer rule
-// (`mask & collider.layer` and `collider.mask & layer`), static, kinematic or dynamic, at their pose after
-// `run_physics_2d`; it never pushes them back and sends no `CollisionEvent2D`. An `SdfCollider2D` or
-// `CompoundCollider2D` under a Dynamic body is skipped, as the 2D solver skips it. Two fluids do not see each other.
+// The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D`, `CircleCollider2D`,
+// `PolygonCollider2D` and `CompoundCollider2D` colliders that pass the layer rule (`mask & collider.layer` and
+// `collider.mask & layer`), static, kinematic or dynamic, at their pose after `run_physics_2d`. An `SdfCollider2D` or
+// `CompoundCollider2D` under a Dynamic body is skipped, as the 2D solver skips it. Coupling is two-way for a box,
+// circle or polygon collider on a Dynamic body's own entity: the fluid pushes it back (buoyancy, drag) with the
+// reaction of every push, added to its velocity and angular velocity at the end of the step for the next
+// `run_physics_2d` to integrate. Everything else only pushes. No `CollisionEvent2D`. Two fluids do not see each other.
 //
 // Rendering is the game's: draw `positions()` with its own sprites or particles.
 class Fluid2D {
