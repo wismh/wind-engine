@@ -515,3 +515,41 @@ TEST(SdfField2D, SameOpsGiveBitIdenticalSamples) {
 }
 
 }
+
+TEST(SdfField2D, EditCountFollowsEditsThatChangeSamples) {
+    SdfField2D field = make_field(4.0f);
+    EXPECT_EQ(field.edit_count(), 0u);
+    EXPECT_TRUE(field.carve_circle({5.0f, 5.0f}, 2.0f).empty());
+    EXPECT_EQ(field.edit_count(), 0u);  // carving empty space changes nothing
+    ASSERT_FALSE(field.fill_circle({5.0f, 5.0f}, 2.0f).empty());
+    EXPECT_EQ(field.edit_count(), 1u);
+    EXPECT_TRUE(field.fill_circle({5.0f, 5.0f}, 2.0f).empty());
+    EXPECT_EQ(field.edit_count(), 1u);
+    (void)field.carve_circle({5.0f, 5.0f}, 1.0f);
+    EXPECT_EQ(field.edit_count(), 2u);
+}
+
+TEST(SdfField2D, AssignChunkCopiesSamplesAndDirtiesNeighbours) {
+    SdfField2D source = make_field(4.0f);
+    (void)source.fill_circle({40.0f, 40.0f}, 6.0f);
+    const std::span<const std::int16_t> samples = source.chunk_samples({1, 1});
+    ASSERT_EQ(samples.size(), static_cast<std::size_t>(engine::kSdfChunkSamples));
+
+    SdfField2D copy = make_field(4.0f);
+    EXPECT_TRUE(copy.assign_chunk({1, 1}, samples.first(10)).empty());
+    EXPECT_FALSE(copy.has_chunk({1, 1}));
+    const std::vector<glm::ivec2> dirty = copy.assign_chunk({1, 1}, samples);
+    ASSERT_FALSE(dirty.empty());
+    EXPECT_TRUE(std::ranges::find(dirty, glm::ivec2{1, 1}) != dirty.end());
+    EXPECT_EQ(copy.revision({1, 1}), 1u);
+    EXPECT_EQ(copy.edit_count(), 1u);
+    const std::span<const std::int16_t> copied = copy.chunk_samples({1, 1});
+    EXPECT_TRUE(std::equal(samples.begin(), samples.end(), copied.begin()));
+    EXPECT_TRUE(copy.assign_chunk({1, 1}, samples).empty());
+
+    // An all-outside chunk is still allocated and reported once.
+    std::vector<std::int16_t> empty(static_cast<std::size_t>(engine::kSdfChunkSamples), engine::kSdfQuantMax);
+    EXPECT_EQ(copy.assign_chunk({-4, 2}, empty), std::vector<glm::ivec2>{glm::ivec2(-4, 2)});
+    EXPECT_TRUE(copy.has_chunk({-4, 2}));
+    EXPECT_EQ(copy.revision({-4, 2}), 1u);
+}

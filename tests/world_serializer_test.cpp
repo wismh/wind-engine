@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -712,4 +713,69 @@ decal = { mesh = "asset://0123456789abcdef0123456789abcde1", texture = "asset://
     EXPECT_FLOAT_EQ(round->angle_cutoff, 0.4f);
     EXPECT_FLOAT_EQ(round->normal_fade, 0.15f);
     EXPECT_FALSE(round->frustum_cull);
+}
+
+TEST(WorldSerializer, SdfCollider2DRoundTrip) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = {1.f, 2.f, 0.f}});
+    engine::SdfCollider2D collider{
+            .field = engine::SdfField2D{engine::SdfField2DDesc{
+                    .cell_size = 0.5f, .band = 1.5f, .origin = {-3.f, 4.f}, .outside = engine::SdfOutside::Solid}},
+            .layer = 4,
+            .mask = 6,
+            .friction = 0.25f,
+            .restitution = 0.5f};
+    (void)collider.field.carve_circle({2.f, 6.f}, 3.f);
+    (void)collider.field.carve_circle({-20.f, -9.f}, 1.f);
+    ASSERT_GE(collider.field.chunk_count(), 2u);
+    world.emplace<engine::SdfCollider2D>(entity, std::move(collider));
+    world.emplace<engine::ecs::EntityName>(entity, engine::ecs::EntityName{"terrain"});
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    EXPECT_NE(saved.find("sdf_collider_2d"), std::string::npos);
+    engine::ecs::World again;
+    auto loaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto& original = world.get<engine::SdfCollider2D>(entity);
+    const auto& round = again.get<engine::SdfCollider2D>(loaded->by_id.at("terrain"));
+    EXPECT_EQ(round.field.cell_size(), 0.5f);
+    EXPECT_EQ(round.field.band(), 1.5f);
+    EXPECT_EQ(round.field.origin(), glm::vec2(-3.f, 4.f));
+    EXPECT_EQ(round.field.outside(), engine::SdfOutside::Solid);
+    EXPECT_EQ(round.layer, 4u);
+    EXPECT_EQ(round.mask, 6u);
+    EXPECT_FLOAT_EQ(round.friction, 0.25f);
+    EXPECT_FLOAT_EQ(round.restitution, 0.5f);
+    ASSERT_EQ(round.field.chunk_coords(), original.field.chunk_coords());
+    for (const glm::ivec2 chunk : original.field.chunk_coords()) {
+        const auto a = original.field.chunk_samples(chunk);
+        const auto b = round.field.chunk_samples(chunk);
+        ASSERT_EQ(a.size(), b.size());
+        EXPECT_TRUE(std::equal(a.begin(), a.end(), b.begin())) << chunk.x << ", " << chunk.y;
+    }
+    EXPECT_EQ(round.field.sample({2.f, 6.f}), original.field.sample({2.f, 6.f}));
+}
+
+TEST(WorldSerializer, SdfCollider2DRejectsBadSamples) {
+    engine::ecs::World world;
+    const auto bad_samples = engine::ecs::load_world_from_toml(world, R"(
+version = 1
+
+[[entities]]
+id = "terrain"
+transform = { position = [0.0, 0.0, 0.0] }
+sdf_collider_2d = { cell_size = 1.0, chunks = [{ x = 0, y = 0, samples = "AAAA" }] }
+)");
+    EXPECT_FALSE(bad_samples.has_value());
+
+    const auto bad_outside = engine::ecs::load_world_from_toml(world, R"(
+version = 1
+
+[[entities]]
+id = "terrain"
+transform = { position = [0.0, 0.0, 0.0] }
+sdf_collider_2d = { outside = "lava" }
+)");
+    EXPECT_FALSE(bad_outside.has_value());
 }
