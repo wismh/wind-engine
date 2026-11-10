@@ -2279,7 +2279,8 @@ TEST(RenderSystem, RenderWorldViewportCullsWithItsCamera) {
     EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{hidden}));
 }
 
-// LQ-54: FluidRender2D draws a fluid as one batch of soft cards.
+// LQ-54: FluidRender2D draws a fluid as one batch of soft cards (the surface: tests/fluid_surface_test.cpp). With no
+// assets the composite shader is missing, so the default surface look falls back to these cards.
 
 namespace {
 
@@ -2347,6 +2348,7 @@ TEST(RenderSystem, FluidRenderRoundTripsThroughTheSerializer) {
     engine::ecs::World world;
     const engine::ecs::Entity entity = world.create();
     world.emplace<engine::render::FluidRender2D>(entity, engine::render::FluidRender2D{
+            .look = engine::render::FluidRender2D::Look::Cards,
             .color = {0.1f, 0.2f, 0.3f, 0.4f},
             .foam_speed = 3.0f,
             .size = 5.0f,
@@ -2355,6 +2357,11 @@ TEST(RenderSystem, FluidRenderRoundTripsThroughTheSerializer) {
             .layer = 7,
             .order_in_layer = 2,
             .frustum_cull = false,
+            .splat_weight = 0.4f,
+            .threshold = 0.25f,
+            .edge = 0.1f,
+            .refraction = 3.0f,
+            .foam_scale = 1.5f,
     });
     const std::string saved = engine::ecs::save_world_to_toml(world);
     engine::ecs::World loaded;
@@ -2370,4 +2377,10 @@ TEST(RenderSystem, FluidRenderRoundTripsThroughTheSerializer) {
     EXPECT_EQ(look->layer, 7);
     EXPECT_EQ(look->order_in_layer, 2);
     EXPECT_FALSE(look->frustum_cull);
+    EXPECT_EQ(look->look, engine::render::FluidRender2D::Look::Cards);
+    EXPECT_FLOAT_EQ(look->splat_weight, 0.4f);
+    EXPECT_FLOAT_EQ(look->threshold, 0.25f);
+    EXPECT_FLOAT_EQ(look->edge, 0.1f);
+    EXPECT_FLOAT_EQ(look->refraction, 3.0f);
+    EXPECT_FLOAT_EQ(look->foam_scale, 1.5f);
 }

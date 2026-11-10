@@ -43,6 +43,7 @@ constexpr std::string_view kShaderPostDepth = "a0e1b2c3d4f5678901234567890abc13"
 constexpr std::string_view kShaderSpriteLit = "a0e1b2c3d4f5678901234567890abc14";
 constexpr std::string_view kMaterialSpriteLit = "a0e1b2c3d4f5678901234567890abc15";
 constexpr std::string_view kShaderDecal = "a0e1b2c3d4f5678901234567890abc16";
+constexpr std::string_view kShaderFluidSurface = "a0e1b2c3d4f5678901234567890abc17";
 
 std::filesystem::path builtin_assets_dir() {
     return std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
@@ -101,6 +102,7 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_EQ(engine::builtin::shader_sprite_lit.hex(), kShaderSpriteLit);
     EXPECT_EQ(engine::builtin::material_sprite_lit.hex(), kMaterialSpriteLit);
     EXPECT_EQ(engine::builtin::shader_decal.hex(), kShaderDecal);
+    EXPECT_EQ(engine::builtin::shader_fluid_surface.hex(), kShaderFluidSurface);
 
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_quad.hex()));
@@ -165,8 +167,9 @@ TEST(Builtin, BuiltinIdsAreUnique) {
     EXPECT_EQ(reserved[19], engine::builtin::shader_sprite_lit);
     EXPECT_EQ(reserved[20], engine::builtin::material_sprite_lit);
     EXPECT_EQ(reserved[21], engine::builtin::shader_decal);
-    EXPECT_EQ(engine::builtin::count(), 22u);
-    EXPECT_EQ(reserved.size(), 22u);
+    EXPECT_EQ(reserved[22], engine::builtin::shader_fluid_surface);
+    EXPECT_EQ(engine::builtin::count(), 23u);
+    EXPECT_EQ(reserved.size(), 23u);
 }
 
 TEST(Builtin, BuiltinMetasMatchIds) {

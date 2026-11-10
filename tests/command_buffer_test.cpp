@@ -77,6 +77,10 @@ struct RecordingBackend {
         kinds.emplace_back("decal");
     }
 
+    void operator()(const engine::render::CmdDrawFluidSurface&) {
+        kinds.emplace_back("fluid_surface");
+    }
+
     void operator()(const engine::render::CmdSetView&) {
         kinds.emplace_back("view");
     }
@@ -132,13 +136,14 @@ TEST(CommandBuffer, VariantHasExpectedCommands) {
     using engine::render::CmdSetView;
     using engine::render::Command;
 
-    static_assert(std::variant_size_v<Command> == 6);
+    static_assert(std::variant_size_v<Command> == 7);
     static_assert(std::is_same_v<std::variant_alternative_t<0, Command>, CmdDrawMesh>);
     static_assert(std::is_same_v<std::variant_alternative_t<1, Command>, CmdDrawUI>);
     static_assert(std::is_same_v<std::variant_alternative_t<2, Command>, CmdDrawParticles>);
     static_assert(std::is_same_v<std::variant_alternative_t<3, Command>, CmdDrawDecal>);
     static_assert(std::is_same_v<std::variant_alternative_t<4, Command>, CmdSetView>);
     static_assert(std::is_same_v<std::variant_alternative_t<5, Command>, engine::render::CmdPostProcess>);
+    static_assert(std::is_same_v<std::variant_alternative_t<6, Command>, engine::render::CmdDrawFluidSurface>);
     static_assert(!has_shader_field<CmdDrawMesh>::value);
     static_assert(!has_texture_field<CmdDrawMesh>::value);
     // The camera reaches draws only through CmdSetView.
