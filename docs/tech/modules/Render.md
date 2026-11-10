@@ -12,7 +12,7 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 | --- | --- |
 | `CmdDrawMesh` | `run_render` and `render_world_viewport` for each `Renderable` and `Sprite` inside a window's frustum ([Frustum culling](#frustum-culling)) |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
-| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty and whose bounds meet a bound window's frustum, unless `frustum_cull` is false |
+| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty and whose bounds meet a bound window's frustum, unless `frustum_cull` is false, and for a `Fluid2D` with a `FluidRender2D` ([Fluids](#fluids)) |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
 | `CmdPostProcess` | `run_render`, after that window's world draws, when the view's post chain is active |
 
@@ -350,6 +350,10 @@ The radius is `collision_radius` (0 is a point), kept below `0.999 * band` becau
 - A non-empty `color_curve` (`Curve<glm::vec4>`) replaces the linear start/end color.
 - A non-empty `alpha_curve` (`Curve<float>`) then overwrites alpha.
 
+## Fluids
+
+`render::FluidRender2D` (`include/engine/render/fluid_render_2d.h`, LQ-54) on the entity of a `Fluid2D` draws it as soft cards: `collect_world_draws` (so `run_render` and the editor's `render_world_viewport`) pushes one `CmdDrawParticles` per fluid with `ParticleDraw::Plane`, one instance per particle at `(position, z)`, `size` particle radii wide (4 by default, so neighbours at the rest spacing of 2 radii overlap into one body), with the particle's velocity. A card's color is `color`, blended toward `foam_color` by `speed / foam_speed` (clamped to 1; `foam_speed` 0 turns foam off). The batch sorts with sprites by `layer` and `order_in_layer` at the center of the fluid's box, and is dropped when that box (grown by half a card) meets no bound window's frustum, unless `frustum_cull` is false. The card is `mesh` (default `builtin::mesh_quad`) with `material`; without one, `texture` or, without that, a generated soft disc (64 x 64, white, alpha `(1 - r^2)^2`, made once per world through the graphics factory, `FluidRenderCache`) on the unlit shader with `blend`. Serialized as `fluid_render_2d` (`texture` and `material` asset ids, `color`, `foam_color`, `foam_speed`, `size`, `z`, `blend` "opaque", "alpha" or "additive", `layer`, `order_in_layer`, `frustum_cull`). Building the cards costs about 60 ns per particle on the CPU (8,192 particles, Release, one thread); the GPU cost is one instanced draw. A thresholded surface (an offscreen density target and a fullscreen pass with an edge, refraction and foam) is not implemented: it needs an offscreen pass in both backends.
+
 ## Decals
 
 `Decal` (`include/engine/render/decal.h`) projects `builtin::shader_decal` through the unit cube onto the depth of the opaque scene. The full rule is [Decals](../features/Decals.md). `run_render` puts `CmdDrawDecal` in `DrawQueue::Decal`. The first decal in a view copies the scene depth to a texture that is not the framebuffer attachment, then both backends sample that copy. Vulkan ends the scene pass, copies, and resumes with the color and depth loaded. A world that contains a decal turns `PostChain::sample_depth` on, and a chain with nothing else to present copies the scene color to the window.
@@ -448,6 +452,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 - `include/engine/render/command_buffer.h`
 - `include/engine/render/frustum.h`
 - `include/engine/render/directional_light.h`
+- `include/engine/render/fluid_render_2d.h`
 - `include/engine/render/fog.h`
 - `include/engine/render/post_process.h`
 - `include/engine/render/ambient_light.h`
