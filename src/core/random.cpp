@@ -1,6 +1,7 @@
 #include <engine/core/random.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 
 namespace engine {
@@ -10,8 +11,10 @@ namespace {
 constexpr std::uint64_t kMultiplier = 6364136223846793005ULL;
 
 std::uint64_t clock_seed() {
-    return static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count()) ^
-           static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    static std::atomic<std::uint64_t> counter{0};
+    return (static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count()) ^
+            static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())) +
+           ++counter;
 }
 
 }

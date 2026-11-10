@@ -17,7 +17,7 @@
 #include <iterator>
 #include <string>
 
-namespace {
+namespace fixtures {
 
 inline std::uint32_t current_process_id() {
 #if defined(_WIN32)
@@ -44,7 +44,7 @@ struct CookedAssetsDirectory {
     }
 };
 
-}
+} // namespace fixtures
 
 // Replaces a source `.shader` with the cooked blob `load_gpu` reads.
 inline bool cook_shader_in_place(const std::filesystem::path& file) {
@@ -68,17 +68,17 @@ inline bool cook_shader_in_place(const std::filesystem::path& file) {
 }
 
 // One cooked copy of builtin_assets for the process. Source XML stays in ENGINE_BUILTIN_ASSETS_DIR.
-inline std::filesystem::path cooked_builtin_assets() {
-    static const CookedAssetsDirectory cached = [] {
+inline const std::filesystem::path& cooked_builtin_assets() {
+    static const fixtures::CookedAssetsDirectory cached = [] {
         engine::shader_cook::register_shader_cooker();
         const std::filesystem::path src{ENGINE_BUILTIN_ASSETS_DIR};
         const std::filesystem::path dest =
-                std::filesystem::temp_directory_path() / ("wind_builtin_cooked_" + unique_process_suffix());
+                std::filesystem::temp_directory_path() / ("wind_builtin_cooked_" + fixtures::unique_process_suffix());
         std::error_code ec;
         std::filesystem::remove_all(dest, ec);
         std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);
         if (ec) {
-            return CookedAssetsDirectory{};
+            return fixtures::CookedAssetsDirectory{};
         }
         for (const std::filesystem::directory_entry& entry :
                 std::filesystem::directory_iterator(dest / "shaders", ec)) {
@@ -88,10 +88,10 @@ inline std::filesystem::path cooked_builtin_assets() {
             if (!cook_shader_in_place(entry.path())) {
                 std::error_code clean_ec;
                 std::filesystem::remove_all(dest, clean_ec);
-                return CookedAssetsDirectory{};
+                return fixtures::CookedAssetsDirectory{};
             }
         }
-        return CookedAssetsDirectory{dest};
+        return fixtures::CookedAssetsDirectory{dest};
     }();
     return cached.path_;
 }
