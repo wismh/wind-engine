@@ -49,8 +49,10 @@ inline constexpr AssetId shader_sprite_lit{"a0e1b2c3d4f5678901234567890abc14"};
 inline constexpr AssetId material_sprite_lit{"a0e1b2c3d4f5678901234567890abc15"};
 // Projects a texture through the unit cube onto the scene depth (docs/tech/features/Decals.md).
 inline constexpr AssetId shader_decal{"a0e1b2c3d4f5678901234567890abc16"};
+// The fluid surface composite: thresholds splatted fluid particles into a surface over the scene (Render.md, Fluids).
+inline constexpr AssetId shader_fluid_surface{"a0e1b2c3d4f5678901234567890abc17"};
 
-inline constexpr std::array<AssetId, 22> ids{
+inline constexpr std::array<AssetId, 23> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -73,6 +75,7 @@ inline constexpr std::array<AssetId, 22> ids{
         shader_sprite_lit,
         material_sprite_lit,
         shader_decal,
+        shader_fluid_surface,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

@@ -295,6 +295,7 @@ void VulkanPost::destroy_targets() {
     }
     destroy_slot(color_[0]);
     destroy_slot(color_[1]);
+    destroy_slot(fluid_);
     for (Slot& level : bloom_) {
         destroy_slot(level);
     }
@@ -450,7 +451,11 @@ bool VulkanPost::ensure_targets(SceneColorFormat format, bool depth_texture) {
         fb.layers = 1;
         return fn.vkCreateFramebuffer(device, &fb, nullptr, &slot.fb) == VK_SUCCESS;
     };
-    if (!make_fb(color_[0], scene_pass_, true) || !make_fb(color_[1], color_pass_, false)) {
+    if (!create_image(fluid_, scene, extent_, color_usage, VK_IMAGE_ASPECT_COLOR_BIT)) {
+        return false;
+    }
+    if (!make_fb(color_[0], scene_pass_, true) || !make_fb(color_[1], color_pass_, false) ||
+            !make_fb(fluid_, color_pass_, false)) {
         return false;
     }
     VkFramebufferCreateInfo color0_fb{};
@@ -626,6 +631,19 @@ VulkanPost::DepthSample VulkanPost::prepare_depth_sample() {
     sample.pass = scene_resume_;
     sample.has_depth = true;
     return sample;
+}
+
+bool VulkanPost::begin_fluid() {
+    if (!scene_bound_ || !pass_open_ || scene_resume_ == VK_NULL_HANDLE || fluid_.fb == VK_NULL_HANDLE ||
+            color_pass_ == VK_NULL_HANDLE) {
+        return false;
+    }
+    begin_pass(color_pass_, fluid_.fb, extent_, false, false);
+    return true;
+}
+
+void VulkanPost::resume_scene() {
+    begin_pass(scene_resume_, color_[0].fb, extent_, false, false);
 }
 
 void VulkanPost::begin(VkRenderPass pass, VkFramebuffer framebuffer, VkExtent2D extent, bool clear_color,

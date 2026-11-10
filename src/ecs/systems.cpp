@@ -604,6 +604,7 @@ namespace engine {
             std::shared_ptr<render::IMesh> default_cube;
             std::shared_ptr<render::IShader> default_shader;
             std::shared_ptr<render::IShader> decal_shader;
+            std::shared_ptr<render::IShader> fluid_surface_shader;
             std::shared_ptr<render::IMaterial> default_unlit;
             if (assets != nullptr) {
                 if (auto mesh_res = assets->try_get<render::IMesh>(builtin::mesh_quad)) {
@@ -617,6 +618,9 @@ namespace engine {
                 }
                 if (auto decal_res = assets->try_get<render::IShader>(builtin::shader_decal)) {
                     decal_shader = std::move(*decal_res);
+                }
+                if (auto fluid_res = assets->try_get<render::IShader>(builtin::shader_fluid_surface)) {
+                    fluid_surface_shader = std::move(*fluid_res);
                 }
                 if (auto mat_res = assets->try_get<render::IMaterial>(builtin::material_unlit)) {
                     default_unlit = std::move(*mat_res);
@@ -899,7 +903,8 @@ namespace engine {
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
-            // Fluids drawn as soft cards (FluidRender2D on a Fluid2D's entity).
+            // Fluids (FluidRender2D on a Fluid2D's entity): a thresholded surface (CmdDrawFluidSurface) when the look
+            // asks for it and the composite shader loaded, otherwise soft cards.
             auto fluids = world.view<render::FluidRender2D, Fluid2D>();
             for (ecs::Entity entity: fluids) {
                 const auto &look = fluids.get<render::FluidRender2D>(entity);
@@ -923,7 +928,11 @@ namespace engine {
                 if (look.frustum_cull && !render::visible_in_any(frustums, box)) {
                     continue;
                 }
-                std::shared_ptr<render::IMaterial> material = look.material;
+                const bool surface =
+                        look.look == render::FluidRender2D::Look::Surface && fluid_surface_shader != nullptr;
+                // A surface's splats always add (their own soft-disc material); the game's material is for cards.
+                const render::BlendMode card_blend = surface ? render::BlendMode::Additive : look.blend;
+                std::shared_ptr<render::IMaterial> material = surface ? nullptr : look.material;
                 if (material == nullptr) {
                     auto &fluid_cache = world.ctx<FluidRenderCache>();
                     std::shared_ptr<render::ITexture> texture = look.texture;
@@ -933,12 +942,12 @@ namespace engine {
                         }
                         texture = fluid_cache.disc;
                     }
-                    const auto blend_index = static_cast<std::size_t>(look.blend) % 3;
+                    const auto blend_index = static_cast<std::size_t>(card_blend) % 3;
                     std::shared_ptr<render::IMaterial> &cached = fluid_cache.materials[blend_index][texture.get()];
                     if (cached == nullptr && default_shader != nullptr) {
                         cached = std::make_shared<render::Material>(default_shader, texture,
                                                                     glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
-                                                                    render::RenderState{.blend = look.blend});
+                                                                    render::RenderState{.blend = card_blend});
                     }
                     material = cached != nullptr ? cached : default_unlit;
                 }
@@ -948,18 +957,19 @@ namespace engine {
                 render::CmdDrawParticles cmd;
                 cmd.mesh = card;
                 cmd.material = material;
-                cmd.blend = look.material != nullptr ? look.material->render_state().blend : look.blend;
+                cmd.blend = !surface && look.material != nullptr ? look.material->render_state().blend : card_blend;
                 cmd.draw = render::ParticleDraw::Plane;
                 cmd.instances.reserve(fluid.count());
                 const bool foam = look.foam_speed > 0.0f && std::isfinite(look.foam_speed);
                 const float inv_foam = foam ? 1.0f / look.foam_speed : 0.0f;
+                // A splat adds its weight to r (density) and its weight times its foam share to g.
+                const float weight = std::isfinite(look.splat_weight) ? std::max(look.splat_weight, 0.0f) : 0.0f;
                 for (std::size_t i = 0; i < fluid.count(); ++i) {
                     const glm::vec2 velocity = fluid.velocities()[i];
-                    glm::vec4 color = look.color;
-                    if (foam) {
-                        const float t = std::min(std::sqrt(glm::dot(velocity, velocity)) * inv_foam, 1.0f);
-                        color += (look.foam_color - look.color) * t;
-                    }
+                    const float t =
+                            foam ? std::min(std::sqrt(glm::dot(velocity, velocity)) * inv_foam, 1.0f) : 0.0f;
+                    const glm::vec4 color = surface ? glm::vec4{weight, weight * t, 0.0f, 1.0f}
+                                                    : look.color + (look.foam_color - look.color) * t;
                     cmd.instances.push_back(render::ParticleInstance{
                             .position = glm::vec3{fluid.positions()[i], look.z},
                             .size = glm::vec2{2.0f * half},
@@ -970,6 +980,24 @@ namespace engine {
                 const render::DrawSortKey key = render::make_draw_sort_key(
                         material.get(), look.layer, look.order_in_layer, (box.min + box.max) * 0.5f, view, entity,
                         false);
+                if (surface) {
+                    const auto finite_or = [](float value, float fallback) {
+                        return std::isfinite(value) ? value : fallback;
+                    };
+                    items.push_back(DrawItem{
+                            .key = key,
+                            .command = render::CmdDrawFluidSurface{
+                                    .splats = std::move(cmd),
+                                    .composite = fluid_surface_shader,
+                                    .color = look.color,
+                                    .foam_color = look.foam_color,
+                                    .params = glm::vec4{finite_or(look.threshold, 0.5f),
+                                                        std::max(finite_or(look.edge, 0.1f), 0.0f),
+                                                        finite_or(look.refraction, 0.0f),
+                                                        std::max(finite_or(look.foam_scale, 0.0f), 0.0f)},
+                            }});
+                    continue;
+                }
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
@@ -1046,11 +1074,15 @@ namespace engine {
                 fog = *camera_fog;
             }
             render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
-            if (any_decals) {
+            const bool any_fluid_surface = std::any_of(items.begin(), items.end(), [](const DrawItem &item) {
+                return std::holds_alternative<render::CmdDrawFluidSurface>(item.command);
+            });
+            if (any_decals || any_fluid_surface) {
                 post.sample_depth = true;
                 // An otherwise empty chain would leave the scene offscreen. Vulkan presents that copy with the grade
-                // shader; OpenGL blits and does not need it.
-                if (!post.hdr && post.effects.empty() && post.ldr_copy == nullptr && deps.assets != nullptr) {
+                // shader, and copies the backdrop of a fluid surface with it; OpenGL blits and does not need it.
+                if ((any_fluid_surface || (!post.hdr && post.effects.empty())) && post.ldr_copy == nullptr &&
+                    deps.assets != nullptr) {
                     if (auto copy = deps.assets->try_get<render::IShader>(builtin::shader_post_grade)) {
                         post.ldr_copy = std::move(*copy);
                     }

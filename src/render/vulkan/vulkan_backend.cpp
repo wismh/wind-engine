@@ -252,6 +252,8 @@ struct ExecuteVisitor {
 
     void operator()(const CmdDrawDecal& cmd) const { backend->execute_draw_decal(cmd); }
 
+    void operator()(const CmdDrawFluidSurface& cmd) const { backend->execute_draw_fluid_surface(cmd); }
+
     void operator()(const CmdSetView& cmd) const { backend->set_view(cmd); }
 
     void operator()(const CmdPostProcess&) const { backend->finish_post(); }
@@ -387,7 +389,7 @@ void VulkanRenderBackend::apply_viewport_and_scissor(bool clear_if_requested) {
 
 void VulkanRenderBackend::draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params,
         const glm::vec2& resolution, float time, VkImageView source, VkImageView depth, VkFramebuffer framebuffer,
-        VkRenderPass pass, VkExtent2D extent, bool additive) {
+        VkRenderPass pass, VkExtent2D extent, BlendMode blend, const FluidCompositeUniforms* fluid) {
     (void)framebuffer;
     auto* vk_shader = dynamic_cast<VulkanShader*>(shader.get());
     if (vk_shader == nullptr || !vk_shader->valid() || source == VK_NULL_HANDLE || active_cmd_ == VK_NULL_HANDLE ||
@@ -399,7 +401,7 @@ void VulkanRenderBackend::draw_post_shader(const std::shared_ptr<IShader>& shade
         return;
     }
     const RenderState state{
-            .blend = additive ? BlendMode::Additive : BlendMode::Opaque,
+            .blend = blend,
             .depth_test = false,
             .depth_write = false,
             .cull = CullMode::None,
@@ -413,6 +415,10 @@ void VulkanRenderBackend::draw_post_shader(const std::shared_ptr<IShader>& shade
     write_vec4(ubo, refl, "uParams", params);
     write_vec2(ubo, refl, "uResolution", resolution);
     write_float(ubo, refl, "uTime", time);
+    if (fluid != nullptr) {
+        write_vec4(ubo, refl, "uColor", fluid->color);
+        write_vec4(ubo, refl, "uFoam", fluid->foam);
+    }
 
     FrameSlot& slot = frame_slots_[active_slot_];
     const VkDeviceSize align = std::max<VkDeviceSize>(
@@ -445,7 +451,7 @@ void VulkanRenderBackend::draw_post_shader(const std::shared_ptr<IShader>& shade
     VkDescriptorImageInfo depth_info{};
     depth_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     depth_info.imageView = depth;
-    depth_info.sampler = post_.depth_sampler();
+    depth_info.sampler = fluid != nullptr ? post_.sampler() : post_.depth_sampler();
     std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = ds;
@@ -497,7 +503,8 @@ void VulkanRenderBackend::finish_post() {
         if (step.tonemap || step.copy) {
             open(fb, pass, full);
             draw_post_shader(step.copy ? chain.ldr_copy : chain.tonemap, glm::vec4{1.0f},
-                    glm::vec2{full.width, full.height}, view_.time, source, VK_NULL_HANDLE, fb, pass, full, false);
+                    glm::vec2{full.width, full.height}, view_.time, source, VK_NULL_HANDLE, fb, pass, full,
+                    BlendMode::Opaque);
             continue;
         }
         if (step.effect < 0 || static_cast<std::size_t>(step.effect) >= chain.effects.size()) {
@@ -514,26 +521,26 @@ void VulkanRenderBackend::finish_post() {
                 params.z = level == 0 ? 0.0f : 1.0f;
                 open(post_.bloom_fb(level), post_.color_pass(), level_extent);
                 draw_post_shader(effect.shader, params, level_size, view_.time, level_source, VK_NULL_HANDLE,
-                        post_.bloom_fb(level), post_.color_pass(), level_extent, false);
+                        post_.bloom_fb(level), post_.color_pass(), level_extent, BlendMode::Opaque);
                 level_source = post_.bloom_view(level);
                 level_size = glm::vec2{level_extent.width, level_extent.height};
             }
             open(fb, pass, full);
             params.z = 3.0f;
             draw_post_shader(effect.shader, params, glm::vec2{full.width, full.height}, view_.time, source,
-                    VK_NULL_HANDLE, fb, pass, full, false);
+                    VK_NULL_HANDLE, fb, pass, full, BlendMode::Opaque);
             params.z = 2.0f;
             for (int level = 0; level < 3; ++level) {
                 draw_post_shader(effect.shader, params,
                         glm::vec2{post_.bloom_width(level), post_.bloom_height(level)}, view_.time, post_.bloom_view(level),
-                        VK_NULL_HANDLE, fb, pass, full, true);
+                        VK_NULL_HANDLE, fb, pass, full, BlendMode::Additive);
             }
             continue;
         }
         open(fb, pass, full);
         const VkImageView depth = effect.sample_depth ? post_.depth_view() : VK_NULL_HANDLE;
         draw_post_shader(effect.shader, effect.params, glm::vec2{full.width, full.height}, view_.time, source, depth, fb,
-                pass, full, false);
+                pass, full, BlendMode::Opaque);
     }
     if (steps.empty() || steps.back().dest != PostImage::Window) {
         post_.begin_window_load();
@@ -867,6 +874,54 @@ void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
     const std::array<VkDeviceSize, 2> offsets{0, instance_offset};
     fn.vkCmdBindVertexBuffers(active_cmd_, 0, 2, vbs.data(), offsets.data());
     fn.vkCmdDraw(active_cmd_, 6, static_cast<std::uint32_t>(cmd.instances.size()), 0, 0);
+}
+
+void VulkanRenderBackend::execute_draw_fluid_surface(const CmdDrawFluidSurface& cmd) {
+    if (cmd.splats.instances.empty() || active_cmd_ == VK_NULL_HANDLE || context_ == nullptr) {
+        return;
+    }
+    const PostChain& chain = view_.post;
+    if (chain.ldr_copy == nullptr || !post_.begin_fluid()) {
+        // No scene pass to leave and resume (a sub-rectangle viewport): the splats as alpha cards in the water's
+        // color.
+        CmdDrawParticles cards = cmd.splats;
+        cards.blend = BlendMode::Alpha;
+        for (ParticleInstance& instance : cards.instances) {
+            instance.color = cmd.color;
+        }
+        execute_draw_particles(cards);
+        return;
+    }
+    const VkExtent2D full = post_.extent();
+    // 1. The splats, additive, into the cleared fluid target, with the scene's view and negative-height viewport.
+    active_render_pass_ = post_.color_pass();
+    pass_extent_ = full;
+    apply_viewport_and_scissor(false);
+    const VulkanFunctions& fn = context_->fn();
+    if (fn.vkCmdClearAttachments != nullptr) {
+        VkClearAttachment clear{};
+        clear.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clear.colorAttachment = 0;
+        clear.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkClearRect rect{};
+        rect.rect.extent = full;
+        rect.layerCount = 1;
+        fn.vkCmdClearAttachments(active_cmd_, 1, &clear, 1, &rect);
+    }
+    execute_draw_particles(cmd.splats);
+    // 2. The backdrop: the scene so far, copied to SceneB.
+    post_.begin(post_.color_pass(), post_.scene_fb(PostImage::SceneB), full, false, false);
+    draw_post_shader(chain.ldr_copy, glm::vec4{1.0f}, glm::vec2{full.width, full.height}, view_.time,
+            post_.scene_view(PostImage::SceneA), VK_NULL_HANDLE, post_.scene_fb(PostImage::SceneB), post_.color_pass(),
+            full, BlendMode::Opaque);
+    // 3. Back on the scene, the surface over it.
+    post_.resume_scene();
+    const FluidCompositeUniforms uniforms{.color = cmd.color, .foam = cmd.foam_color};
+    draw_post_shader(cmd.composite, cmd.params, glm::vec2{full.width, full.height}, view_.time, post_.fluid_view(),
+            post_.scene_view(PostImage::SceneB), VK_NULL_HANDLE, post_.scene_resume_pass(), full, BlendMode::Alpha,
+            &uniforms);
+    // Later draws use the scene's negative-height viewport again.
+    apply_viewport_and_scissor(false);
 }
 
 void VulkanRenderBackend::execute(const CommandBuffer& commands) {
