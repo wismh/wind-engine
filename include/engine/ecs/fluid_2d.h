@@ -6,6 +6,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -269,10 +270,45 @@ struct FluidBox2D {
 // replaces `jobs` without adding the system again. Pass `EngineServices::jobs` for parallel passes.
 void install_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
 
+// A movable collider as a fluid sees it, in world XY: a box (`frame` position and its X axis `axis`, `half` extents),
+// a circle (`frame`, `radius`) or a convex counter-clockwise polygon (`vertices[0, count)`), with its layer rule. What
+// `movable_fluid_boundaries_2d` reads from a world and FluidStepOptions2D hands to a step, so a peer can step a
+// fluid against the colliders another peer saw (net/fluid_sync_2d.h).
+struct FluidBoundary2D {
+    enum class Kind : std::uint8_t { Box, Circle, Polygon };
+    Kind kind = Kind::Box;
+    glm::vec2 position{0.0f};
+    glm::vec2 axis{1.0f, 0.0f};
+    glm::vec2 half{0.0f};
+    float radius = 0.0f;
+    std::array<glm::vec2, 8> vertices{};
+    std::uint8_t count = 0;
+    uint32_t layer = 1;
+    uint32_t mask = 0xFFFFFFFFu;
+
+    constexpr bool operator==(const FluidBoundary2D&) const noexcept = default;
+};
+
+// How `run_fluid_2d` steps. The defaults are the normal step.
+struct FluidStepOptions2D {
+    // Give Dynamic bodies the fluid's reaction (two-way coupling). Off on a peer that is not authoritative for the
+    // bodies: the fluid's own result is the same either way.
+    bool push_bodies = true;
+    // Read the movable colliders (on a Dynamic or Kinematic body) from the world. Off: `movable` stands for them.
+    bool movable_from_world = true;
+    std::span<const FluidBoundary2D> movable;
+};
+
+// The movable colliders `run_fluid_2d` would bound the fluids with now: boxes, circles and polygons on a Dynamic or
+// Kinematic body, and compound parts on a Kinematic one, in the order the fluid reads them (by content, see ECS.md).
+[[nodiscard]] std::vector<FluidBoundary2D> movable_fluid_boundaries_2d(ecs::World& world);
+
 // Steps every Fluid2D by `Time::fixed_delta_time`: the system `install_fluid_2d` registers. Do not register it
 // yourself; call it directly only on a world without that install (a bench, a tool). With `jobs`, per-particle
 // passes run in `parallel_for`; every pass is a gather (a particle writes only its own slots), so the result is
 // bit-identical for any worker count.
 void run_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
+// The same with `options`.
+void run_fluid_2d(ecs::World& world, JobSystem* jobs, const FluidStepOptions2D& options);
 
 }
