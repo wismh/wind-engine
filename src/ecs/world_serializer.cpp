@@ -14,6 +14,7 @@
 #include <engine/render/spot_light.h>
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
+#include <engine/render/fluid_render_2d.h>
 #include <engine/render/fog.h>
 #include <engine/render/post_process.h>
 #include <engine/render/graphics.h>
@@ -55,6 +56,8 @@ struct SerializedAssetRefs {
     AssetId decal_mesh;
     AssetId decal_material;
     AssetId decal_texture;
+    AssetId fluid_texture;
+    AssetId fluid_material;
 };
 
 [[nodiscard]] bool has_asset(const AssetId& id) noexcept {
@@ -628,6 +631,105 @@ void register_builtin_components(
             return true;
         };
         entries.emplace("decal", std::move(decal_entry));
+    }
+
+    {
+        // FluidRender2D: the look of a Fluid2D on the same entity. `blend` is "opaque", "alpha" or "additive".
+        WorldSerializer::Entry fluid_entry;
+        fluid_entry.name = "fluid_render_2d";
+        fluid_entry.write = [](const World& world, Entity entity, ComponentWriter& out) -> bool {
+            const auto* f = world.try_get<render::FluidRender2D>(entity);
+            if (f == nullptr) {
+                return false;
+            }
+            if (const SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                if (has_asset(refs->fluid_texture)) {
+                    out.field("texture", refs->fluid_texture);
+                }
+                if (has_asset(refs->fluid_material)) {
+                    out.field("material", refs->fluid_material);
+                }
+            }
+            out.field("color", f->color);
+            out.field("foam_color", f->foam_color);
+            out.field("foam_speed", f->foam_speed);
+            out.field("size", f->size);
+            out.field("z", f->z);
+            out.field("blend", std::string{f->blend == render::BlendMode::Opaque     ? "opaque"
+                                           : f->blend == render::BlendMode::Additive ? "additive"
+                                                                                     : "alpha"});
+            out.field("layer", f->layer);
+            out.field("order_in_layer", f->order_in_layer);
+            out.field("frustum_cull", f->frustum_cull);
+            return true;
+        };
+        fluid_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
+            render::FluidRender2D f{};
+            AssetId texture_id;
+            AssetId material_id;
+            std::string blend = "alpha";
+            (void)in.field("texture", texture_id);
+            (void)in.field("material", material_id);
+            (void)in.field("color", f.color);
+            (void)in.field("foam_color", f.foam_color);
+            (void)in.field("foam_speed", f.foam_speed);
+            (void)in.field("size", f.size);
+            (void)in.field("z", f.z);
+            (void)in.field("blend", blend);
+            (void)in.field("layer", f.layer);
+            (void)in.field("order_in_layer", f.order_in_layer);
+            (void)in.field("frustum_cull", f.frustum_cull);
+            if (blend == "opaque") {
+                f.blend = render::BlendMode::Opaque;
+            } else if (blend == "additive") {
+                f.blend = render::BlendMode::Additive;
+            } else if (blend == "alpha") {
+                f.blend = render::BlendMode::Alpha;
+            } else {
+                in.fail("fluid_render_2d blend \"" + blend + "\" is not opaque, alpha or additive");
+            }
+            if (!in.ok()) {
+                return false;
+            }
+            if (has_asset(texture_id) && in.assets() != nullptr) {
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), texture_id, ImporterKind::Texture, f.texture, in, "texture")) {
+                    return false;
+                }
+            }
+            if (has_asset(material_id) && in.assets() != nullptr) {
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), material_id, ImporterKind::Material, f.material, in, "material")) {
+                    return false;
+                }
+            }
+            if (has_asset(texture_id) || has_asset(material_id)) {
+                SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity);
+                if (refs == nullptr) {
+                    refs = &world.emplace<SerializedAssetRefs>(entity);
+                }
+                refs->fluid_texture = texture_id;
+                refs->fluid_material = material_id;
+            }
+            if (render::FluidRender2D* existing = world.try_get<render::FluidRender2D>(entity)) {
+                *existing = std::move(f);
+            } else {
+                world.emplace<render::FluidRender2D>(entity, std::move(f));
+            }
+            return true;
+        };
+        fluid_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::FluidRender2D>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::FluidRender2D>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->fluid_texture = {};
+                refs->fluid_material = {};
+            }
+            return true;
+        };
+        entries.emplace("fluid_render_2d", std::move(fluid_entry));
     }
 
     {

@@ -51,7 +51,17 @@ world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};       // the f
 
 ## 3. Drawing it
 
-Read `positions()` every frame and draw them with your own sprites, a particle emitter you fill yourself, or a custom mesh. `velocities()` and `densities()` (1 at rest, lower at the surface, higher where it is squeezed) are there for colour, foam or splashes. The order of particles never changes, so index `i` is the same drop from tick to tick.
+Add a `FluidRender2D` to the fluid's entity and the engine draws it: a soft disc per particle, four radii wide, so the drops blend into one body of water. Give it a `color`, a `foam_color` with a `foam_speed` for white water where it moves fast, a `layer` to sort it with your sprites, or your own `texture` or `material` for the drops.
+
+```cpp
+world.emplace<engine::render::FluidRender2D>(pool, engine::render::FluidRender2D{
+    .color = {0.2f, 0.5f, 1.0f, 0.8f},
+    .foam_speed = 3.0f,  // white at 3 units per second
+    .layer = 5,
+});
+```
+
+It is the simple look: discs, not a surface with a sharp edge. For anything else, read `positions()` every frame and draw them with your own sprites, a particle emitter you fill yourself, or a custom mesh. `velocities()` and `densities()` (1 at rest, lower at the surface, higher where it is squeezed) are there for colour, foam or splashes. The order of particles never changes, so index `i` is the same drop from tick to tick.
 
 ## 4. What holds the fluid
 
