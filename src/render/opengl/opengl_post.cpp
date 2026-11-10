@@ -127,6 +127,12 @@ bool OpenGLPost::float_renderable(SceneColorFormat format) {
 void OpenGLPost::destroy_targets(Targets& targets, bool delete_fbos) {
     glDeleteTextures(2, targets.color);
     glDeleteTextures(3, targets.bloom_color);
+    if (targets.fluid_color != 0) {
+        glDeleteTextures(1, &targets.fluid_color);
+    }
+    if (delete_fbos && targets.fluid_fbo != 0) {
+        glDeleteFramebuffers(1, &targets.fluid_fbo);
+    }
     if (targets.depth != 0) {
         if (targets.depth_texture) {
             glDeleteTextures(1, &targets.depth);
@@ -377,6 +383,80 @@ int OpenGLPost::scene_height() const {
         }
     }
     return 0;
+}
+
+OpenGLPost::Targets* OpenGLPost::current_targets() {
+    const ContextObjects::Key key = current_gl_context();
+    for (Targets& entry : targets_) {
+        if (entry.key == key) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+bool OpenGLPost::begin_fluid() {
+    Targets* targets = scene_bound_ ? current_targets() : nullptr;
+    if (targets == nullptr || targets->fbo[0] == 0 || targets->width <= 0 || targets->height <= 0) {
+        return false;
+    }
+    if (targets->fluid_color == 0) {
+        const SceneColorFormat format =
+                float_renderable(SceneColorFormat::Rgba16F) ? SceneColorFormat::Rgba16F : SceneColorFormat::Rgba8;
+        targets->fluid_color = make_color(targets->width, targets->height, format);
+        targets->fluid_fbo = make_fbo(targets->fluid_color, 0, false);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, targets->fluid_fbo);
+    glViewport(0, 0, targets->width, targets->height);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    return true;
+}
+
+void OpenGLPost::composite_fluid(const std::shared_ptr<IShader>& shader, const glm::vec4& color, const glm::vec4& foam,
+        const glm::vec4& params, float time) {
+    Targets* targets = current_targets();
+    if (targets == nullptr || targets->fluid_color == 0) {
+        return;
+    }
+    // The backdrop: the scene so far, in SceneB (free until the chain runs at the end of the frame).
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, targets->scene_a_color);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targets->fbo[1]);
+    glBlitFramebuffer(0, 0, targets->width, targets->height, 0, 0, targets->width, targets->height,
+            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, targets->fbo[0]);
+    glViewport(0, 0, targets->width, targets->height);
+    const auto program = std::dynamic_pointer_cast<OpenGLShader>(shader);
+    const GLuint vao = triangle_.current([] {});
+    if (!program || !program->valid() || vao == 0) {
+        return;
+    }
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    program->use();
+    program->set_vec4("uColor", color);
+    program->set_vec4("uFoam", foam);
+    program->set_vec4("uParams", params);
+    program->set_vec2("uResolution", glm::vec2{targets->width, targets->height});
+    program->set_float("uTime", time);
+    program->set_int("uFluid", 0);
+    program->set_int("uBackdrop", 1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, targets->fluid_color);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, targets->color[1]);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDepthMask(GL_TRUE);
 }
 
 GLuint OpenGLPost::depth_for_sampling() {

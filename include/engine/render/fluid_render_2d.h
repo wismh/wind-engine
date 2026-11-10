@@ -6,6 +6,7 @@
 
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <memory>
 
 namespace engine::render {
@@ -19,6 +20,10 @@ class ITexture;
 // cards use a generated soft disc (a radial falloff) on the unlit shader. A card is `color`, blended toward
 // `foam_color` as the particle's speed approaches `foam_speed` (0: no foam).
 struct FluidRender2D {
+    // Surface: a continuous surface with an edge, refraction of what is behind and foam (CmdDrawFluidSurface; the
+    // scene renders offscreen). Cards: only the soft cards, cheaper, no offscreen pass.
+    enum class Look : std::uint8_t { Surface, Cards };
+    Look look = Look::Surface;
     std::shared_ptr<ITexture> texture;    // the card image; null: the soft disc
     std::shared_ptr<IMaterial> material;  // wins over `texture`
     std::shared_ptr<IMesh> mesh;          // the card; null: builtin::mesh_quad
@@ -31,6 +36,15 @@ struct FluidRender2D {
     int layer = 0;
     int order_in_layer = 0;
     bool frustum_cull = true;
+    // Surface only: each particle adds `splat_weight` of density at its center (falling to 0 at the card's edge, so
+    // packed water sums to about 1); the surface is where the density passes `threshold`, over `edge` either side.
+    // `refraction` is how far, in pixels, what is behind shifts at the edge (the inside is flat); `foam_scale` scales
+    // the foam share.
+    float splat_weight = 1.0f;
+    float threshold = 0.5f;
+    float edge = 0.1f;
+    float refraction = 6.0f;
+    float foam_scale = 2.0f;
 };
 
 }

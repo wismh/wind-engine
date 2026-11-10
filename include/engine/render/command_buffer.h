@@ -36,6 +36,10 @@ public:
         commands_.emplace_back(std::move(command));
     }
 
+    void push(CmdDrawFluidSurface command) {
+        commands_.emplace_back(std::move(command));
+    }
+
     void push(CmdPostProcess command) {
         commands_.emplace_back(std::move(command));
     }

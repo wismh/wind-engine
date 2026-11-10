@@ -51,7 +51,7 @@ world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};       // the f
 
 ## 3. Drawing it
 
-Add a `FluidRender2D` to the fluid's entity and the engine draws it: a soft disc per particle, four radii wide, so the drops blend into one body of water. Give it a `color`, a `foam_color` with a `foam_speed` for white water where it moves fast, a `layer` to sort it with your sprites, or your own `texture` or `material` for the drops.
+Add a `FluidRender2D` to the fluid's entity and the engine draws it as water: one surface with a clean edge, what is behind it bent where the water slopes, and white foam where it moves fast. Give it a `color` (its alpha is how much of the water's color covers what is behind), a `foam_color` with a `foam_speed` for the white water, and a `layer` to sort it with your sprites. `threshold` and `edge` move and soften the surface's edge, `refraction` bends the background more or less (0: not at all), `splat_weight` is how much each drop adds (raise it for sparse spray to still show).
 
 ```cpp
 world.emplace<engine::render::FluidRender2D>(pool, engine::render::FluidRender2D{
@@ -61,7 +61,7 @@ world.emplace<engine::render::FluidRender2D>(pool, engine::render::FluidRender2D
 });
 ```
 
-It is the simple look: discs, not a surface with a sharp edge. For anything else, read `positions()` every frame and draw them with your own sprites, a particle emitter you fill yourself, or a custom mesh. `velocities()` and `densities()` (1 at rest, lower at the surface, higher where it is squeezed) are there for colour, foam or splashes. The order of particles never changes, so index `i` is the same drop from tick to tick.
+`look = FluidRender2D::Look::Cards` draws the cheaper look instead: a soft disc per particle, four radii wide, blended into one body, in `color` toward `foam_color`, with your own `texture` or `material` if you like. The surface makes the scene render offscreen first (like a decal or a post effect); in the editor's scene view, and in any view drawn into part of a window, the surface shows as cards. For anything else, read `positions()` every frame and draw them with your own sprites, a particle emitter you fill yourself, or a custom mesh. `velocities()` and `densities()` (1 at rest, lower at the surface, higher where it is squeezed) are there for colour, foam or splashes. The order of particles never changes, so index `i` is the same drop from tick to tick.
 
 ## 4. What holds the fluid
 

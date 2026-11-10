@@ -1,6 +1,6 @@
 # Builtin assets
 
-Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader and its white opaque material, texture-array variants of the lit and unlit shaders, skinned lit and unlit shaders, four fullscreen post shaders, UI font, math font, splash image, tree chevron, and the dock chrome theme.
+Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader and its white opaque material, texture-array variants of the lit and unlit shaders, skinned lit and unlit shaders, four fullscreen post shaders, the fluid surface composite, UI font, math font, splash image, tree chevron, and the dock chrome theme.
 
 **GUIDs are frozen** in `include/engine/builtin_ids.h` (`engine::builtin::*`). Do not regenerate them. Sidecar `.meta` files must keep those exact `guid` values.
 
@@ -26,6 +26,7 @@ Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader a
 | `shader_post_bloom` | `shaders/post_bloom.shader` | `shader` |
 | `shader_post_depth` | `shaders/post_depth.shader` | `shader` |
 | `shader_decal` | `shaders/decal.shader` | `shader` |
+| `shader_fluid_surface` | `shaders/fluid_surface.shader` | `shader` |
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
 

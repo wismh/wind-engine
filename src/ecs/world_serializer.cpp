@@ -634,7 +634,8 @@ void register_builtin_components(
     }
 
     {
-        // FluidRender2D: the look of a Fluid2D on the same entity. `blend` is "opaque", "alpha" or "additive".
+        // FluidRender2D: the look of a Fluid2D on the same entity. `look` is "surface" or "cards"; `blend` is
+        // "opaque", "alpha" or "additive".
         WorldSerializer::Entry fluid_entry;
         fluid_entry.name = "fluid_render_2d";
         fluid_entry.write = [](const World& world, Entity entity, ComponentWriter& out) -> bool {
@@ -650,6 +651,7 @@ void register_builtin_components(
                     out.field("material", refs->fluid_material);
                 }
             }
+            out.field("look", std::string{f->look == render::FluidRender2D::Look::Cards ? "cards" : "surface"});
             out.field("color", f->color);
             out.field("foam_color", f->foam_color);
             out.field("foam_speed", f->foam_speed);
@@ -661,6 +663,11 @@ void register_builtin_components(
             out.field("layer", f->layer);
             out.field("order_in_layer", f->order_in_layer);
             out.field("frustum_cull", f->frustum_cull);
+            out.field("splat_weight", f->splat_weight);
+            out.field("threshold", f->threshold);
+            out.field("edge", f->edge);
+            out.field("refraction", f->refraction);
+            out.field("foam_scale", f->foam_scale);
             return true;
         };
         fluid_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
@@ -668,6 +675,8 @@ void register_builtin_components(
             AssetId texture_id;
             AssetId material_id;
             std::string blend = "alpha";
+            std::string look = "surface";
+            (void)in.field("look", look);
             (void)in.field("texture", texture_id);
             (void)in.field("material", material_id);
             (void)in.field("color", f.color);
@@ -679,6 +688,16 @@ void register_builtin_components(
             (void)in.field("layer", f.layer);
             (void)in.field("order_in_layer", f.order_in_layer);
             (void)in.field("frustum_cull", f.frustum_cull);
+            (void)in.field("splat_weight", f.splat_weight);
+            (void)in.field("threshold", f.threshold);
+            (void)in.field("edge", f.edge);
+            (void)in.field("refraction", f.refraction);
+            (void)in.field("foam_scale", f.foam_scale);
+            if (look == "cards") {
+                f.look = render::FluidRender2D::Look::Cards;
+            } else if (look != "surface") {
+                in.fail("fluid_render_2d look \"" + look + "\" is not surface or cards");
+            }
             if (blend == "opaque") {
                 f.blend = render::BlendMode::Opaque;
             } else if (blend == "additive") {
