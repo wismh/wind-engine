@@ -25,6 +25,10 @@ struct Transform {
 // Rx(x) * Ry(y) * Rz(z) from Euler radians: the rotation applied Z first, then Y, then X.
 [[nodiscard]] glm::quat euler_xyz(glm::vec3 radians);
 
+// A turn of `radians` about the unit `axis`: glm::angleAxis with the engine's deterministic sine and cosine
+// (<engine/core/det_math.h>), for simulation code.
+[[nodiscard]] glm::quat angle_axis(float radians, glm::vec3 axis);
+
 // The 2D angle of `rotation` about +Z in radians, (-pi, pi]: the direction of the rotated +X axis in the XY plane.
 // Exact inverse of `rotation_z`. For a 3D rotation it is the heading of the rotated +X axis; 0 when that axis is +-Z.
 [[nodiscard]] float angle_z(const glm::quat& rotation);

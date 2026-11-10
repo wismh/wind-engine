@@ -233,6 +233,8 @@ void main() {
 
             void operator()(const CmdDrawDecal &cmd) const { backend->execute_draw_decal(cmd); }
 
+            void operator()(const CmdDrawFluidSurface &cmd) const { backend->execute_draw_fluid_surface(cmd); }
+
             void operator()(const CmdSetView &cmd) const { backend->set_view(cmd); }
 
             void operator()(const CmdPostProcess &) const { backend->finish_post(); }
@@ -242,6 +244,7 @@ void main() {
         constexpr std::string_view command_name(const CmdDrawUI &) { return "CmdDrawUI"; }
         constexpr std::string_view command_name(const CmdDrawParticles &) { return "CmdDrawParticles"; }
         constexpr std::string_view command_name(const CmdDrawDecal &) { return "CmdDrawDecal"; }
+        constexpr std::string_view command_name(const CmdDrawFluidSurface &) { return "CmdDrawFluidSurface"; }
         constexpr std::string_view command_name(const CmdSetView &) { return "CmdSetView"; }
         constexpr std::string_view command_name(const CmdPostProcess &) { return "CmdPostProcess"; }
 
@@ -712,6 +715,24 @@ void main() {
 
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(cmd.instances.size()));
         glBindVertexArray(0);
+    }
+
+    void OpenGLRenderBackend::execute_draw_fluid_surface(const CmdDrawFluidSurface &cmd) {
+        if (cmd.splats.instances.empty()) {
+            return;
+        }
+        if (!post_.begin_fluid()) {
+            // No scene targets (a sub-rectangle viewport): the splats as alpha cards in the water's color.
+            CmdDrawParticles cards = cmd.splats;
+            cards.blend = BlendMode::Alpha;
+            for (ParticleInstance &instance: cards.instances) {
+                instance.color = cmd.color;
+            }
+            execute_draw_particles(cards);
+            return;
+        }
+        execute_draw_particles(cmd.splats);
+        post_.composite_fluid(cmd.composite, cmd.color, cmd.foam_color, cmd.params, view_.time);
     }
 
     void OpenGLRenderBackend::set_ui_painter(ui::IUiPainter *painter) { ui_painter_ = painter; }

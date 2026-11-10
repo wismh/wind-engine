@@ -35,6 +35,12 @@ public:
     // A copy of the scene depth that is not attached to the draw framebuffer. The copy is taken once per scene
     // pass, on the first call. 0 when the scene has no depth texture.
     [[nodiscard]] GLuint depth_for_sampling();
+    // The fluid surface pass (CmdDrawFluidSurface). `begin_fluid` binds a cleared offscreen target of the scene's size
+    // for the splats and returns false when no scene pass is bound. `composite_fluid` copies the scene to SceneB as the
+    // backdrop, rebinds the scene and draws `shader` over it, alpha-blended, reading the splats and the backdrop.
+    [[nodiscard]] bool begin_fluid();
+    void composite_fluid(const std::shared_ptr<IShader>& shader, const glm::vec4& color, const glm::vec4& foam,
+            const glm::vec4& params, float time);
 
 private:
     struct Targets {
@@ -56,10 +62,14 @@ private:
         GLuint bloom_fbo[3]{};
         int bloom_width[3]{};
         int bloom_height[3]{};
+        // The fluid splat target, made on the first fluid surface: RGBA16F where it renders, else RGBA8.
+        GLuint fluid_color = 0;
+        GLuint fluid_fbo = 0;
     };
 
     [[nodiscard]] bool float_renderable(SceneColorFormat format);
     [[nodiscard]] Targets& ensure(const PostChain& chain, bool hdr);
+    [[nodiscard]] Targets* current_targets();
     void destroy_targets(Targets& targets, bool delete_fbos);
     void draw(const std::shared_ptr<IShader>& shader, const glm::vec4& params, const glm::vec2& resolution, float time,
             GLuint source, GLuint dest_fbo, int dest_width, int dest_height, GLuint depth, bool additive);

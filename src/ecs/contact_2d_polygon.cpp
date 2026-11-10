@@ -1,5 +1,6 @@
 #include "contact_2d.h"
 
+#include <engine/core/det_math.h>
 #include <engine/ecs/physics.h>
 
 #include <glm/geometric.hpp>
@@ -32,8 +33,9 @@ struct Face2D {
 }
 
 [[nodiscard]] glm::vec2 rotate_z(glm::vec2 value, float angle) {
-    const float c = std::cos(angle);
-    const float s = std::sin(angle);
+    const SinCos rotation = det_sin_cos(angle);
+    const float c = rotation.cos;
+    const float s = rotation.sin;
     return {c * value.x - s * value.y, s * value.x + c * value.y};
 }
 

@@ -6,6 +6,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -48,8 +49,103 @@ struct Fluid2DParams {
     float friction = 0.1f;
     // Fraction of the normal approach speed kept, reflected, after a boundary contact, clamped to [0, 1].
     float restitution = 0.0f;
+    // Mass per unit area in world units, the unit of `RigidBody2D::mass` over a collider's area: a Dynamic body lighter
+    // than that per area floats, a heavier one sinks. A particle weighs `density` times its lattice cell, (2 radius)^2.
+    // 0 (or negative, or non-finite) turns the reaction on bodies off: coupling one way again.
+    float density = 1.0f;
+    // Cohesion (Akinci et al. 2013, the cohesion term): pulls particles toward their neighbours at the free surface,
+    // a surface tension that holds a blob together as a drop and rounds it. 0 is off; see docs/manual/ecs/Fluids.md
+    // for the tested range.
+    float cohesion = 0.0f;
+    // Vorticity confinement (Macklin and Mueller 2013) strength: puts back the swirl the solver and viscosity damp,
+    // so eddies live longer. 0 is off; see docs/manual/ecs/Fluids.md for the tested range.
+    float vorticity = 0.0f;
     uint32_t layer = 1;           // what the fluid is, for the colliders' masks
     uint32_t mask = 0xFFFFFFFFu;  // which collider layers bound it
+};
+
+// A region of world XY for fluid sources, drains, sensors and queries: an axis-aligned box or a circle.
+struct FluidRegion2D {
+    enum class Shape : std::uint8_t { Box, Circle };
+    Shape shape = Shape::Box;
+    glm::vec2 center{0.0f};
+    glm::vec2 half_extents{0.5f};  // Box
+    float radius = 0.5f;           // Circle
+
+    // Inside or on the edge. A negative size holds nothing.
+    [[nodiscard]] bool contains(glm::vec2 point) const;
+    // World units squared; 0 for a negative or non-finite size.
+    [[nodiscard]] float area() const;
+};
+
+// Emits `rate` particles per second inside `region`, each with `velocity`, before the fluid steps. The fraction of a
+// particle a tick does not emit is carried to the next. Positions follow a low-discrepancy sequence over the region
+// (the same on every peer), so a stream spreads evenly without random numbers. Emission stops at `max_particles`;
+// what does not fit is dropped, not queued.
+struct FluidSource2D {
+    FluidRegion2D region{};
+    float rate = 0.0f;  // particles per second; not positive or non-finite: none
+    glm::vec2 velocity{0.0f};
+    bool enabled = true;
+    // State, not serialized: the part of a particle not emitted yet, and how many this source has emitted.
+    float carry = 0.0f;
+    std::uint64_t emitted = 0;
+};
+
+// Removes every particle that ends a step inside `region`. The others keep their order.
+struct FluidDrain2D {
+    FluidRegion2D region{};
+    bool enabled = true;
+    // State, not serialized: particles removed so far.
+    std::uint64_t drained = 0;
+};
+
+// Watches how full `region` is after each step: the particles inside times their lattice cell, (2 radius)^2, over the
+// region's area (about 1 for a region under water at rest). When the fill reaches `threshold` it is `full` and a
+// FluidSensorEvent2D with `full = true` is sent; it stops being full (and sends `full = false`) only below
+// `threshold - hysteresis`, so a level wobbling at the threshold does not send an event every tick.
+struct FluidSensor2D {
+    FluidRegion2D region{};
+    float threshold = 0.5f;
+    float hysteresis = 0.05f;
+    // State, not serialized: the last fill and whether the region counts as full.
+    float fill = 0.0f;
+    bool full = false;
+};
+
+// Sent (double-buffered, `ecs::EventReader<FluidSensorEvent2D>`) when a sensor of `fluid` turns full or stops being
+// full. `sensor` indexes `Fluid2D::sensors`.
+struct FluidSensorEvent2D {
+    ecs::Entity fluid{};
+    std::uint32_t sensor = 0;
+    bool full = false;
+    float fill = 0.0f;
+    std::size_t count = 0;  // particles inside
+
+    constexpr bool operator==(const FluidSensorEvent2D&) const noexcept = default;
+};
+
+// Sent (double-buffered, `ecs::EventReader<FluidContactEvent2D>`) once a tick for each pair of fluids whose particles
+// touch (closer than the kernel support), `a` before `b` in view order: how many particle pairs touch, their mean
+// midpoint and the box of the midpoints. For a game reacting where two liquids meet (lava and water to stone: carve or
+// fill the SDF terrain there).
+struct FluidContactEvent2D {
+    ecs::Entity a{};
+    ecs::Entity b{};
+    std::size_t count = 0;
+    glm::vec2 center{0.0f};
+    glm::vec2 min{0.0f};
+    glm::vec2 max{0.0f};
+
+    constexpr bool operator==(const FluidContactEvent2D&) const noexcept = default;
+};
+
+// What a fluid query found: how many particles, the area they stand for (count times (2 radius)^2), and their mean
+// velocity (zero when none).
+struct FluidQuery2D {
+    std::size_t count = 0;
+    float volume = 0.0f;
+    glm::vec2 average_velocity{0.0f};
 };
 
 // A 2D liquid: Position Based Fluids (Macklin and Mueller 2013) particles in world XY, stepped by `run_fluid_2d` on
@@ -58,11 +154,19 @@ struct Fluid2DParams {
 // particles are owned state behind `spawn`, `spawn_box` and `clear`, transient (not serialized, not replicated).
 // The entity needs no Transform: positions are world XY.
 //
-// Boundaries are one-way. The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D` and
-// `CircleCollider2D` colliders that pass the layer rule (`mask & collider.layer` and `collider.mask & layer`), static,
-// kinematic or dynamic, at their pose after `run_physics_2d`; it never pushes them back and sends no
-// `CollisionEvent2D`. An `SdfCollider2D` under a Dynamic body is skipped, as the 2D solver skips it.
-// `PolygonCollider2D` and `CompoundCollider2D` do not bound a fluid. Two fluids do not see each other.
+// The fluid is pushed out of non-trigger `SdfCollider2D`, `BoxCollider2D`, `CircleCollider2D`,
+// `PolygonCollider2D` and `CompoundCollider2D` colliders that pass the layer rule (`mask & collider.layer` and
+// `collider.mask & layer`), static, kinematic or dynamic, at their pose after `run_physics_2d`. An `SdfCollider2D` or
+// `CompoundCollider2D` under a Dynamic body is skipped, as the 2D solver skips it. Coupling is two-way for a box,
+// circle or polygon collider on a Dynamic body's own entity: the fluid pushes it back (buoyancy, drag) with the
+// reaction of every push, added to its velocity and angular velocity at the end of the step for the next
+// `run_physics_2d` to integrate. Everything else only pushes. No `CollisionEvent2D`.
+//
+// Fluids that touch (their boxes grown by the kernel support overlap, and each one's mask takes the other's layer) are
+// solved together as one particle system: they push each other, and by `params.density` a lighter one floats on a
+// heavier one and a heavier one sinks. They share the largest smoothing length and the most substeps and iterations
+// of the group; every other parameter stays each fluid's own. Where two fluids touch, a FluidContactEvent2D is sent
+// each tick. Fluids apart step exactly as they would alone.
 //
 // Rendering is the game's: draw `positions()` with its own sprites or particles.
 class Fluid2D {
@@ -71,6 +175,15 @@ public:
     explicit Fluid2D(const Fluid2DParams& tuning) : params(tuning) {}
 
     Fluid2DParams params{};
+    // Saves the particles with the world: the serializer writes `save_state()` as base64 under `state` and reads it
+    // back, so a loaded fluid is the same bits (state_hash equal). Off by default: a large fluid is megabytes, and
+    // parameters alone load an empty fluid.
+    bool save_particles = false;
+    // Taps, sinks and level sensors, stepped by `run_fluid_2d` in that order around the solver step: sources emit, the
+    // fluid steps, drains remove, sensors measure. Their settings are serialized with `params`, their state is not.
+    std::vector<FluidSource2D> sources;
+    std::vector<FluidDrain2D> drains;
+    std::vector<FluidSensor2D> sensors;
 
     // Adds one particle at world `position` with `velocity`. False (nothing added) at `max_particles` or for a
     // non-finite input.
@@ -80,6 +193,25 @@ public:
     std::size_t spawn_box(glm::vec2 min, glm::vec2 max, glm::vec2 velocity = glm::vec2{0.0f});
     // Removes every particle. Parameters are kept.
     void clear();
+
+    // The simulation state as bytes: every particle's position, velocity and density, then each source's carry and
+    // emitted count, each drain's count and each sensor's fill and `full`. Little-endian, floats by their bits, so
+    // the same on every target. For saves (`save_particles`) and for sending a fluid to a peer that joins late.
+    [[nodiscard]] std::vector<std::uint8_t> save_state() const;
+    // Replaces the particles (and the source, drain and sensor state, where the counts match this fluid's lists) with
+    // `bytes` from save_state. False, nothing changed, for bytes that are not such a state, hold a non-finite value,
+    // or hold more than `max_particles` particles.
+    bool load_state(std::span<const std::uint8_t> bytes);
+
+    // --- Queries, on the particles as the last step (or spawn) left them. The first query after a change builds a
+    // lookup grid of cells two radii wide (one pass over the particles); later queries read only the cells they touch.
+    // Main thread, like every engine call.
+    [[nodiscard]] FluidQuery2D query(const FluidRegion2D& region) const;
+    // Inside a simple polygon in world XY (either winding, convex or not; the even-odd rule). Fewer than 3 vertices
+    // or a non-finite one: nothing.
+    [[nodiscard]] FluidQuery2D query(std::span<const glm::vec2> polygon) const;
+    // A particle center within the rest spacing (2 radii) of `point`.
+    [[nodiscard]] bool is_wet(glm::vec2 point) const;
 
     [[nodiscard]] std::size_t count() const {
         return positions_.size();
@@ -96,13 +228,39 @@ public:
     [[nodiscard]] std::span<const float> densities() const {
         return densities_;
     }
+    // FNV-1a 64 of the simulation state: the particle count, then each particle's position and velocity bits in
+    // spawn order, then each source's carry and emitted count and each sensor's `full`. Equal on two peers exactly
+    // when their fluids are the same bits (desync detection, golden tests). Parameters, drain counts, sensor fills and
+    // densities (outputs of the last step) are not in it.
+    [[nodiscard]] std::uint64_t state_hash() const;
 
 private:
     friend struct Fluid2DSolver;
 
+    void build_query_grid() const;
+    template <class F>
+    void for_each_in_cells(glm::vec2 lo, glm::vec2 hi, F&& fn) const;
+
     std::vector<glm::vec2> positions_;
     std::vector<glm::vec2> velocities_;
     std::vector<float> densities_;
+    // The queries' lookup grid: a counting sort of the particles by cell (two radii) into a power-of-two hash table.
+    // Rebuilt on the first query after the particles changed.
+    mutable std::vector<std::uint32_t> query_bucket_start_;
+    mutable std::vector<std::uint32_t> query_sorted_;
+    mutable std::vector<glm::ivec2> query_cell_;
+    mutable bool query_valid_ = false;
+};
+
+// Authoring a pool: on an entity whose parent has the Fluid2D, a box of `size` (world units, axis-aligned, centered
+// on the entity's world position) that `run_fluid_2d` fills with a lattice at the rest spacing (`Fluid2D::spawn_box`)
+// with `velocity` the first time it steps that fluid, then marks `filled`. Move it with its Transform, size it in the
+// inspector; the editor draws the particles it will make. `filled` is serialized, so a world saved after the fill
+// does not fill twice.
+struct FluidBox2D {
+    glm::vec2 size{1.0f};
+    glm::vec2 velocity{0.0f};
+    bool filled = false;
 };
 
 // Fluids are opt-in: the engine does not step them unless the game installs them. Registers `run_fluid_2d` on
@@ -112,10 +270,45 @@ private:
 // replaces `jobs` without adding the system again. Pass `EngineServices::jobs` for parallel passes.
 void install_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
 
+// A movable collider as a fluid sees it, in world XY: a box (`frame` position and its X axis `axis`, `half` extents),
+// a circle (`frame`, `radius`) or a convex counter-clockwise polygon (`vertices[0, count)`), with its layer rule. What
+// `movable_fluid_boundaries_2d` reads from a world and FluidStepOptions2D hands to a step, so a peer can step a
+// fluid against the colliders another peer saw (net/fluid_sync_2d.h).
+struct FluidBoundary2D {
+    enum class Kind : std::uint8_t { Box, Circle, Polygon };
+    Kind kind = Kind::Box;
+    glm::vec2 position{0.0f};
+    glm::vec2 axis{1.0f, 0.0f};
+    glm::vec2 half{0.0f};
+    float radius = 0.0f;
+    std::array<glm::vec2, 8> vertices{};
+    std::uint8_t count = 0;
+    uint32_t layer = 1;
+    uint32_t mask = 0xFFFFFFFFu;
+
+    constexpr bool operator==(const FluidBoundary2D&) const noexcept = default;
+};
+
+// How `run_fluid_2d` steps. The defaults are the normal step.
+struct FluidStepOptions2D {
+    // Give Dynamic bodies the fluid's reaction (two-way coupling). Off on a peer that is not authoritative for the
+    // bodies: the fluid's own result is the same either way.
+    bool push_bodies = true;
+    // Read the movable colliders (on a Dynamic or Kinematic body) from the world. Off: `movable` stands for them.
+    bool movable_from_world = true;
+    std::span<const FluidBoundary2D> movable;
+};
+
+// The movable colliders `run_fluid_2d` would bound the fluids with now: boxes, circles and polygons on a Dynamic or
+// Kinematic body, and compound parts on a Kinematic one, in the order the fluid reads them (by content, see ECS.md).
+[[nodiscard]] std::vector<FluidBoundary2D> movable_fluid_boundaries_2d(ecs::World& world);
+
 // Steps every Fluid2D by `Time::fixed_delta_time`: the system `install_fluid_2d` registers. Do not register it
 // yourself; call it directly only on a world without that install (a bench, a tool). With `jobs`, per-particle
 // passes run in `parallel_for`; every pass is a gather (a particle writes only its own slots), so the result is
 // bit-identical for any worker count.
 void run_fluid_2d(ecs::World& world, JobSystem* jobs = nullptr);
+// The same with `options`.
+void run_fluid_2d(ecs::World& world, JobSystem* jobs, const FluidStepOptions2D& options);
 
 }

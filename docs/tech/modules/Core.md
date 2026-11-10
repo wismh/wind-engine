@@ -137,6 +137,10 @@ The game owns its transport, as in a windowed game, so `on_quit` calls `transpor
 
 `fn` must not throw and must not call engine APIs, except the any-thread [compression](#compression) calls. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
 
+Ranges run in the simulation float mode (IEEE denormals, round to nearest; [Principles](../architecture/Principles.md#deterministic-simulation), rule 5): a worker sets it when it starts and every thread before it takes ranges of a batch (`set_simulation_float_mode`, `src/core/float_mode.cpp`), whatever a job before left. `World::run(Schedule::Fixed)` sets it on the main thread.
+
+A worker that finished its share of a batch spins up to 50 us (`kSpinWindow`, `_mm_pause` on x64, `yield` on arm64) for the next batch before it sleeps on the condition variable, and the caller spins as long for the last range before it blocks: a simulation step makes many short `parallel_for` calls in a row, and waking a sleeping thread costs tens of microseconds each. Idle workers burn that window of CPU after each batch. Results do not depend on it.
+
 `JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` cancels every async job (below), then joins the workers; a later `parallel_for` runs on the caller and a later job in `poll`. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
 
 ### Async jobs

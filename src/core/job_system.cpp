@@ -1,9 +1,11 @@
 #include <engine/core/job_system.h>
 
+#include "core/float_mode.h"
 #include "core/job_state.h"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cassert>
 #include <condition_variable>
 #include <cstdint>
@@ -14,10 +16,43 @@
 #include <utility>
 #include <vector>
 
+#if defined(_M_X64) || defined(__x86_64__)
+#include <immintrin.h>
+#endif
+
 namespace engine {
 namespace {
 
 thread_local int g_job_depth = 0;
+
+// How long a thread spins for the next thing it waits on before it sleeps: a worker for the next fork-join batch, the
+// caller for the last range of its batch. A simulation step makes many short `parallel_for` calls in a row (the fluid
+// solver about thirty a tick); waking a sleeping worker costs tens of microseconds each, which spinning skips. Idle
+// workers burn this much CPU after each batch, then block as before.
+constexpr std::chrono::microseconds kSpinWindow{50};
+
+void cpu_relax() noexcept {
+#if defined(_M_X64) || defined(__x86_64__)
+    _mm_pause();
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    std::this_thread::yield();
+#endif
+}
+
+// Spins until `done()` or the window passes. True when `done()` turned true.
+template <class F>
+[[nodiscard]] bool spin_until(F&& done) {
+    const auto deadline = std::chrono::steady_clock::now() + kSpinWindow;
+    for (int round = 0;; ++round) {
+        if (done()) {
+            return true;
+        }
+        if ((round & 63) == 63 && std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        cpu_relax();
+    }
+}
 
 struct DepthGuard {
     DepthGuard() {
@@ -111,6 +146,9 @@ struct JobSystem::Impl {
     std::condition_variable wake;
     std::shared_ptr<Batch> batch;
     std::uint64_t published = 0;
+    // `published` and `stopping`, readable without the mutex by a spinning worker.
+    std::atomic<std::uint64_t> published_seen{0};
+    std::atomic<bool> stopping_seen{false};
     bool stopping = false;
     int workers = 0;
     std::vector<std::thread> threads;
@@ -147,6 +185,7 @@ struct JobSystem::Impl {
         {
             const std::lock_guard lock(mutex);
             stopping = true;
+            stopping_seen.store(true, std::memory_order_release);
         }
         wake.notify_all();
         for (std::thread& thread : threads) {
@@ -219,6 +258,8 @@ struct JobSystem::Impl {
     }
 
     static void participate(const std::shared_ptr<Batch>& job) {
+        // Ranges are simulation work: same float mode as the caller, whatever a job before them left set.
+        set_simulation_float_mode();
         for (;;) {
             const std::size_t index = job->next.fetch_add(1, std::memory_order_relaxed);
             if (index >= job->ranges.size()) {
@@ -249,6 +290,11 @@ struct JobSystem::Impl {
                 if (job) {
                     participate(job);
                 }
+                // The next batch usually follows at once: watch for it a moment before going back to sleep.
+                (void)spin_until([&] {
+                    return published_seen.load(std::memory_order_acquire) != seen ||
+                           stopping_seen.load(std::memory_order_acquire);
+                });
                 lock.lock();
                 continue;
             }
@@ -270,6 +316,7 @@ JobSystem::JobSystem(int workers) : impl_(std::make_unique<Impl>()) {
     for (int i = 0; i < count; ++i) {
         impl->threads.emplace_back([impl] {
             g_job_depth = 0;
+            set_simulation_float_mode();
             impl->run();
         });
     }
@@ -424,6 +471,7 @@ void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* co
         const std::lock_guard lock(impl_->mutex);
         impl_->batch = job;
         ++impl_->published;
+        impl_->published_seen.store(impl_->published, std::memory_order_release);
     }
     impl_->wake.notify_all();
 
@@ -436,7 +484,8 @@ void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* co
         job->done.notify_one();
     }
     Impl::participate(job);
-    {
+    // The last ranges are usually a moment from done: spin for them before sleeping.
+    if (!spin_until([&] { return job->left.load(std::memory_order_acquire) == 0; })) {
         std::unique_lock lock(job->done_mutex);
         job->done.wait(lock, [&] { return job->left.load(std::memory_order_acquire) == 0; });
     }

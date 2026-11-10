@@ -1,5 +1,7 @@
 #include <engine/ecs/sdf_2d.h>
 
+#include "core/state_hash.h"
+
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 
@@ -363,6 +365,25 @@ std::vector<glm::ivec2> SdfField2D::chunk_coords() const {
     }
     std::sort(out.begin(), out.end(), row_major_less);
     return out;
+}
+
+std::uint64_t SdfField2D::hash() const {
+    StateHasher hasher;
+    hasher.f32(cell_size_);
+    hasher.f32(band_);
+    hasher.vec2(origin_);
+    hasher.u8(static_cast<std::uint8_t>(outside_));
+    const std::vector<glm::ivec2> coords = chunk_coords();
+    hasher.u64(coords.size());
+    for (const glm::ivec2 coord : coords) {
+        hasher.i32(coord.x);
+        hasher.i32(coord.y);
+        for (const std::int16_t sample : find(coord)->samples) {
+            hasher.u8(static_cast<std::uint8_t>(static_cast<std::uint16_t>(sample)));
+            hasher.u8(static_cast<std::uint8_t>(static_cast<std::uint16_t>(sample) >> 8));
+        }
+    }
+    return hasher.value();
 }
 
 std::uint64_t SdfField2D::revision(glm::ivec2 chunk) const {

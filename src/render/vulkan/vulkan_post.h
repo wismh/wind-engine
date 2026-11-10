@@ -46,6 +46,14 @@ public:
         bool has_depth = false;
     };
     [[nodiscard]] DepthSample prepare_depth_sample();
+
+    // The fluid surface pass (CmdDrawFluidSurface). `begin_fluid` ends the scene pass and begins `color_pass_` on the
+    // fluid target (its contents undefined: the caller clears it). False without an open scene pass that can resume.
+    // `resume_scene` continues the scene pass after the fluid and backdrop passes.
+    [[nodiscard]] bool begin_fluid();
+    void resume_scene();
+    [[nodiscard]] VkImageView fluid_view() const noexcept { return fluid_.view; }
+    [[nodiscard]] VkRenderPass scene_resume_pass() const noexcept { return scene_resume_; }
     [[nodiscard]] VkExtent2D extent() const noexcept { return extent_; }
     [[nodiscard]] int bloom_width(int level) const noexcept { return level >= 0 && level < 3 ? bloom_width_[level] : 0; }
     [[nodiscard]] int bloom_height(int level) const noexcept {
@@ -90,6 +98,8 @@ private:
     // color_[0] is also written by later passes, which have no depth. That framebuffer matches `color_pass_`.
     VkFramebuffer color0_color_fb_ = VK_NULL_HANDLE;
     Slot bloom_[3]{};
+    // The fluid splat target: scene format, framebuffer for `color_pass_`. Made with the other targets.
+    Slot fluid_{};
     Slot depth_{};
     Slot depth_copy_{};
     VkImageLayout depth_copy_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;

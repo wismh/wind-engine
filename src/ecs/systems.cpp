@@ -5,6 +5,7 @@
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
+#include <engine/core/det_math.h>
 #include <engine/builtin_ids.h>
 #include <engine/core/bound_windows.h>
 #include <engine/core/input_system.h>
@@ -13,6 +14,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/physics_3d.h>
@@ -26,6 +28,7 @@
 #include <engine/render/decal.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/draw_sort.h>
+#include <engine/render/fluid_render_2d.h>
 #include <engine/render/fog.h>
 #include <engine/render/frustum.h>
 #include <engine/render/lights.h>
@@ -422,6 +425,34 @@ namespace engine {
             render::Command command;
         };
 
+        // FluidRender2D's default card: a soft disc made once per world on the first fluid draw, and its unlit
+        // materials, one per blend mode and per game texture.
+        struct FluidRenderCache {
+            std::shared_ptr<render::ITexture> disc;
+            std::unordered_map<const render::ITexture *, std::shared_ptr<render::IMaterial>> materials[3];
+        };
+
+        // A 64 x 64 white disc whose alpha falls from 1 at the center to 0 at the edge, smoothly (1 - r^2)^2.
+        [[nodiscard]] render::TextureDesc soft_disc_desc() {
+            constexpr int kSide = 64;
+            render::TextureDesc desc{.width = kSide, .height = kSide};
+            desc.rgba.resize(static_cast<std::size_t>(kSide * kSide * 4));
+            for (int y = 0; y < kSide; ++y) {
+                for (int x = 0; x < kSide; ++x) {
+                    const float u = (static_cast<float>(x) + 0.5f) / kSide * 2.0f - 1.0f;
+                    const float v = (static_cast<float>(y) + 0.5f) / kSide * 2.0f - 1.0f;
+                    const float t = std::max(0.0f, 1.0f - (u * u + v * v));
+                    const auto alpha = static_cast<std::uint8_t>(std::lround(255.0f * t * t));
+                    const std::size_t at = static_cast<std::size_t>((y * kSide + x) * 4);
+                    desc.rgba[at] = 255;
+                    desc.rgba[at + 1] = 255;
+                    desc.rgba[at + 2] = 255;
+                    desc.rgba[at + 3] = alpha;
+                }
+            }
+            return desc;
+        }
+
         bool draw_item_less(const DrawItem &a, const DrawItem &b) { return render::draw_sort_less(a.key, b.key); }
 
         struct WindowClears {
@@ -573,6 +604,7 @@ namespace engine {
             std::shared_ptr<render::IMesh> default_cube;
             std::shared_ptr<render::IShader> default_shader;
             std::shared_ptr<render::IShader> decal_shader;
+            std::shared_ptr<render::IShader> fluid_surface_shader;
             std::shared_ptr<render::IMaterial> default_unlit;
             if (assets != nullptr) {
                 if (auto mesh_res = assets->try_get<render::IMesh>(builtin::mesh_quad)) {
@@ -586,6 +618,9 @@ namespace engine {
                 }
                 if (auto decal_res = assets->try_get<render::IShader>(builtin::shader_decal)) {
                     decal_shader = std::move(*decal_res);
+                }
+                if (auto fluid_res = assets->try_get<render::IShader>(builtin::shader_fluid_surface)) {
+                    fluid_surface_shader = std::move(*fluid_res);
                 }
                 if (auto mat_res = assets->try_get<render::IMaterial>(builtin::material_unlit)) {
                     default_unlit = std::move(*mat_res);
@@ -868,6 +903,104 @@ namespace engine {
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
+            // Fluids (FluidRender2D on a Fluid2D's entity): a thresholded surface (CmdDrawFluidSurface) when the look
+            // asks for it and the composite shader loaded, otherwise soft cards.
+            auto fluids = world.view<render::FluidRender2D, Fluid2D>();
+            for (ecs::Entity entity: fluids) {
+                const auto &look = fluids.get<render::FluidRender2D>(entity);
+                const Fluid2D &fluid = fluids.get<Fluid2D>(entity);
+                const std::shared_ptr<render::IMesh> card = look.mesh != nullptr ? look.mesh : default_quad;
+                if (fluid.count() == 0 || card == nullptr) {
+                    continue;
+                }
+                const float radius = fluid.params.radius > 0.0f && std::isfinite(fluid.params.radius)
+                                             ? fluid.params.radius
+                                             : 0.05f;
+                const float half = 0.5f * radius * std::max(look.size, 0.0f);
+                glm::vec2 lo{std::numeric_limits<float>::max()};
+                glm::vec2 hi{-std::numeric_limits<float>::max()};
+                for (const glm::vec2 p: fluid.positions()) {
+                    lo = glm::min(lo, p);
+                    hi = glm::max(hi, p);
+                }
+                const render::Aabb box{glm::vec3{lo - glm::vec2{half}, look.z - half},
+                                       glm::vec3{hi + glm::vec2{half}, look.z + half}};
+                if (look.frustum_cull && !render::visible_in_any(frustums, box)) {
+                    continue;
+                }
+                const bool surface =
+                        look.look == render::FluidRender2D::Look::Surface && fluid_surface_shader != nullptr;
+                // A surface's splats always add (their own soft-disc material); the game's material is for cards.
+                const render::BlendMode card_blend = surface ? render::BlendMode::Additive : look.blend;
+                std::shared_ptr<render::IMaterial> material = surface ? nullptr : look.material;
+                if (material == nullptr) {
+                    auto &fluid_cache = world.ctx<FluidRenderCache>();
+                    std::shared_ptr<render::ITexture> texture = look.texture;
+                    if (texture == nullptr) {
+                        if (fluid_cache.disc == nullptr && assets != nullptr && assets->graphic_factory() != nullptr) {
+                            fluid_cache.disc = assets->graphic_factory()->create_texture(soft_disc_desc());
+                        }
+                        texture = fluid_cache.disc;
+                    }
+                    const auto blend_index = static_cast<std::size_t>(card_blend) % 3;
+                    std::shared_ptr<render::IMaterial> &cached = fluid_cache.materials[blend_index][texture.get()];
+                    if (cached == nullptr && default_shader != nullptr) {
+                        cached = std::make_shared<render::Material>(default_shader, texture,
+                                                                    glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                                                    render::RenderState{.blend = card_blend});
+                    }
+                    material = cached != nullptr ? cached : default_unlit;
+                }
+                if (material == nullptr) {
+                    continue;
+                }
+                render::CmdDrawParticles cmd;
+                cmd.mesh = card;
+                cmd.material = material;
+                cmd.blend = !surface && look.material != nullptr ? look.material->render_state().blend : card_blend;
+                cmd.draw = render::ParticleDraw::Plane;
+                cmd.instances.reserve(fluid.count());
+                const bool foam = look.foam_speed > 0.0f && std::isfinite(look.foam_speed);
+                const float inv_foam = foam ? 1.0f / look.foam_speed : 0.0f;
+                // A splat adds its weight to r (density) and its weight times its foam share to g.
+                const float weight = std::isfinite(look.splat_weight) ? std::max(look.splat_weight, 0.0f) : 0.0f;
+                for (std::size_t i = 0; i < fluid.count(); ++i) {
+                    const glm::vec2 velocity = fluid.velocities()[i];
+                    const float t =
+                            foam ? std::min(std::sqrt(glm::dot(velocity, velocity)) * inv_foam, 1.0f) : 0.0f;
+                    const glm::vec4 color = surface ? glm::vec4{weight, weight * t, 0.0f, 1.0f}
+                                                    : look.color + (look.foam_color - look.color) * t;
+                    cmd.instances.push_back(render::ParticleInstance{
+                            .position = glm::vec3{fluid.positions()[i], look.z},
+                            .size = glm::vec2{2.0f * half},
+                            .color = color,
+                            .velocity = glm::vec3{velocity, 0.0f},
+                    });
+                }
+                const render::DrawSortKey key = render::make_draw_sort_key(
+                        material.get(), look.layer, look.order_in_layer, (box.min + box.max) * 0.5f, view, entity,
+                        false);
+                if (surface) {
+                    const auto finite_or = [](float value, float fallback) {
+                        return std::isfinite(value) ? value : fallback;
+                    };
+                    items.push_back(DrawItem{
+                            .key = key,
+                            .command = render::CmdDrawFluidSurface{
+                                    .splats = std::move(cmd),
+                                    .composite = fluid_surface_shader,
+                                    .color = look.color,
+                                    .foam_color = look.foam_color,
+                                    .params = glm::vec4{finite_or(look.threshold, 0.5f),
+                                                        std::max(finite_or(look.edge, 0.1f), 0.0f),
+                                                        finite_or(look.refraction, 0.0f),
+                                                        std::max(finite_or(look.foam_scale, 0.0f), 0.0f)},
+                            }});
+                    continue;
+                }
+                items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
+            }
+
             std::stable_sort(items.begin(), items.end(), draw_item_less);
             return items;
         }
@@ -891,10 +1024,11 @@ namespace engine {
             auto emitters = world.view<render::ParticleEmitter>();
             auto tilemaps = world.view<render::Tilemap, Transform>();
             auto decals = world.view<render::Decal, Transform>();
+            auto fluid_looks = world.view<render::FluidRender2D, Fluid2D>();
             const bool any_decals = decals.begin() != decals.end();
             const bool any_drawable = renderables.begin() != renderables.end() || sprites.begin() != sprites.end() ||
                                       emitters.begin() != emitters.end() || tilemaps.begin() != tilemaps.end() ||
-                                      any_decals;
+                                      fluid_looks.begin() != fluid_looks.end() || any_decals;
             const render::PostStack* post_stack = nullptr;
             if (const ActiveCamera* active_camera = world.try_ctx<ActiveCamera>();
                 active_camera != nullptr && world.valid(active_camera->entity)) {
@@ -940,11 +1074,15 @@ namespace engine {
                 fog = *camera_fog;
             }
             render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
-            if (any_decals) {
+            const bool any_fluid_surface = std::any_of(items.begin(), items.end(), [](const DrawItem &item) {
+                return std::holds_alternative<render::CmdDrawFluidSurface>(item.command);
+            });
+            if (any_decals || any_fluid_surface) {
                 post.sample_depth = true;
                 // An otherwise empty chain would leave the scene offscreen. Vulkan presents that copy with the grade
-                // shader; OpenGL blits and does not need it.
-                if (!post.hdr && post.effects.empty() && post.ldr_copy == nullptr && deps.assets != nullptr) {
+                // shader, and copies the backdrop of a fluid surface with it; OpenGL blits and does not need it.
+                if ((any_fluid_surface || (!post.hdr && post.effects.empty())) && post.ldr_copy == nullptr &&
+                    deps.assets != nullptr) {
                     if (auto copy = deps.assets->try_get<render::IShader>(builtin::shader_post_grade)) {
                         post.ldr_copy = std::move(*copy);
                     }
@@ -1249,7 +1387,7 @@ namespace engine {
         if (std::abs(x) < 1.0e-6f && std::abs(y) < 1.0e-6f) {
             return 0.0f;
         }
-        return std::atan2(y, x);
+        return det_atan2(y, x);
     }
 
     // The nearest RigidBody2D on the entity or above it is Dynamic.

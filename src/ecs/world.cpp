@@ -2,6 +2,8 @@
 
 #include <engine/ecs/hierarchy.h>
 
+#include "core/float_mode.h"
+
 #include <algorithm>
 
 namespace engine::ecs {
@@ -132,6 +134,8 @@ void World::run(Schedule schedule) {
     };
 
     if (schedule == Schedule::Fixed) {
+        // Simulation runs in one float mode on every thread and target (Principles.md, deterministic simulation).
+        set_simulation_float_mode();
         run_phases(kFixedPhases);
     } else {
         run_phases(kFramePhases);

@@ -12,7 +12,7 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 | --- | --- |
 | `CmdDrawMesh` | `run_render` and `render_world_viewport` for each `Renderable` and `Sprite` inside a window's frustum ([Frustum culling](#frustum-culling)) |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
-| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty and whose bounds meet a bound window's frustum, unless `frustum_cull` is false |
+| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty and whose bounds meet a bound window's frustum, unless `frustum_cull` is false, and for a `Fluid2D` with a `FluidRender2D` ([Fluids](#fluids)) |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
 | `CmdPostProcess` | `run_render`, after that window's world draws, when the view's post chain is active |
 
@@ -350,6 +350,15 @@ The radius is `collision_radius` (0 is a point), kept below `0.999 * band` becau
 - A non-empty `color_curve` (`Curve<glm::vec4>`) replaces the linear start/end color.
 - A non-empty `alpha_curve` (`Curve<float>`) then overwrites alpha.
 
+## Fluids
+
+`render::FluidRender2D` (`include/engine/render/fluid_render_2d.h`, LQ-54) on the entity of a `Fluid2D` draws it. `collect_world_draws` (so `run_render` and the editor's `render_world_viewport`) builds one batch per fluid: `ParticleDraw::Plane`, one instance per particle at `(position, z)`, `size` particle radii wide (4 by default, so neighbours at the rest spacing of 2 radii overlap), with the particle's velocity. The batch sorts with sprites by `layer` and `order_in_layer` at the center of the fluid's box, and is dropped when that box (grown by half a card) meets no bound window's frustum, unless `frustum_cull` is false. A particle's foam share is `speed / foam_speed`, clamped to 1 (`foam_speed` 0: no foam). `look` picks how the batch is drawn.
+
+- `Look::Surface` (the default): one `CmdDrawFluidSurface`. Its `splats` are the batch, additive, with the soft disc (or `texture`) on the unlit shader; each splat's color is `(splat_weight, splat_weight * foam, 0, 1)`, so the target holds density in r and density times foam in g. `composite` is `builtin::shader_fluid_surface`; `color`, `foam_color` and `params = (threshold, edge, refraction, foam_scale)` are its `uColor`, `uFoam` and `uParams`. The backend draws the splats into a cleared target of the scene's size (OpenGL: RGBA16F where it renders, else RGBA8, made on the first surface; Vulkan: the scene's format, made with the scene targets), copies the scene so far to SceneB as the backdrop (OpenGL blits; Vulkan draws `PostChain::ldr_copy` on `color_pass_`), returns to the scene (Vulkan: `scene_resume_`) and draws `composite` fullscreen, alpha-blended. The composite: coverage `smoothstep(threshold - edge, threshold + edge, density)` (discarded below 0.002); an edge band `saturate((density - (threshold - edge)) / (3 edge))` whose bump `4 b (1 - b)` is zero outside and inside the water, so the bumps of single particles in packed water (density about 1 with the defaults: weight 1, threshold 0.5, edge 0.1) never show; the backdrop sampled `refraction * bump` pixels along the band's central-difference gradient; that mixed with `color` by `color.a`, and toward `foam_color` and full cover by `foam * foam_scale` (foam = g / r); plus `0.25 * bump` as a rim highlight. A world with a surface fluid forces the post scene like a decal (`PostChain::sample_depth`, and `ldr_copy` = `shader_post_grade` when there is none), so the scene renders offscreen. Without that scene (a `CmdSetView` with a viewport: the editor's scene view, a split-screen camera) the backend draws the splats as alpha cards in `color`. Without the composite shader (no assets) the look falls back to cards. Each surface fluid is its own offscreen pass and backdrop copy: a few in one view are fine, dozens are not.
+- `Look::Cards`: one `CmdDrawParticles`, each card `color` blended toward `foam_color` by the foam share. The card is `mesh` (default `builtin::mesh_quad`) with `material`; without one, `texture` or, without that, a generated soft disc (64 x 64, white, alpha `(1 - r^2)^2`, made once per world through the graphics factory, `FluidRenderCache`) on the unlit shader with `blend`. No offscreen pass.
+
+Serialized as `fluid_render_2d` (`look` "surface" or "cards", `texture` and `material` asset ids, `color`, `foam_color`, `foam_speed`, `size`, `z`, `blend` "opaque", "alpha" or "additive", `layer`, `order_in_layer`, `frustum_cull`, `splat_weight`, `threshold`, `edge`, `refraction`, `foam_scale`); a scene without `look` loads as a surface. Building the batch costs about 60 ns per particle on the CPU (8,192 particles, Release, one thread). Measured in a windowed dam break (1,600 particles, 1280 x 720, OpenGL, Release, vsync off, this machine): about 0.60 ms per frame without a look, 0.70 ms with cards, 1.55 ms with the surface, which includes the offscreen scene and its final copy the surface forces. The Vulkan path is the same three passes; it is compiled and built but was not run here (no Vulkan device on the machine).
+
 ## Decals
 
 `Decal` (`include/engine/render/decal.h`) projects `builtin::shader_decal` through the unit cube onto the depth of the opaque scene. The full rule is [Decals](../features/Decals.md). `run_render` puts `CmdDrawDecal` in `DrawQueue::Decal`. The first decal in a view copies the scene depth to a texture that is not the framebuffer attachment, then both backends sample that copy. Vulkan ends the scene pass, copies, and resumes with the color and depth loaded. A world that contains a decal turns `PostChain::sample_depth` on, and a chain with nothing else to present copies the scene color to the window.
@@ -448,6 +457,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 - `include/engine/render/command_buffer.h`
 - `include/engine/render/frustum.h`
 - `include/engine/render/directional_light.h`
+- `include/engine/render/fluid_render_2d.h`
 - `include/engine/render/fog.h`
 - `include/engine/render/post_process.h`
 - `include/engine/render/ambient_light.h`

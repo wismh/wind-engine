@@ -170,6 +170,20 @@ namespace engine::render {
         std::optional<MaterialOverride> material_override;
     };
 
-    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdDrawDecal, CmdSetView, CmdPostProcess>;
+    // A fluid drawn as a surface (FluidRender2D, docs/tech/modules/Render.md#fluids). The backend draws `splats`
+    // additively into an offscreen target of the scene's size (r: density, g: density times foam), copies the scene
+    // as the backdrop, then draws `composite` (a fullscreen shader reading uFluid and uBackdrop) alpha-blended over the
+    // scene. Without the scene targets (a sub-rectangle viewport) it draws `splats` as alpha cards in `color` instead.
+    struct CmdDrawFluidSurface {
+        CmdDrawParticles splats;
+        std::shared_ptr<IShader> composite;
+        glm::vec4 color{0.25f, 0.55f, 1.0f, 0.85f};
+        glm::vec4 foam_color{0.9f, 0.95f, 1.0f, 1.0f};
+        // x threshold, y edge softness, z refraction strength, w foam scale (the composite's uParams).
+        glm::vec4 params{0.5f, 0.1f, 6.0f, 2.0f};
+    };
+
+    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdDrawDecal, CmdSetView, CmdPostProcess,
+                                 CmdDrawFluidSurface>;
 
 } // namespace engine::render

@@ -153,6 +153,9 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 | --- | --- |
 | `fluid_dam_4k` | a 64 x 64 column (4,096 particles, 6.4 units) collapsing across a 16-unit tank |
 | `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
+| `fluid_rest_4k` | `fluid_dam_4k` after 600 untimed ticks: the pool has spread and come to rest (LQ-59) |
+| `fluid_compound_dam_4k`, `fluid_compound_rest_4k` | the same two in a tank of `CompoundCollider2D` parts instead of the SDF: 0.25-unit square tiles, 1 unit thick (about 2,000 parts), plus a second compound of 4,000 tiles far below that the fluid never reaches. `run_physics_2d` runs once before timing, so the fluid reads the static parts from the solver's cache (LQ-57) |
+| `fluid_crates_4k` | `fluid_dam_4k` with 16 light dynamic crates (0.4 units, half the water's density) dropped across the tank. `run_physics_2d` steps before each fluid step, untimed: the row times the fluid with its two-way coupling (LQ-56) |
 
 Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
 
@@ -162,6 +165,56 @@ Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, 
 | `fluid_dam_16k` | 78,954 (4,819) | 10,372 (633) |
 
 The cost is linear in the count and scales about 6 to 7.5 times on 11 workers (the hash fill is serial). Per substep, at 4k on one thread: the neighbour search is about 1.3 ms, each solver iteration about 1.4 ms (two passes over about 24 neighbours) plus about 0.5 ms of SDF projection, so 2 x 4 iterations dominate; halving `iterations` or `substeps` is the main knob. Keeping each neighbour's kernel gradient and weight from the lambda pass for the delta pass (instead of recomputing the square root and division) brought the 4k serial row from 28.5 ms to 19 ms. A 60 Hz game on one core fits about 3k particles in 15 ms; on a typical worker pool, 16k fits in about 10 ms.
+
+### Swept boundaries (LQ-59)
+
+Particles that move more than half a radius in an iteration are swept against the boundaries ([ECS](../modules/ECS.md#2d-fluids)). Same settings as above, best of two runs each, before and after:
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 19,255 | 20,056 (+4%) | 3,210 | 3,370 (+5%) |
+| `fluid_dam_16k` | 79,970 | 85,864 (+7%) | 10,765 | 11,499 (+7%) |
+| `fluid_rest_4k` | 20,322 | 20,378 (+0.3%) | 3,440 | 3,518 (+2%) |
+
+A resting pool pays one length test per particle per iteration. The collapse pays for the particles that fall faster than half a radius per substep, swept once (the first iteration's move holds the predicted step; later iterations move by the solver delta, which rarely passes the threshold). Sweeping every fast particle from the substep start in every iteration instead cost +15 and +28 percent on the two dam rows.
+
+### Polygon and compound boundaries (LQ-57)
+
+Same settings, best of two runs. Before LQ-57 a compound does not hold the fluid (the rows fail their stability check), so only the after column counts for them; the SDF rows show that the shape grid and the polygon gather cost the SDF tank nothing.
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 19,986 | 19,926 | 3,334 | 3,390 |
+| `fluid_rest_4k` | 20,442 | 20,308 | 3,483 | 3,427 |
+| `fluid_compound_dam_4k` | (falls through) | 18,329 | (falls through) | 3,329 |
+| `fluid_compound_rest_4k` | (falls through) | 19,037 | (falls through) | 3,357 |
+
+A tiled compound tank costs about what the SDF tank costs: a particle against a wall tests the few tiles of its grid cell (two kernel supports wide), not the 2,000 parts, and the 4,000 far tiles never leave the solver's tree.
+
+### Two-way coupling (LQ-56)
+
+`fluid_crates_4k`, best of two runs, before (one-way) and after: 20,806 to 20,788 us with `--threads 0`, 3,474 to 3,526 us with the default threads. Recording each push of a body's shape and the serial sum per substep cost nothing measurable; a fluid with no dynamic body in reach skips both.
+
+### Several fluids (LQ-62)
+
+A lone fluid now runs through the group solver (gather into per-particle arrays, per-particle parameter lookups, scatter back). Best of two runs, before and after, on a busier machine than the tables above: `fluid_dam_4k` 25,756 to 26,102 us serial and 4,087 to 4,274 us on the default threads, `fluid_dam_16k` 110,107 to 111,051 and 13,297 to 13,720, `fluid_rest_4k` 25,951 to 26,338 and 4,143 to 4,226. About 1 percent serial and up to 4 percent threaded, near the noise.
+
+### Performance, first pass (LQ-55)
+
+Changes that keep every result bit for bit (the golden hashes did not move): `JobSystem` workers spin up to 50 us for the next `parallel_for` batch before they sleep, and the caller spins as long for the last range ([Core](../modules/Core.md#jobs)); the fluid's delta pass applies, sweeps and projects its own range (one barrier less per iteration); the SDF projection skips the samples of a particle provably clear of every field (the clearance cache, [ECS](../modules/ECS.md#2d-fluids)); the neighbour search computes cells in parallel and reads its candidates from contiguous copies. Best of two runs against the commit before, same machine and load:
+
+| Scenario | `--threads 0` before | after | default threads before | after |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 26,005 | 23,747 (-9%) | 4,128 | 3,634 (-12%) |
+| `fluid_dam_16k` | 110,536 | 100,612 (-9%) | 13,150 | 11,936 (-9%) |
+| `fluid_rest_4k` | 26,683 | 23,961 (-10%) | 4,180 | 3,688 (-12%) |
+| `fluid_crates_4k` | 26,913 | 24,599 (-9%) | 4,249 | 3,753 (-12%) |
+
+Profile of `fluid_dam_4k` on 11 workers, per tick at the defaults (2 substeps, 4 iterations): neighbour searches about 0.8 ms, the lambda passes about 1.2 ms, delta with apply, sweep and projection about 0.9 ms, velocity and XSPH about 0.25 ms. The lambda pass is compute bound (about 10 ns per neighbour pair serial: a square root and a division each); sorting the particles spatially inside the step (Morton order) changed nothing at 4k, whose working set is already in cache, and was not kept. At 1 substep and 3 iterations the step costs about 1.5 ms, but the fluid suite's quality checks then fail (multiphase layering, a body's splash, resting pools' kinetic energy), so the defaults stay. The 1 ms goal is open.
+
+## Deterministic simulation (LQ-63)
+
+The switch from libm `sin`, `cos` and `atan2` to the engine's deterministic functions ([Principles](../architecture/Principles.md#deterministic-simulation)), measured against the commit before it: the whole suite, `--all --threads 0 --skip-large`, best of two runs each, Windows, MSVC, RelWithDebInfo. MSVC already compiled with `/fp:precise` and no contraction, so on this target the change is the trigonometry alone. Most rows move within the run-to-run noise (about 5 percent). Rows dominated by contacts on rotated shapes cost a little more: `tumbler` 21,724 to 22,612 us (+4 percent), `static_contact_2k` 998 to 1,045 (+5), `static_contact_2k_compound` 965 to 1,025 (+6), `3d_large_island` 2,198 to 2,300 (+5). The fluid gets slightly cheaper (`fluid_dam_4k` 20,087 to 19,747), since collider frames now come from the matrix axis without an angle. The cost per platform (clang, Emscripten, arm64) is a separate backlog ticket.
 
 ## See also
 

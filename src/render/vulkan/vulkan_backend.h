@@ -57,6 +57,7 @@ public:
     void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_decal(const CmdDrawDecal& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
+    void execute_draw_fluid_surface(const CmdDrawFluidSurface& cmd);
     void execute_draw_mesh_particles(const CmdDrawParticles& cmd);
     void execute(const CommandBuffer& commands) override;
 
@@ -124,9 +125,14 @@ private:
         const DepthSamplerBind* depth = nullptr);
     void apply_viewport_and_scissor(bool clear_if_requested);
     void adopt_pass(VkRenderPass pass, VkExtent2D extent);
+    // The fluid composite's extra inputs: uColor and uFoam, and binding 2 sampled linearly (the backdrop).
+    struct FluidCompositeUniforms {
+        glm::vec4 color{1.0f};
+        glm::vec4 foam{1.0f};
+    };
     void draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params, const glm::vec2& resolution,
             float time, VkImageView source, VkImageView depth, VkFramebuffer framebuffer, VkRenderPass pass,
-            VkExtent2D extent, bool additive);
+            VkExtent2D extent, BlendMode blend, const FluidCompositeUniforms* fluid = nullptr);
 
     std::shared_ptr<VulkanContext> context_;
     std::unique_ptr<ui::PaintResources> ui_resources_;
