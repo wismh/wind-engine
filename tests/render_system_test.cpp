@@ -7,12 +7,15 @@
 #include <engine/log.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/fluid_2d.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
+#include <engine/ecs/world_serializer.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/fluid_render_2d.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/particles.h>
@@ -2274,4 +2277,97 @@ TEST(RenderSystem, RenderWorldViewportCullsWithItsCamera) {
             .camera_world = glm::translate(glm::mat4{1.0f}, glm::vec3{100.0f, 0.0f, 5.0f}),
     });
     EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{hidden}));
+}
+
+// LQ-54: FluidRender2D draws a fluid as one batch of soft cards.
+
+namespace {
+
+engine::ecs::Entity spawn_fluid_look(engine::ecs::World& world, std::shared_ptr<engine::render::IMaterial> material,
+        glm::vec2 at) {
+    const engine::ecs::Entity entity = world.create();
+    engine::Fluid2D& fluid = world.emplace<engine::Fluid2D>(entity, engine::Fluid2DParams{.radius = 0.05f});
+    (void)fluid.spawn(at, {0.0f, 0.0f});
+    (void)fluid.spawn(at + glm::vec2{0.1f, 0.0f}, {1.0f, 0.0f});
+    (void)fluid.spawn(at + glm::vec2{0.2f, 0.0f}, {0.0f, -4.0f});
+    world.emplace<engine::render::FluidRender2D>(entity, engine::render::FluidRender2D{
+            .material = std::move(material),
+            .mesh = std::make_shared<FakeMesh>(),
+            .color = {0.0f, 0.0f, 1.0f, 1.0f},
+            .foam_color = {1.0f, 1.0f, 1.0f, 1.0f},
+            .foam_speed = 2.0f,
+            .size = 4.0f,
+            .layer = 3,
+    });
+    return entity;
+}
+
+}
+
+TEST(RenderSystem, FluidRenderDrawsOneCardPerParticleWithFoamBySpeed) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    (void)spawn_fluid_look(world, material, {1.0f, 1.0f});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(particle_command_count(commands), 1);
+    const engine::render::CmdDrawParticles* cards = particle_command_at(commands, {1.0f, 1.0f, 0.0f});
+    ASSERT_NE(cards, nullptr);
+    EXPECT_EQ(cards->material, material);
+    EXPECT_EQ(cards->draw, engine::render::ParticleDraw::Plane);
+    ASSERT_EQ(cards->instances.size(), 3u);
+    for (const engine::render::ParticleInstance& card : cards->instances) {
+        EXPECT_FLOAT_EQ(card.size.x, 0.2f) << "4 radii wide";
+    }
+    EXPECT_EQ(cards->instances[0].color, (glm::vec4{0.0f, 0.0f, 1.0f, 1.0f})) << "at rest: the water color";
+    EXPECT_EQ(cards->instances[1].color, (glm::vec4{0.5f, 0.5f, 1.0f, 1.0f})) << "half the foam speed";
+    EXPECT_EQ(cards->instances[2].color, (glm::vec4{1.0f, 1.0f, 1.0f, 1.0f})) << "at or past it: foam";
+    EXPECT_EQ(cards->instances[2].velocity, (glm::vec3{0.0f, -4.0f, 0.0f}));
+}
+
+TEST(RenderSystem, FluidRenderOutsideEveryFrustumIsDropped) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    (void)spawn_fluid_look(world, material, {50.0f, 0.0f});
+    const engine::ecs::Entity always = spawn_fluid_look(world, material, {60.0f, 0.0f});
+    world.get<engine::render::FluidRender2D>(always).frustum_cull = false;
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(particle_command_count(commands), 1);
+    EXPECT_EQ(particle_command_at(commands, {50.0f, 0.0f, 0.0f}), nullptr);
+    EXPECT_NE(particle_command_at(commands, {60.0f, 0.0f, 0.0f}), nullptr);
+}
+
+TEST(RenderSystem, FluidRenderRoundTripsThroughTheSerializer) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::render::FluidRender2D>(entity, engine::render::FluidRender2D{
+            .color = {0.1f, 0.2f, 0.3f, 0.4f},
+            .foam_speed = 3.0f,
+            .size = 5.0f,
+            .z = -1.0f,
+            .blend = engine::render::BlendMode::Additive,
+            .layer = 7,
+            .order_in_layer = 2,
+            .frustum_cull = false,
+    });
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World loaded;
+    ASSERT_TRUE(engine::ecs::load_world_from_toml(loaded, saved).has_value());
+    const engine::render::FluidRender2D* look = nullptr;
+    loaded.view<engine::render::FluidRender2D>().each([&](const engine::render::FluidRender2D& f) { look = &f; });
+    ASSERT_NE(look, nullptr);
+    EXPECT_EQ(look->color, (glm::vec4{0.1f, 0.2f, 0.3f, 0.4f}));
+    EXPECT_FLOAT_EQ(look->foam_speed, 3.0f);
+    EXPECT_FLOAT_EQ(look->size, 5.0f);
+    EXPECT_FLOAT_EQ(look->z, -1.0f);
+    EXPECT_EQ(look->blend, engine::render::BlendMode::Additive);
+    EXPECT_EQ(look->layer, 7);
+    EXPECT_EQ(look->order_in_layer, 2);
+    EXPECT_FALSE(look->frustum_cull);
 }
