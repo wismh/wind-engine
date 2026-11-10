@@ -201,6 +201,8 @@ struct ShapeBoundary {
     uint32_t mask = 0;
     // Index into `Boundaries::bodies` when the shape's own entity is a Dynamic RigidBody2D (two-way coupling), else -1.
     int body = -1;
+    // On a Dynamic or Kinematic body (or handed in by FluidStepOptions2D::movable).
+    bool movable = false;
     // World AABB of the shape.
     glm::vec2 lo{0.0f};
     glm::vec2 hi{0.0f};
@@ -291,8 +293,100 @@ struct Boundaries {
 // polygon and compound parts are read from the 2D solver's static AABB tree within it, when that cache is up to date
 // (run_physics_2d ran this tick), so the cost follows the terrain near the fluid, not the whole map. Without it (a
 // world that does not run run_physics_2d) they come from the component views like everything else.
-Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 reach_hi) {
+// Total order on shapes by their content (bit patterns), so every peer that holds the same colliders reads them in the
+// same order whatever its entity order.
+[[nodiscard]] bool shape_content_less(const ShapeBoundary& a, const ShapeBoundary& b) {
+    const auto key = [](const ShapeBoundary& s) {
+        std::array<std::uint32_t, 31> k{};
+        std::size_t at = 0;
+        k[at++] = static_cast<std::uint32_t>(s.kind);
+        for (const float f : {s.lo.x, s.lo.y, s.hi.x, s.hi.y, s.frame.position.x, s.frame.position.y, s.frame.cos_a,
+                              s.frame.sin_a, s.half.x, s.half.y, s.radius}) {
+            k[at++] = std::bit_cast<std::uint32_t>(f);
+        }
+        k[at++] = static_cast<std::uint32_t>(s.count);
+        for (int i = 0; i < s.count && at + 2 <= k.size() - 2; ++i) {
+            k[at++] = std::bit_cast<std::uint32_t>(s.vertices[static_cast<std::size_t>(i)].x);
+            k[at++] = std::bit_cast<std::uint32_t>(s.vertices[static_cast<std::size_t>(i)].y);
+        }
+        k[29] = s.layer;
+        k[30] = s.mask;
+        return k;
+    };
+    return key(a) < key(b);
+}
+
+[[nodiscard]] bool sdf_content_less(const SdfBoundary& a, const SdfBoundary& b) {
+    const auto key = [](const SdfBoundary& s) {
+        return std::array<std::uint32_t, 10>{
+                std::bit_cast<std::uint32_t>(s.frame.position.x), std::bit_cast<std::uint32_t>(s.frame.position.y),
+                std::bit_cast<std::uint32_t>(s.frame.cos_a),      std::bit_cast<std::uint32_t>(s.frame.sin_a),
+                std::bit_cast<std::uint32_t>(s.field->origin().x), std::bit_cast<std::uint32_t>(s.field->origin().y),
+                std::bit_cast<std::uint32_t>(s.field->cell_size()), std::bit_cast<std::uint32_t>(s.field->band()),
+                s.layer, s.mask};
+    };
+    const auto ka = key(a);
+    const auto kb = key(b);
+    if (ka != kb) {
+        return ka < kb;
+    }
+    return a.field->hash() < b.field->hash();
+}
+
+[[nodiscard]] ShapeBoundary shape_of(const FluidBoundary2D& in) {
+    ShapeBoundary shape{.layer = in.layer, .mask = in.mask};
+    shape.movable = true;
+    if (in.kind == FluidBoundary2D::Kind::Polygon) {
+        ColliderItem2D item{.shape = ColliderShape2D::Polygon, .layer = in.layer, .mask = in.mask};
+        item.polygon_count = std::min<int>(in.count, kPolygonCollider2DCapacity);
+        for (int i = 0; i < item.polygon_count; ++i) {
+            item.polygon[i] = in.vertices[static_cast<std::size_t>(i)];
+        }
+        if (!polygon_boundary(item, shape)) {
+            shape.count = 0;
+        }
+        shape.movable = true;
+        return shape;
+    }
+    shape.frame = Frame2D{.position = in.position, .cos_a = in.axis.x, .sin_a = in.axis.y};
+    if (in.kind == FluidBoundary2D::Kind::Circle) {
+        shape.kind = ShapeBoundary::Kind::Circle;
+        shape.radius = in.radius;
+        shape.lo = in.position - glm::vec2{in.radius};
+        shape.hi = in.position + glm::vec2{in.radius};
+    } else {
+        shape.kind = ShapeBoundary::Kind::Box;
+        shape.half = in.half;
+        const glm::vec2 extent{std::abs(in.axis.x) * in.half.x + std::abs(in.axis.y) * in.half.y,
+                               std::abs(in.axis.y) * in.half.x + std::abs(in.axis.x) * in.half.y};
+        shape.lo = in.position - extent;
+        shape.hi = in.position + extent;
+    }
+    return shape;
+}
+
+[[nodiscard]] FluidBoundary2D boundary_of(const ShapeBoundary& shape) {
+    FluidBoundary2D out{.layer = shape.layer, .mask = shape.mask};
+    if (shape.kind == ShapeBoundary::Kind::Polygon) {
+        out.kind = FluidBoundary2D::Kind::Polygon;
+        out.count = static_cast<std::uint8_t>(shape.count);
+        for (int i = 0; i < shape.count; ++i) {
+            out.vertices[static_cast<std::size_t>(i)] = shape.vertices[static_cast<std::size_t>(i)];
+        }
+        return out;
+    }
+    out.kind = shape.kind == ShapeBoundary::Kind::Circle ? FluidBoundary2D::Kind::Circle : FluidBoundary2D::Kind::Box;
+    out.position = shape.frame.position;
+    out.axis = glm::vec2{shape.frame.cos_a, shape.frame.sin_a};
+    out.half = shape.half;
+    out.radius = shape.radius;
+    return out;
+}
+
+Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 reach_hi,
+                             const FluidStepOptions2D& options = {}) {
     Boundaries out;
+    const bool world_movable = options.movable_from_world;
     world.view<Transform, SdfCollider2D>().each([&](ecs::Entity entity, const Transform&, const SdfCollider2D& sdf) {
         if (under_dynamic_body(world, entity)) {
             return;
@@ -320,6 +414,10 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
                                std::abs(shape.frame.sin_a) * half.x + std::abs(shape.frame.cos_a) * half.y};
         shape.lo = shape.frame.position - extent;
         shape.hi = shape.frame.position + extent;
+        shape.movable = under_movable_body(world, entity);
+        if (shape.movable && !world_movable) {
+            return;
+        }
         if (dynamic_body(world, entity) != nullptr) {
             shape.body = coupling_index(out, entity, shape.frame.position);
         }
@@ -339,6 +437,10 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
         };
         shape.lo = shape.frame.position - glm::vec2{circle.radius};
         shape.hi = shape.frame.position + glm::vec2{circle.radius};
+        shape.movable = under_movable_body(world, entity);
+        if (shape.movable && !world_movable) {
+            return;
+        }
         if (dynamic_body(world, entity) != nullptr) {
             shape.body = coupling_index(out, entity, shape.frame.position);
         }
@@ -350,12 +452,13 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
     world.view<Transform, PolygonCollider2D>().each(
             [&](ecs::Entity entity, const Transform& transform, const PolygonCollider2D& polygon) {
         const bool movable = under_movable_body(world, entity);
-        if (from_cache && !movable) {
-            return;  // in the static cache, read below
+        if ((from_cache && !movable) || (movable && !world_movable)) {
+            return;  // a static one is in the static cache, read below
         }
         ShapeBoundary shape;
         const glm::mat4 matrix = collider_world_matrix_2d(world, entity, transform);
         if (polygon_boundary(make_polygon_item_2d(entity, matrix, polygon, movable), shape)) {
+            shape.movable = movable;
             if (dynamic_body(world, entity) != nullptr) {
                 shape.body = coupling_index(out, entity, glm::vec2{matrix[3][0], matrix[3][1]});
             }
@@ -366,13 +469,14 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
             [&](ecs::Entity entity, const Transform& transform, const CompoundCollider2D& compound) {
         // Under a Dynamic body the solver ignores a compound; so does the fluid.
         const bool movable = under_movable_body(world, entity);
-        if ((from_cache && !movable) || under_dynamic_body(world, entity)) {
+        if ((from_cache && !movable) || under_dynamic_body(world, entity) || (movable && !world_movable)) {
             return;
         }
         const glm::mat4 matrix = collider_world_matrix_2d(world, entity, transform);
         for (std::uint32_t part = 0; part < compound.shapes.size(); ++part) {
             ShapeBoundary shape;
             if (polygon_boundary(make_compound_item_2d(entity, matrix, compound, part, movable), shape)) {
+                shape.movable = movable;
                 out.shapes.push_back(shape);
             }
         }
@@ -398,6 +502,15 @@ Boundaries gather_boundaries(ecs::World& world, glm::vec2 reach_lo, glm::vec2 re
             }
         }
     }
+    for (const FluidBoundary2D& boundary : options.movable) {
+        ShapeBoundary shape = shape_of(boundary);
+        if (shape.kind != ShapeBoundary::Kind::Polygon || shape.count >= 3) {
+            out.shapes.push_back(shape);
+        }
+    }
+    // Content order, the same on every peer that holds the same colliders (net sync). Ties are equal shapes.
+    std::stable_sort(out.shapes.begin(), out.shapes.end(), shape_content_less);
+    std::stable_sort(out.sdf.begin(), out.sdf.end(), sdf_content_less);
     return out;
 }
 
@@ -2323,7 +2436,23 @@ void fill_fluid_boxes(ecs::World& world) {
 
 }
 
+std::vector<FluidBoundary2D> movable_fluid_boundaries_2d(ecs::World& world) {
+    const glm::vec2 far{std::numeric_limits<float>::max()};
+    const Boundaries boundaries = gather_boundaries(world, -far, far);
+    std::vector<FluidBoundary2D> out;
+    for (const ShapeBoundary& shape : boundaries.shapes) {
+        if (shape.movable) {
+            out.push_back(boundary_of(shape));
+        }
+    }
+    return out;
+}
+
 void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
+    run_fluid_2d(world, jobs, FluidStepOptions2D{});
+}
+
+void run_fluid_2d(ecs::World& world, JobSystem* jobs, const FluidStepOptions2D& options) {
     fill_fluid_boxes(world);
     auto view = world.view<Fluid2D>();
     bool any = false;
@@ -2356,13 +2485,15 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs) {
         }
     }
     // run_physics_2d ends with update_world_transforms, so the collider matrices are this tick's.
-    Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi);
+    Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi, options);
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
     ecs::EventWriter<FluidContactEvent2D> contacts{world};
     for (const FluidGroup2D& group : fluid_groups(world)) {
         Fluid2DSolver::step(group, boundaries, glm::vec2{gravity.x, gravity.y}, dt, jobs, scratch, contacts);
     }
-    apply_coupling(world, boundaries, glm::vec2{gravity.x, gravity.y}, dt);
+    if (options.push_bodies) {
+        apply_coupling(world, boundaries, glm::vec2{gravity.x, gravity.y}, dt);
+    }
     ecs::EventWriter<FluidSensorEvent2D> events{world};
     for (ecs::Entity entity : view) {
         Fluid2D& fluid = view.get<Fluid2D>(entity);

@@ -145,11 +145,28 @@ Taps, drains and sensors are saved with the world: their settings, not how much 
 
 About 4.6 us per particle per tick on one thread with the defaults, and it scales across the job workers: 4,000 particles cost about 3 ms a tick on a 12-thread desktop, 16,000 about 10 ms. Results are the same for any number of workers.
 
-`fluid_2d` is saved with the world: its parameters, taps, drains and sensors. The water itself is saved only when you set `save_particles = true` on the fluid; then a loaded game has the same water, to the bit. Leave it off for large fluids you can spawn again (a few megabytes per 100,000 particles). Fluids are not replicated over the network.
+`fluid_2d` is saved with the world: its parameters, taps, drains and sensors. The water itself is saved only when you set `save_particles = true` on the fluid; then a loaded game has the same water, to the bit. Leave it off for large fluids you can spawn again (a few megabytes per 100,000 particles). Over the network, every player simulates the fluid: see [Fluids over the network](#8-fluids-over-the-network).
 
 To place a pool in a scene, add a child entity to the fluid's entity with a Transform and a `FluidBox2D` (`size`, optional `velocity`): the fluid fills that box with water the first time it steps. In the editor the World tab shows the box and the water it will hold, and draws the particles of every fluid; move the box with the gizmo and size it in the Inspector.
 
 The fluid is built to give the same bits on every platform the engine supports, not only for any number of workers, so two peers that feed it the same inputs keep the same water (checked so far on Windows with MSVC and clang, and on Web). `fluid.state_hash()` is a 64-bit hash of its particles: compare it between peers to catch a desync.
+
+## 8. Fluids over the network
+
+The fluid is not sent in snapshots; every peer runs it, and the server sends what changes it. Give the fluid and its terrain the same `engine::net::FluidSyncId2D` on every peer (the level file does it), then:
+
+```cpp
+// Server, in on_start after install_net_server (instead of install_fluid_2d):
+engine::net::install_fluid_sync_server_2d(world(), transport_);
+// Change the water and the terrain only through inputs:
+engine::net::queue_fluid_input_2d(world(), {.kind = engine::net::FluidInput2D::Kind::CarveCircle,
+                                            .target = kTerrain, .a = hit, .value = 1.5f});
+
+// Client, after install_net_client:
+engine::net::install_fluid_sync_client_2d(world(), transport_);
+```
+
+A player who joins late gets the water and the terrain as they are, then follows along. The client's water moves with the bodies it shows, a little behind the server like everything else. If a client ever disagrees with the server, it notices within half a second and gets the server's water again.
 
 ---
 

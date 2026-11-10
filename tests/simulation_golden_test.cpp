@@ -39,8 +39,8 @@ namespace {
 constexpr std::uint64_t kGoldenStack2D = 0xe8d28498f5232f35ull;
 constexpr std::uint64_t kGoldenTerrain2D = 0x79d87f3c8c4d5979ull;
 constexpr std::uint64_t kGoldenTerrainField = 0xcf18cbc3cbefb34eull;
-constexpr std::uint64_t kGoldenDamBreakFluid = 0xe48833b629c0778bull;  // LQ-60: the hash also covers sources and sensors
-constexpr std::uint64_t kGoldenDamBreakBodies = 0xeb95398244d6d43dull;  // LQ-56: the water pushes the bodies
+constexpr std::uint64_t kGoldenDamBreakFluid = 0xb2576ea4bcce9772ull;  // LQ-64: boundaries in content order
+constexpr std::uint64_t kGoldenDamBreakBodies = 0xe14ec2bcaa61dc8full;  // LQ-64: boundaries in content order
 constexpr std::uint64_t kGoldenStack3D = 0xd0aa1e5806fe43faull;
 
 // The gap above |value|: one float ulp (the smallest denormal at zero).
