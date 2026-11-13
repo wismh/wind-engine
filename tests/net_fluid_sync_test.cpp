@@ -27,8 +27,9 @@ using engine::net::testing::NetHarness;
 constexpr std::uint32_t kTerrainId = 1;
 constexpr std::uint32_t kWaterId = 2;
 
-// The level every peer loads the same: an SDF tank and an empty fluid, both with a sync id.
-void build_level(engine::ecs::World& world) {
+// The level every peer loads the same: an SDF tank and an empty fluid, both with a sync id. With `sleep` the fluid lets
+// resting particles sleep (LQ-38).
+void build_level(engine::ecs::World& world, bool sleep = false) {
     engine::register_engine_systems(world);
     world.ctx<engine::Physics2DConfig>().gravity = {0.f, -10.f, 0.f};
     engine::SdfField2D field{engine::SdfField2DDesc{.cell_size = 0.1f, .band = 0.4f}};
@@ -43,7 +44,7 @@ void build_level(engine::ecs::World& world) {
     world.emplace<engine::SdfCollider2D>(terrain, engine::SdfCollider2D{.field = std::move(field)});
     world.emplace<engine::net::FluidSyncId2D>(terrain, engine::net::FluidSyncId2D{.id = kTerrainId});
     const engine::ecs::Entity water = world.create();
-    world.emplace<engine::Fluid2D>(water, engine::Fluid2DParams{.radius = 0.05f});
+    world.emplace<engine::Fluid2D>(water, engine::Fluid2DParams{.radius = 0.05f, .sleep = sleep});
     world.emplace<engine::net::FluidSyncId2D>(water, engine::net::FluidSyncId2D{.id = kWaterId});
 }
 
@@ -157,6 +158,71 @@ TEST(NetFluidSync, ServerAndTwoClientsKeepTheSameFluidAndAForcedDesyncIsRepaired
     EXPECT_EQ(engine::net::fluid_sync_client_stats_2d(joiner->world).desyncs, 0u);
     // The server moved the box with the water's reaction; the clients pushed nothing.
     EXPECT_GT(net.server.get<engine::Transform>(box).position.y, 0.0f);
+}
+
+TEST(NetFluidSync, ASleepingFluidStaysTheSameOnEveryPeer) {
+    // Sleep state is simulation state: the clients' sleepers, rest counters and boundary marks follow the server's
+    // through falling asleep, a late join that loads them from the state, a carve that wakes part of the pool and a
+    // kinematic paddle that keeps the water near it awake.
+    NetHarness net{46150};
+    build_level(net.server, true);
+    build_level(net.client, true);
+    net.connect();
+    engine::net::install_fluid_sync_server_2d(net.server, net.server_link,
+                                              engine::net::FluidSyncConfig2D{.hash_interval = 10});
+    engine::net::install_fluid_sync_client_2d(net.client, net.client_link,
+                                              engine::net::FluidSyncConfig2D{.hash_interval = 10});
+    const engine::ecs::Entity paddle = net.server.create();
+    net.server.emplace<engine::Transform>(paddle, engine::Transform{.position = {3.5f, 0.3f, 0.f}});
+    net.server.emplace<engine::CircleCollider2D>(paddle, engine::CircleCollider2D{.radius = 0.15f});
+    net.server.emplace<engine::RigidBody2D>(paddle, engine::RigidBody2D{.type = engine::BodyType::Kinematic});
+    (void)engine::net::replicate(net.server, paddle);
+
+    std::map<engine::net::Tick, std::uint64_t> server_hashes;
+    Checks first;
+    Checks late;
+    NetClientSide* joiner = nullptr;
+    std::size_t asleep_at_join = 0;
+    std::size_t asleep_after_carve = 0;
+    for (int frame = 0; frame < 1500; ++frame) {
+        if (frame == 10) {
+            engine::net::queue_fluid_input_2d(
+                    net.server, FluidInput2D{.kind = FluidInput2D::Kind::SpawnBox, .target = kWaterId,
+                                             .a = {0.f, 0.f}, .b = {1.2f, 1.5f}});
+        }
+        if (frame == 1100) {
+            joiner = &net.add_client();
+            build_level(joiner->world, true);
+            engine::net::install_fluid_sync_client_2d(joiner->world, joiner->link,
+                                                      engine::net::FluidSyncConfig2D{.hash_interval = 10});
+            asleep_at_join = water_of(net.server).sleeping_count();
+        }
+        if (frame == 1300) {
+            engine::net::queue_fluid_input_2d(
+                    net.server, FluidInput2D{.kind = FluidInput2D::Kind::CarveCircle, .target = kTerrainId,
+                                             .a = {1.f, 0.f}, .value = 0.3f});
+        }
+        net.step();
+        if (frame == 1302) {
+            asleep_after_carve = water_of(net.server).sleeping_count();
+        }
+        server_hashes[net.tick()] = water_of(net.server).state_hash();
+        check(net.client, server_hashes, first);
+        if (joiner != nullptr) {
+            check(joiner->world, server_hashes, late);
+        }
+    }
+
+    const std::size_t count = water_of(net.server).count();
+    EXPECT_GT(asleep_at_join, count / 2) << "the pool was mostly asleep when the late client joined";
+    EXPECT_LT(asleep_at_join, count) << "the water near the paddle stays awake";
+    EXPECT_LT(asleep_after_carve, asleep_at_join) << "the carve woke part of it";
+    EXPECT_GT(first.compared, 1000u);
+    EXPECT_EQ(first.mismatched, 0u);
+    EXPECT_GT(late.compared, 300u);
+    EXPECT_EQ(late.mismatched, 0u);
+    EXPECT_EQ(engine::net::fluid_sync_client_stats_2d(net.client).desyncs, 0u);
+    EXPECT_EQ(engine::net::fluid_sync_client_stats_2d(joiner->world).desyncs, 0u);
 }
 
 TEST(NetFluidSync, MovableBoundariesFromTheStreamStepTheSameAsTheWorld) {
