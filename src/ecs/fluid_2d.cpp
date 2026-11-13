@@ -20,10 +20,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
@@ -152,6 +154,31 @@ constexpr std::size_t kCouplingSlots = 2;
 [[nodiscard]] bool layers_match(const Fluid2DParams& fluid, uint32_t layer, uint32_t mask) {
     return (fluid.mask & layer) != 0 && (mask & fluid.layer) != 0;
 }
+
+// The world box of a region (a circle's square).
+[[nodiscard]] std::pair<glm::vec2, glm::vec2> region_box(const FluidRegion2D& region) {
+    const glm::vec2 reach = region.shape == FluidRegion2D::Shape::Circle ? glm::vec2{region.radius}
+                                                                         : region.half_extents;
+    return {region.center - reach, region.center + reach};
+}
+
+// A 64-bit key of words (integers and float bits), for the sleep marks: integer operations only, so the same on every
+// target. Not a state hash; two different contents giving one key only miss a wake.
+struct SleepKey {
+    std::uint64_t value = 0x9E3779B97F4A7C15ull;
+
+    void u32(std::uint32_t word) {
+        value = (value ^ word) * 0xFF51AFD7ED558CCDull;
+        value ^= value >> 32;
+    }
+    void f32(float word) {
+        u32(std::bit_cast<std::uint32_t>(word));
+    }
+    void vec2(glm::vec2 word) {
+        f32(word.x);
+        f32(word.y);
+    }
+};
 
 // A collider pose: local XY = R(-angle) * (world XY - position).
 struct Frame2D {
@@ -563,6 +590,11 @@ struct Params {
     float density = 1.0f;  // world mass per unit area, for two-way coupling
     float cohesion = 0.0f;
     float vorticity = 0.0f;
+    // Sleeping, in world units per second, and the ticks below `sleep_speed` before a particle sleeps.
+    bool sleep = false;
+    float sleep_speed = 0.0f;
+    float wake_speed = 0.0f;
+    std::uint32_t sleep_ticks = 60;
 };
 
 // Poly6 density (self included) of a square lattice at `spacing` (in h).
@@ -598,6 +630,10 @@ struct Params {
     p.density = std::isfinite(fluid.density) ? std::max(fluid.density, 0.0f) : 0.0f;
     p.cohesion = std::isfinite(fluid.cohesion) ? std::max(fluid.cohesion, 0.0f) : 0.0f;
     p.vorticity = std::isfinite(fluid.vorticity) ? std::max(fluid.vorticity, 0.0f) : 0.0f;
+    p.sleep = fluid.sleep;
+    p.sleep_speed = positive_or(fluid.sleep_speed, 0.5f) * p.radius;
+    p.wake_speed = std::max(positive_or(fluid.wake_speed, 4.0f) * p.radius, p.sleep_speed);
+    p.sleep_ticks = static_cast<std::uint32_t>(std::clamp(fluid.sleep_ticks, 1, 65535));
     return p;
 }
 
@@ -671,8 +707,22 @@ struct ShapeGrid2D {
 
 }
 
+// The neighbour search's spatial hash: cells of h, a counting sort into a power-of-two table, so a bucket lists its
+// particles in group order. The candidates' positions and cells are copied in bucket order so the search reads them in
+// sequence.
+struct FluidHash2D {
+    std::uint32_t mask = 0;
+    std::vector<std::uint32_t> bucket_start;
+    std::vector<std::uint32_t> sorted;
+    std::vector<glm::vec2> position;
+    std::vector<glm::ivec2> cell;
+};
+
 // Per-step buffers, reused across ticks and fluids. Not part of any fluid's state.
 struct Fluid2DScratch {
+    // What `resting` and `sleeping_ids` were built from: the group's particle count, its kernel support's bits and each
+    // member's `sleep_stamp_`. Equal keys mean the same sleepers at the same positions, so the hash is reused.
+    std::vector<std::uint64_t> resting_key;
     std::vector<glm::vec2> predicted;
     std::vector<glm::vec2> pre_velocity;
     std::vector<glm::vec2> delta;
@@ -702,15 +752,15 @@ struct Fluid2DScratch {
     std::vector<float> sdf_clearance;
     std::vector<float> sdf_probe;
     std::vector<char> sdf_skip;
-    // The neighbour search's candidates in bucket order, copied so its inner loop reads them in sequence.
-    std::vector<glm::vec2> sorted_position;
-    std::vector<glm::ivec2> sorted_cell;
     // Per selected shape and SDF field: the members it bounds (bit k for member k).
     std::vector<std::uint32_t> shape_members;
     std::vector<std::uint32_t> sdf_members;
+    // Each particle's hash cell; the awake particles' hash (per substep) and the sleepers' (per step).
     std::vector<glm::ivec2> cell;
-    std::vector<std::uint32_t> bucket_start;
-    std::vector<std::uint32_t> sorted;
+    FluidHash2D moving;
+    FluidHash2D resting;
+    std::vector<std::uint32_t> hash_fill;
+    std::vector<std::uint32_t> sleeping_ids;
     std::vector<std::uint32_t> neighbor_count;
     std::vector<std::uint32_t> neighbors;
     // Per neighbour slot, this iteration: the poly6 weight and the spiky gradient (h units), at `weight_slot`.
@@ -733,6 +783,22 @@ struct Fluid2DScratch {
     // Where each particle's sweep starts: its position at the start of the substep for the first iteration, then where
     // the previous iteration left it (outside every boundary).
     std::vector<glm::vec2> from;
+    // Sleeping: per particle of the group, asleep (1), awake (0) or held awake for this step (2), and its rest ticks.
+    std::vector<std::uint8_t> asleep;
+    std::vector<std::uint16_t> rest;
+    // What the passes run over, by position: the awake particles [0, awake) in group order, then the sleepers within a
+    // kernel support of an awake one this substep [awake, listed), in group order (their lambdas push the awake ones;
+    // they keep their positions). Every particle, in order, when none sleeps. A sleeper beyond them is only read, as a
+    // neighbour of a listed sleeper.
+    std::vector<std::uint32_t> order;
+    std::size_t awake = 0;
+    std::size_t listed = 0;
+    // A sleeper some awake particle lists this substep: set to 1 from any range, read after the pass.
+    std::vector<std::uint8_t> touched;
+    // A listed sleeper an awake neighbour moving faster than the wake speed touched in the last substep.
+    std::vector<std::uint8_t> woken;
+    // Where each particle started the step, for the rest and wake speeds.
+    std::vector<glm::vec2> start;
 };
 
 // The fluids `run_fluid_2d` steps as one particle system this tick, in view order, with their entities.
@@ -744,14 +810,35 @@ struct FluidGroup2D {
 struct Fluid2DSolver {
     static void step(const FluidGroup2D& group, Boundaries& boundaries, glm::vec2 gravity, float dt, JobSystem* jobs,
                      Fluid2DScratch& s, ecs::EventWriter<FluidContactEvent2D>& contacts);
-    // Neighbour lists of `s.predicted` [0, n).
+    // Neighbour lists of the listed particles over `s.predicted` [0, n): the awake ones, then the sleepers they touch.
     static void build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s);
+    // The hash of particles `ids` [0, count) at their predicted positions, and the lists of `s.order` positions
+    // [first, last) from the awake particles' hash and the sleepers'.
+    static void hash_into(const Params& p, const std::uint32_t* ids, std::size_t count, JobSystem* jobs,
+                          Fluid2DScratch& s, FluidHash2D& out);
+    static void search_neighbors(const Params& p, std::size_t begin, std::size_t end, JobSystem* jobs,
+                                 Fluid2DScratch& s);
+    // Sleeping, before a step: wakes what changed around the fluid's sleepers (gravity or parameters, a static collider
+    // or an SDF chunk), holds what is near a movable collider or a source that emitted (`emitted`, per source) awake,
+    // and keeps the marks of what the sleepers see.
+    static void wake_before_step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 gravity,
+                                 std::span<const std::uint8_t> emitted);
+    // The marks of what bounds `fluid` within [lo, hi]: a key and world box per static shape and per allocated SDF
+    // chunk, plus one per SDF field that is solid outside (a box over everything).
+    static void sleep_marks(const Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 lo, glm::vec2 hi,
+                            std::vector<Fluid2D::SleepMark>& out);
+    // Calls `fn(i)` for each particle of `fluid` whose position lies in [lo, hi].
+    template <class F>
+    static void each_in_box(const Fluid2D& fluid, glm::vec2 lo, glm::vec2 hi, F&& fn);
+    // A fresh `sleep_stamp_`: the particle arrays or the set of sleepers changed.
+    static void restamp(Fluid2D& fluid);
     static void select_boundaries(const FluidGroup2D& group, const Params& p, const Boundaries& boundaries,
                                   std::size_t n, Fluid2DScratch& s);
     static void sweep_range(std::size_t begin, std::size_t end, Fluid2DScratch& s);
-    // Sources, before the step: emit what each enabled source owes for `dt`.
-    static void emit(Fluid2D& fluid, float dt);
-    // Drains, after the step: remove the particles that ended inside an enabled drain, keeping the others' order.
+    // Sources, before the step: emit what each enabled source owes for `dt`. `emitted[k]` is 1 when source k emitted.
+    static void emit(Fluid2D& fluid, float dt, std::vector<std::uint8_t>& emitted);
+    // Drains, after the step: remove the particles that ended inside an enabled drain, keeping the others' order. A
+    // drain that removed one wakes the sleepers within a kernel support of it.
     static void drain(Fluid2D& fluid);
     // Sensors, after the drains: measure each fill and send an event when one turns full or stops being full.
     static void sense(Fluid2D& fluid, ecs::Entity entity, ecs::EventWriter<FluidSensorEvent2D>& events);
@@ -759,6 +846,11 @@ struct Fluid2DSolver {
     static void record_push(std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
                             glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s);
     static void project_range(std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    // Sleeping, after the substeps: wakes the listed sleepers a fast awake neighbour touched, and counts the awake
+    // particles' rest ticks, putting to sleep those at `sleep_ticks`. `active` is the awake count (`s.awake`). Speeds
+    // are the step's displacement over `dt` (from `s.start`): a particle's velocity in a resting pool is the noise of
+    // its last substep's boundary response, its displacement is not.
+    static void settle(std::size_t active, float dt, JobSystem* jobs, Fluid2DScratch& s);
     // The density constraint's lambda (and density) of particles [begin, end), keeping each neighbour's kernel
     // gradient and weight for the delta pass.
     static void lambda_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s);
@@ -1071,10 +1163,11 @@ void gather_xy(const glm::vec2* at, const std::uint32_t (&j)[4], __m128& x, __m1
     return _mm_setr_ps(at[j[0]], at[j[1]], at[j[2]], at[j[3]]);
 }
 
-// The four particles of group i0 (i0 a multiple of 4): their neighbour lists (a lane past `n` reads lane 0's), their
-// counts (0 past `n`), their positions, and the longest count. `build_neighbors` pads every list of a group to the
-// longest with the particle itself, so slots up to it are valid indices.
+// The four particles at `s.order` positions [k0, k0 + 4) (k0 a multiple of 4): their indices (a lane past `end` takes
+// lane 0's), neighbour lists, counts (0 past `end`), positions, and the longest count. `build_neighbors` pads every list
+// of a group to the longest with the particle itself, so slots up to it are valid indices.
 struct Group4 {
+    std::uint32_t own[4];
     const std::uint32_t* lists[4];
     __m128i count;
     __m128 x;
@@ -1083,22 +1176,21 @@ struct Group4 {
     int valid = 0;
 };
 
-[[nodiscard]] Group4 group_of(std::size_t i0, std::size_t n, const Fluid2DScratch& s, const glm::vec2* positions) {
+[[nodiscard]] Group4 group_of(std::size_t k0, std::size_t end, const Fluid2DScratch& s, const glm::vec2* positions) {
     Group4 g{};
     alignas(16) std::int32_t counts[4];
-    std::uint32_t own[4];
     for (int l = 0; l < 4; ++l) {
-        const std::size_t i = i0 + static_cast<std::size_t>(l);
-        const bool valid = i < n;
-        own[l] = static_cast<std::uint32_t>(valid ? i : i0);
-        g.lists[l] = &s.neighbors[own[l] * kMaxNeighbors];
-        const std::uint32_t count = valid ? s.neighbor_count[i] : 0;
+        const std::size_t k = k0 + static_cast<std::size_t>(l);
+        const bool valid = k < end;
+        g.own[l] = s.order[valid ? k : k0];
+        g.lists[l] = &s.neighbors[static_cast<std::size_t>(g.own[l]) * kMaxNeighbors];
+        const std::uint32_t count = valid ? s.neighbor_count[g.own[l]] : 0;
         counts[l] = static_cast<std::int32_t>(count);
         g.most = std::max(g.most, count);
         g.valid += valid ? 1 : 0;
     }
     g.count = _mm_load_si128(reinterpret_cast<const __m128i*>(counts));
-    gather_xy(positions, own, g.x, g.y);
+    gather_xy(positions, g.own, g.x, g.y);
     return g;
 }
 
@@ -1110,20 +1202,20 @@ struct Group4 {
 // and comparisons; SSE never contracts a multiply and an add), so a lane's result is the scalar one, bit for bit.
 // A lane past its particle's neighbour count keeps its sums.
 template <bool mixed>
-void lambda_four(std::size_t i0, std::size_t n, const Params& p, Fluid2DScratch& s) {
+void lambda_four(std::size_t k0, std::size_t end, const Params& p, Fluid2DScratch& s) {
     const __m128 one = _mm_set1_ps(1.0f);
     const __m128 inv_h = _mm_set1_ps(p.inv_h);
     const __m128 poly = _mm_set1_ps(kPoly6);
     const __m128 spiky = _mm_set1_ps(kSpikyGrad);
     const __m128 tiny = _mm_set1_ps(1.0e-6f);
-    const Group4 g = group_of(i0, n, s, s.predicted.data());
+    const Group4 g = group_of(k0, end, s, s.predicted.data());
     __m128 rho = poly;
     __m128 gx = _mm_setzero_ps();
     __m128 gy = _mm_setzero_ps();
     __m128 sum_sq = _mm_setzero_ps();
     float* kernel[4];
     for (int l = 0; l < 4; ++l) {
-        kernel[l] = &s.kernel[weight_slot(l < g.valid ? i0 + static_cast<std::size_t>(l) : i0, 0)];
+        kernel[l] = &s.kernel[weight_slot(g.own[l], 0)];
     }
     for (std::uint32_t k = 0; k < g.most; ++k) {
         const std::uint32_t j[4] = {g.lists[0][k], g.lists[1][k], g.lists[2][k], g.lists[3][k]};
@@ -1173,8 +1265,7 @@ void lambda_four(std::size_t i0, std::size_t n, const Params& p, Fluid2DScratch&
     _mm_store_ps(gy_out, gy);
     _mm_store_ps(sum_out, sum_sq);
     for (int l = 0; l < g.valid; ++l) {
-        finish_lambda(i0 + static_cast<std::size_t>(l), rho_out[l], glm::vec2{gx_out[l], gy_out[l]}, sum_out[l],
-                      mixed, s);
+        finish_lambda(g.own[l], rho_out[l], glm::vec2{gx_out[l], gy_out[l]}, sum_out[l], mixed, s);
     }
 }
 
@@ -1186,109 +1277,171 @@ void Fluid2DSolver::lambda_range(std::size_t begin, std::size_t end, const Param
 #if defined(ENGINE_FLUID_SSE)
     // Ranges start at multiples of kGrain (a multiple of 4); only the last group of the last range is partial.
     if (!g_scalar_kernels) {
-        for (std::size_t i = begin; i < end; i += 4) {
+        for (std::size_t k = begin; k < end; k += 4) {
             if (mixed) {
-                lambda_four<true>(i, end, p, s);
+                lambda_four<true>(k, end, p, s);
             } else {
-                lambda_four<false>(i, end, p, s);
+                lambda_four<false>(k, end, p, s);
             }
         }
         return;
     }
 #endif
-    for (std::size_t i = begin; i < end; ++i) {
-        lambda_one(i, p, mixed, s);
+    for (std::size_t k = begin; k < end; ++k) {
+        lambda_one(s.order[k], p, mixed, s);
     }
 }
 
 void Fluid2DSolver::delta_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s) {
     // Scalar on every target: the pass is mostly a gather of the neighbours' lambdas, which SSE2 loads one lane at a
     // time; four lanes measured no faster than this loop.
-    for (std::size_t i = begin; i < end; ++i) {
-        delta_one(i, p, mixed, s);
+    for (std::size_t k = begin; k < end; ++k) {
+        delta_one(s.order[k], p, mixed, s);
     }
 }
 
 void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s) {
+    // The awake particles at their predicted positions; the sleepers' hash is built once per step (they do not move).
+    hash_into(p, s.order.data(), s.awake, jobs, s, s.moving);
+    s.neighbor_count.resize(n);
+    s.neighbors.resize(n * kMaxNeighbors);
+    search_neighbors(p, 0, s.awake, jobs, s);
+    if (s.awake < n) {
+        // The sleepers the awake particles list, in group order, then their own lists: their lambdas push the awake.
+        s.order.resize(s.awake);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (s.touched[i] != 0) {
+                s.touched[i] = 0;
+                s.order.push_back(static_cast<std::uint32_t>(i));
+            }
+        }
+        s.listed = s.order.size();
+        search_neighbors(p, s.awake, s.listed, jobs, s);
+    } else {
+        s.listed = n;
+    }
+    // The SIMD passes run four particles in step to the longest of their lists: pad the shorter ones with the particle
+    // itself (a slot past the count is never summed).
+    for_ranges(jobs, s.listed, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t k0 = begin; k0 < end; k0 += 4) {
+            const std::size_t stop = std::min(k0 + 4, end);
+            std::uint32_t most = 0;
+            for (std::size_t k = k0; k < stop; ++k) {
+                most = std::max(most, s.neighbor_count[s.order[k]]);
+            }
+            for (std::size_t k = k0; k < stop; ++k) {
+                const std::uint32_t i = s.order[k];
+                for (std::uint32_t slot = s.neighbor_count[i]; slot < most; ++slot) {
+                    s.neighbors[static_cast<std::size_t>(i) * kMaxNeighbors + slot] = i;
+                }
+            }
+        }
+    });
+}
+
+void Fluid2DSolver::hash_into(const Params& p, const std::uint32_t* ids, std::size_t count, JobSystem* jobs,
+                              Fluid2DScratch& s, FluidHash2D& out) {
     std::uint32_t table = 64;
-    while (static_cast<std::size_t>(table) < 2 * n) {
+    while (static_cast<std::size_t>(table) < 2 * count) {
         table *= 2;
     }
     const std::uint32_t mask = table - 1;
-    s.cell.resize(n);
-    s.bucket_start.assign(static_cast<std::size_t>(table) + 1, 0);
-    s.sorted.resize(n);
-    for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i = begin; i < end; ++i) {
+    out.mask = mask;
+    s.cell.resize(s.predicted.size());
+    out.bucket_start.assign(static_cast<std::size_t>(table) + 1, 0);
+    out.sorted.resize(count);
+    for_ranges(jobs, count, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t k = begin; k < end; ++k) {
+            const std::uint32_t i = ids[k];
             const glm::vec2 q = s.predicted[i] * p.inv_h;
             s.cell[i] = glm::ivec2{cell_coord(q.x), cell_coord(q.y)};
         }
     });
-    for (std::size_t i = 0; i < n; ++i) {
-        ++s.bucket_start[cell_hash(s.cell[i], mask) + 1];
+    for (std::size_t k = 0; k < count; ++k) {
+        ++out.bucket_start[cell_hash(s.cell[ids[k]], mask) + 1];
     }
     for (std::uint32_t b = 0; b < table; ++b) {
-        s.bucket_start[b + 1] += s.bucket_start[b];
+        out.bucket_start[b + 1] += out.bucket_start[b];
     }
-    // Counting sort, stable: a bucket lists its particles in index order. The neighbour counts are free until below.
-    std::vector<std::uint32_t>& fill = s.neighbor_count;
+    // Counting sort, stable: a bucket lists its particles in `ids` order (group order).
+    std::vector<std::uint32_t>& fill = s.hash_fill;
     fill.assign(table, 0);
-    s.sorted_position.resize(n);
-    s.sorted_cell.resize(n);
-    for (std::size_t i = 0; i < n; ++i) {
+    out.position.resize(count);
+    out.cell.resize(count);
+    for (std::size_t k = 0; k < count; ++k) {
+        const std::uint32_t i = ids[k];
         const std::uint32_t b = cell_hash(s.cell[i], mask);
-        const std::uint32_t at = s.bucket_start[b] + fill[b]++;
-        s.sorted[at] = static_cast<std::uint32_t>(i);
-        s.sorted_position[at] = s.predicted[i];
-        s.sorted_cell[at] = s.cell[i];
+        const std::uint32_t at = out.bucket_start[b] + fill[b]++;
+        out.sorted[at] = i;
+        out.position[at] = s.predicted[i];
+        out.cell[at] = s.cell[i];
     }
+}
 
-    s.neighbor_count.assign(n, 0);
-    s.neighbors.resize(n * kMaxNeighbors);
+namespace {
+
+// Appends to `out` [count, kMaxNeighbors) the particles of `hash` in the 3 x 3 cells around `ci` closer than h to `pi`
+// (`h2` = h^2), other than `i`, cell by cell (dy, then dx), each bucket in its order. Returns the new count. The hash's
+// arrays are read through local pointers: the list is written through `out`, which the compiler cannot otherwise tell
+// apart from them.
+[[nodiscard]] std::uint32_t scan_hash(const FluidHash2D& hash, std::size_t i, glm::vec2 pi, glm::ivec2 ci, float h2,
+                                      std::uint32_t* out, std::uint32_t count) {
+    const std::uint32_t* const bucket_start = hash.bucket_start.data();
+    const std::uint32_t* const sorted = hash.sorted.data();
+    const glm::vec2* const position = hash.position.data();
+    const glm::ivec2* const cell = hash.cell.data();
+    const std::uint32_t mask = hash.mask;
+    for (int dy = -1; dy <= 1 && count < kMaxNeighbors; ++dy) {
+        for (int dx = -1; dx <= 1 && count < kMaxNeighbors; ++dx) {
+            const glm::ivec2 c{ci.x + dx, ci.y + dy};
+            const std::uint32_t b = cell_hash(c, mask);
+            // Branch-free: every candidate is written at `count`, which moves on only when it is a neighbour (the
+            // test fails about two times in three, unpredictably). Same list, same order.
+            const std::uint32_t stop = bucket_start[b + 1];
+            for (std::uint32_t k = bucket_start[b]; k < stop; ++k) {
+                const std::uint32_t j = sorted[k];
+                const glm::vec2 d = pi - position[k];
+                const glm::ivec2 ck = cell[k];
+                const bool take = (ck.x == c.x) & (ck.y == c.y) & (j != i) & (glm::dot(d, d) < h2);
+                out[count] = j;
+                count += take ? 1u : 0u;
+                if (count == kMaxNeighbors) {
+                    break;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+}
+
+void Fluid2DSolver::search_neighbors(const Params& p, std::size_t first, std::size_t last, JobSystem* jobs,
+                                     Fluid2DScratch& s) {
     const float h2 = p.h * p.h;
-    for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i = begin; i < end; ++i) {
+    const bool sleepers = s.awake < s.predicted.size();
+    const bool marking = sleepers && first < s.awake;
+    for_ranges(jobs, last - first, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t at = first + begin; at < first + end; ++at) {
+            const std::size_t i = s.order[at];
             const glm::vec2 pi = s.predicted[i];
             const glm::ivec2 ci = s.cell[i];
             std::uint32_t* out = &s.neighbors[i * kMaxNeighbors];
-            std::uint32_t count = 0;
-            for (int dy = -1; dy <= 1 && count < kMaxNeighbors; ++dy) {
-                for (int dx = -1; dx <= 1 && count < kMaxNeighbors; ++dx) {
-                    const glm::ivec2 c{ci.x + dx, ci.y + dy};
-                    const std::uint32_t b = cell_hash(c, mask);
-                    // Branch-free: every candidate is written at `count`, which moves on only when it is a neighbour
-                    // (the test fails about two times in three, unpredictably). Same list, same order.
-                    const std::uint32_t stop = s.bucket_start[b + 1];
-                    for (std::uint32_t k = s.bucket_start[b]; k < stop; ++k) {
-                        const std::uint32_t j = s.sorted[k];
-                        const glm::vec2 d = pi - s.sorted_position[k];
-                        const glm::ivec2 ck = s.sorted_cell[k];
-                        const bool take = (ck.x == c.x) & (ck.y == c.y) & (j != i) & (glm::dot(d, d) < h2);
-                        out[count] = j;
-                        count += take ? 1u : 0u;
-                        if (count == kMaxNeighbors) {
-                            break;
-                        }
+            // The awake particles' hash, then the sleepers' (none when every particle is awake: the lists are then
+            // those of a single hash).
+            std::uint32_t count = scan_hash(s.moving, i, pi, ci, h2, out, 0);
+            if (sleepers && count < kMaxNeighbors) {
+                const std::uint32_t awake_count = count;
+                count = scan_hash(s.resting, i, pi, ci, h2, out, count);
+                if (marking) {
+                    // The sleepers this awake particle lists. Several ranges may set one; each sets it to 1, so the
+                    // set does not depend on the order they run in.
+                    for (std::uint32_t slot = awake_count; slot < count; ++slot) {
+                        std::atomic_ref<std::uint8_t>(s.touched[out[slot]]).store(1, std::memory_order_relaxed);
                     }
                 }
             }
             s.neighbor_count[i] = count;
-        }
-    });
-    // The SIMD passes run four particles in step to the longest of their lists: pad the shorter ones with the particle
-    // itself (a slot past the count is never summed).
-    for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i0 = begin; i0 < end; i0 += 4) {
-            const std::size_t stop = std::min(i0 + 4, end);
-            std::uint32_t most = 0;
-            for (std::size_t i = i0; i < stop; ++i) {
-                most = std::max(most, s.neighbor_count[i]);
-            }
-            for (std::size_t i = i0; i < stop; ++i) {
-                for (std::uint32_t k = s.neighbor_count[i]; k < most; ++k) {
-                    s.neighbors[i * kMaxNeighbors + k] = static_cast<std::uint32_t>(i);
-                }
-            }
         }
     });
 }
@@ -1311,8 +1464,10 @@ void Fluid2DSolver::select_boundaries(const FluidGroup2D& group, const Params& p
     };
     glm::vec2 lo{std::numeric_limits<float>::max()};
     glm::vec2 hi{-std::numeric_limits<float>::max()};
-    // The substep starts too: a swept step meets every boundary between its start and its end.
-    for (std::size_t i = 0; i < n; ++i) {
+    // The substep starts too: a swept step meets every boundary between its start and its end. Only the awake
+    // particles meet boundaries; sleepers keep their positions.
+    for (std::size_t k = 0; k < n; ++k) {
+        const std::uint32_t i = s.order[k];
         lo = glm::min(lo, glm::min(s.predicted[i], s.from[i]));
         hi = glm::max(hi, glm::max(s.predicted[i], s.from[i]));
     }
@@ -1404,7 +1559,8 @@ void Fluid2DSolver::record_push(std::size_t i, const ShapeBoundary& shape, glm::
 // which becomes the particle's contact normal; `project_range` resolves the rest. A particle's result depends only on
 // itself and the read-only boundaries.
 void Fluid2DSolver::sweep_range(std::size_t begin, std::size_t end, Fluid2DScratch& s) {
-    for (std::size_t i = begin; i < end; ++i) {
+    for (std::size_t at = begin; at < end; ++at) {
+        const std::size_t i = s.order[at];
         const float radius_i = s.radius[i];
         const std::uint32_t member = 1u << s.owner[i];
         const float threshold = kSweepRadii * radius_i;
@@ -1486,7 +1642,8 @@ void Fluid2DSolver::sweep_range(std::size_t begin, std::size_t end, Fluid2DScrat
 // gather order, so a particle squeezed between a moving shape and the terrain ends outside the terrain (and is pushed
 // out of the shape on a later iteration). A particle's result depends only on itself and the read-only boundaries.
 void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScratch& s) {
-    for (std::size_t i = begin; i < end && !s.shapes.empty(); ++i) {
+    for (std::size_t at = begin; at < end && !s.shapes.empty(); ++at) {
+        const std::size_t i = s.order[at];
         glm::vec2 pos = s.predicted[i];
         const float radius_i = s.radius[i];
         const std::uint32_t member = 1u << s.owner[i];
@@ -1544,7 +1701,8 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
         return;
     }
     // Which particles may skip their samples this pass; the others start a new probe of their clearance.
-    for (std::size_t i = begin; i < end; ++i) {
+    for (std::size_t at = begin; at < end; ++at) {
+        const std::size_t i = s.order[at];
         const glm::vec2 moved = s.predicted[i] - s.sdf_anchor[i];
         const float clearance = s.sdf_clearance[i];
         const bool skip = clearance > 0.0f && 4.0f * glm::dot(moved, moved) < clearance * clearance;
@@ -1564,7 +1722,8 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
         for (std::size_t batch = begin; batch < end; batch += kSdfBatch) {
             const std::size_t batch_end = std::min(end, batch + kSdfBatch);
             std::size_t count = 0;
-            for (std::size_t i = batch; i < batch_end; ++i) {
+            for (std::size_t at = batch; at < batch_end; ++at) {
+                const std::size_t i = s.order[at];
                 if ((members & (1u << s.owner[i])) == 0 || s.sdf_skip[i] != 0) {
                     continue;
                 }
@@ -1606,7 +1765,8 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
         }
     }
     // A particle that was sampled and pushed by none keeps its new clearance from where it is now.
-    for (std::size_t i = begin; i < end; ++i) {
+    for (std::size_t at = begin; at < end; ++at) {
+        const std::size_t i = s.order[at];
         if (s.sdf_skip[i] != 0) {
             continue;
         }
@@ -1623,12 +1783,21 @@ void Fluid2DSolver::project_range(std::size_t begin, std::size_t end, Fluid2DScr
 void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm::vec2 gravity, float dt,
                          JobSystem* jobs, Fluid2DScratch& s, ecs::EventWriter<FluidContactEvent2D>& contacts) {
     std::size_t n = 0;
+    std::size_t awake = 0;
     for (Fluid2D* fluid : group.fluids) {
         fluid->densities_.resize(fluid->positions_.size(), 0.0f);
+        fluid->rest_ticks_.resize(fluid->positions_.size(), 0);
+        fluid->asleep_.resize(fluid->positions_.size(), 0);
         n += fluid->positions_.size();
+        for (const std::uint8_t state : fluid->asleep_) {
+            awake += state != 1 ? 1 : 0;
+        }
     }
     if (n == 0 || !(dt > 0.0f) || !std::isfinite(dt)) {
         return;
+    }
+    if (awake == 0) {
+        return;  // every particle sleeps: nothing moves, the query grid stays valid
     }
     // The group's parameters: each member's own, and for the whole system the largest kernel support (pair terms
     // must be symmetric) and the most substeps and iterations. `p` is the first member's with those shared fields, and
@@ -1681,6 +1850,9 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
     s.radius.resize(n);
     s.mass.resize(n);
     s.inv_rest.resize(n);
+    s.asleep.resize(n);
+    s.rest.resize(n);
+    s.order.resize(n);
     {
         std::size_t at = 0;
         for (std::size_t k = 0; k < group.fluids.size(); ++k) {
@@ -1694,8 +1866,24 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
                 s.radius[at] = s.members[k].radius;
                 s.mass[at] = relative[k];
                 s.inv_rest[at] = s.members[k].inv_rest;
+                s.asleep[at] = fluid.asleep_[i];
+                s.rest[at] = fluid.rest_ticks_[i];
             }
         }
+    }
+    // The awake particles in group order; the passes run over them (and, for lambdas, over the sleepers they touch).
+    s.awake = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (s.asleep[i] != 1) {
+            s.order[s.awake++] = static_cast<std::uint32_t>(i);
+        }
+    }
+    s.start.resize(n);
+    std::copy(s.x.begin(), s.x.end(), s.start.begin());
+    s.listed = s.awake;
+    const bool sleepers = s.awake < n;
+    if (sleepers) {
+        s.touched.assign(n, 0);
     }
     const float sub_dt = dt / static_cast<float>(p.substeps);
     const float inv_dt = 1.0f / sub_dt;
@@ -1720,13 +1908,52 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
     s.sdf_probe.resize(n);
     s.sdf_skip.resize(n);
     s.boundaries = &boundaries;
+    if (sleepers) {
+        // A sleeper keeps its position and a zero velocity through the step: its predicted position is where it is,
+        // and an awake neighbour's viscosity and curl read its zero velocity. Its hash is built once for the step, or
+        // kept from an earlier step while the same sleepers sit at the same positions (a cache: the same hash).
+        std::vector<std::uint64_t> key{n, std::bit_cast<std::uint32_t>(p.h)};
+        bool stamped = true;
+        for (const Fluid2D* fluid : group.fluids) {
+            key.push_back(fluid->sleep_stamp_);
+            stamped = stamped && fluid->sleep_stamp_ != 0;
+        }
+        const bool cached = stamped && key == s.resting_key;
+        if (!cached) {
+            s.sleeping_ids.clear();
+        }
+        for (std::size_t i = 0; i < n; ++i) {
+            if (s.asleep[i] == 1) {
+                v[i] = glm::vec2{0.0f};
+                s.predicted[i] = x[i];
+                s.from[i] = x[i];
+                s.velocity[i] = glm::vec2{0.0f};
+                s.normal[i] = glm::vec2{0.0f};
+                if (!cached) {
+                    s.sleeping_ids.push_back(static_cast<std::uint32_t>(i));
+                }
+            }
+        }
+        if (cached) {
+            // The awake particles' hash recomputes only their own cells; the sleepers' are those the hash was built on.
+            s.cell.resize(n);
+            for (std::size_t k = 0; k < s.resting.sorted.size(); ++k) {
+                s.cell[s.resting.sorted[k]] = s.resting.cell[k];
+            }
+        } else {
+            hash_into(p, s.sleeping_ids.data(), s.sleeping_ids.size(), jobs, s, s.resting);
+            s.resting_key = stamped ? std::move(key) : std::vector<std::uint64_t>{};
+        }
+    }
     // A particle's mass in world units: its fluid's density times the area of one lattice cell (the rest spacing
     // squared). The reaction of a push `moved` over a substep is an impulse of mass * moved / sub_dt on the body.
     const bool any_mass = std::any_of(member_mass.begin(), member_mass.end(), [](float m) { return m > 0.0f; });
 
+    const std::size_t active = s.awake;
     for (int sub = 0; sub < p.substeps; ++sub) {
-        for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-            for (std::size_t i = begin; i < end; ++i) {
+        for_ranges(jobs, active, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t at = begin; at < end; ++at) {
+                const std::size_t i = s.order[at];
                 v[i] += member_gravity[s.owner[i]] * sub_dt;
                 s.pre_velocity[i] = v[i];
                 s.predicted[i] = x[i] + v[i] * sub_dt;
@@ -1736,7 +1963,7 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         });
         build_neighbors(p, n, jobs, s);
         s.kernel.resize(n * kMaxNeighbors * 4);
-        select_boundaries(group, p, boundaries, n, s);
+        select_boundaries(group, p, boundaries, active, s);
         s.coupled = any_mass &&
                     std::any_of(s.shapes.begin(), s.shapes.end(), [](const ShapeBoundary* shape) { return shape->body >= 0; });
         if (s.coupled) {
@@ -1746,19 +1973,22 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         for (int iteration = 0; iteration < p.iterations; ++iteration) {
             // Lambda: the density constraint C_i = rho_i / rho_0 - 1 >= 0 (only compression pushes). Keeps each
             // neighbour's kernel gradient and weight for the delta pass, which reads the same positions.
-            for_ranges(jobs, n,
+            // The listed sleepers too: their lambdas push the awake particles, which they never move.
+            for_ranges(jobs, s.listed,
                        [&](std::size_t begin, std::size_t end) { lambda_range(begin, end, p, mixed, s); });
             // Delta: gathered from the neighbours' lambdas, with the s_corr tensile term.
-            for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+            for_ranges(jobs, active, [&](std::size_t begin, std::size_t end) {
                 delta_range(begin, end, p, mixed, s);
                 // Apply, sweep and project the same range in the same pass: the delta pass reads no positions,
                 // only the lambdas and the kept kernel terms, so moving these particles here races with nothing.
-                for (std::size_t i = begin; i < end; ++i) {
+                for (std::size_t at = begin; at < end; ++at) {
+                    const std::size_t i = s.order[at];
                     s.predicted[i] += s.delta[i];
                 }
                 sweep_range(begin, end, s);
                 project_range(begin, end, s);
-                for (std::size_t i = begin; i < end; ++i) {
+                for (std::size_t at = begin; at < end; ++at) {
+                    const std::size_t i = s.order[at];
                     s.from[i] = s.predicted[i];
                 }
             });
@@ -1766,8 +1996,9 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
 
         // Velocity from the solved positions, boundary response, then XSPH viscosity (gathered from the
         // neighbours' velocities into a second buffer).
-        for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-            for (std::size_t i = begin; i < end; ++i) {
+        for_ranges(jobs, active, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t at = begin; at < end; ++at) {
+                const std::size_t i = s.order[at];
                 const Params& own = s.members[s.owner[i]];
                 glm::vec2 vel = (s.predicted[i] - x[i]) * inv_dt;
                 const glm::vec2 nrm = s.normal[i];
@@ -1789,8 +2020,9 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
                                           [](const Params& member) { return member.vorticity > 0.0f; });
         if (swirling) {
             s.curl.resize(n);
-            for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-                for (std::size_t i = begin; i < end; ++i) {
+            for_ranges(jobs, s.listed, [&](std::size_t begin, std::size_t end) {
+                for (std::size_t at = begin; at < end; ++at) {
+                    const std::size_t i = s.order[at];
                     const glm::vec2 pi = s.predicted[i];
                     const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
                     float curl = 0.0f;
@@ -1805,8 +2037,9 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
                 }
             });
         }
-        for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-            for (std::size_t i = begin; i < end; ++i) {
+        for_ranges(jobs, active, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t at = begin; at < end; ++at) {
+                const std::size_t i = s.order[at];
                 const Params& own = s.members[s.owner[i]];
                 glm::vec2 vel = s.velocity[i];
                 if (own.viscosity > 0.0f || own.cohesion > 0.0f || own.vorticity > 0.0f) {
@@ -1876,7 +2109,8 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         // Two-way coupling: the bodies take the reaction of every push, summed serially in particle order, so the
         // result does not depend on the worker count.
         if (s.coupled) {
-            for (std::size_t i = 0; i < n; ++i) {
+            for (std::size_t at = 0; at < active; ++at) {
+                const std::size_t i = s.order[at];
                 const float to_impulse = -member_mass[s.owner[i]] * inv_dt;
                 for (std::size_t k = 0; k < kCouplingSlots; ++k) {
                     const Fluid2DScratch::Push& push = s.pushes[i * kCouplingSlots + k];
@@ -1894,7 +2128,8 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
     }
 
     // Contacts between members (LQ-62): every neighbour pair of the last substep whose particles belong to two
-    // fluids, counted once (lower index first), summed serially in particle order per pair of fluids.
+    // fluids and at least one of which is awake, counted once (lower index first when both are awake), summed serially
+    // in particle order per pair of fluids.
     if (mixed) {
         struct Contact {
             std::size_t count = 0;
@@ -1904,11 +2139,12 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         };
         const std::size_t m = s.members.size();
         std::vector<Contact> pairs(m * m);
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t at = 0; at < active; ++at) {
+            const std::size_t i = s.order[at];
             const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
             for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
                 const std::uint32_t j = nb[k];
-                if (j <= i || s.owner[j] == s.owner[i]) {
+                if ((j <= i && s.asleep[j] != 1) || s.owner[j] == s.owner[i]) {
                     continue;
                 }
                 const std::size_t a = std::min(s.owner[i], s.owner[j]);
@@ -1939,13 +2175,76 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         }
     }
 
+    if (std::any_of(s.members.begin(), s.members.end(), [](const Params& member) { return member.sleep; })) {
+        settle(active, dt, jobs, s);
+    }
+
     // Scatter the particles back, in member order.
     std::size_t at = 0;
     for (Fluid2D* fluid : group.fluids) {
+        bool changed = false;
         for (std::size_t i = 0; i < fluid->positions_.size(); ++i, ++at) {
             fluid->positions_[i] = s.x[at];
             fluid->velocities_[i] = s.v[at];
             fluid->densities_[i] = s.density[at];
+            fluid->rest_ticks_[i] = s.rest[at];
+            changed = changed || (fluid->asleep_[i] == 1) != (s.asleep[at] == 1);
+            fluid->asleep_[i] = s.asleep[at];
+        }
+        if (changed) {
+            restamp(*fluid);
+        }
+    }
+}
+
+void Fluid2DSolver::settle(std::size_t active, float dt, JobSystem* jobs, Fluid2DScratch& s) {
+    // Woken: a listed sleeper that an awake neighbour, moving faster than the sleeper's wake speed, touched in the
+    // last substep.
+    s.woken.assign(s.listed - active, 0);
+    for_ranges(jobs, s.listed - active, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t at = active + begin; at < active + end; ++at) {
+            const std::size_t i = s.order[at];
+            const float wake = s.members[s.owner[i]].wake_speed * dt;
+            const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+            for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
+                const std::uint32_t j = nb[k];
+                const glm::vec2 moved = s.x[j] - s.start[j];
+                if (s.asleep[j] != 1 && glm::dot(moved, moved) > wake * wake) {
+                    s.woken[at - active] = 1;
+                    break;
+                }
+            }
+        }
+    });
+    // Rest: an awake particle below its sleep speed counts a tick; at `sleep_ticks` it falls asleep with a zero
+    // velocity. A held one (near a movable collider or a source) and one of a fluid without sleep count nothing.
+    for_ranges(jobs, active, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t at = begin; at < end; ++at) {
+            const std::size_t i = s.order[at];
+            const Params& own = s.members[s.owner[i]];
+            if (!own.sleep || s.asleep[i] == 2) {
+                s.asleep[i] = 0;
+                s.rest[i] = 0;
+                continue;
+            }
+            const glm::vec2 moved = s.x[i] - s.start[i];
+            const float still = own.sleep_speed * dt;
+            if (glm::dot(moved, moved) >= still * still) {
+                s.rest[i] = 0;
+                continue;
+            }
+            s.rest[i] = static_cast<std::uint16_t>(std::min<std::uint32_t>(s.rest[i] + 1u, 65535u));
+            if (s.rest[i] >= own.sleep_ticks) {
+                s.asleep[i] = 1;
+                s.v[i] = glm::vec2{0.0f};
+            }
+        }
+    });
+    for (std::size_t at = active; at < s.listed; ++at) {
+        if (s.woken[at - active] != 0) {
+            const std::size_t i = s.order[at];
+            s.asleep[i] = 0;
+            s.rest[i] = 0;
         }
     }
 }
@@ -1965,8 +2264,10 @@ namespace {
 
 }
 
-void Fluid2DSolver::emit(Fluid2D& fluid, float dt) {
-    for (FluidSource2D& source : fluid.sources) {
+void Fluid2DSolver::emit(Fluid2D& fluid, float dt, std::vector<std::uint8_t>& emitted) {
+    emitted.assign(fluid.sources.size(), 0);
+    for (std::size_t index = 0; index < fluid.sources.size(); ++index) {
+        FluidSource2D& source = fluid.sources[index];
         if (!source.enabled || !std::isfinite(source.rate) || source.rate <= 0.0f || source.region.area() <= 0.0f ||
             !finite(source.region.center)) {
             continue;
@@ -1991,6 +2292,7 @@ void Fluid2DSolver::emit(Fluid2D& fluid, float dt) {
                 break;
             }
             ++source.emitted;
+            emitted[index] = 1;
         }
         // At max_particles the rest of this tick's emission is dropped, not queued.
     }
@@ -2004,29 +2306,48 @@ void Fluid2DSolver::drain(Fluid2D& fluid) {
     if (!any) {
         return;
     }
+    fluid.rest_ticks_.resize(fluid.positions_.size(), 0);
+    fluid.asleep_.resize(fluid.positions_.size(), 0);
+    std::vector<std::uint8_t> removed(fluid.drains.size(), 0);
     std::size_t kept = 0;
     for (std::size_t i = 0; i < fluid.positions_.size(); ++i) {
-        FluidDrain2D* taken = nullptr;
-        for (FluidDrain2D& drain : fluid.drains) {
-            if (drain.enabled && drain.region.contains(fluid.positions_[i])) {
-                taken = &drain;
+        std::size_t taken = fluid.drains.size();
+        for (std::size_t k = 0; k < fluid.drains.size(); ++k) {
+            if (fluid.drains[k].enabled && fluid.drains[k].region.contains(fluid.positions_[i])) {
+                taken = k;
                 break;
             }
         }
-        if (taken != nullptr) {
-            ++taken->drained;
+        if (taken < fluid.drains.size()) {
+            ++fluid.drains[taken].drained;
+            removed[taken] = 1;
             continue;
         }
         fluid.positions_[kept] = fluid.positions_[i];
         fluid.velocities_[kept] = fluid.velocities_[i];
         fluid.densities_[kept] = fluid.densities_[i];
+        fluid.rest_ticks_[kept] = fluid.rest_ticks_[i];
+        fluid.asleep_[kept] = fluid.asleep_[i];
         ++kept;
     }
     if (kept != fluid.positions_.size()) {
         fluid.positions_.resize(kept);
         fluid.velocities_.resize(kept);
         fluid.densities_.resize(kept);
+        fluid.rest_ticks_.resize(kept);
+        fluid.asleep_.resize(kept);
         fluid.query_valid_ = false;
+        restamp(fluid);
+        // A hole in a sleeping pool: what sleeps around a drain that took a particle wakes and flows in.
+        if (fluid.params.sleep) {
+            const float reach = resolve(fluid.params).h + particle_radius(fluid.params);
+            for (std::size_t k = 0; k < fluid.drains.size(); ++k) {
+                if (removed[k] != 0) {
+                    const auto [lo, hi] = region_box(fluid.drains[k].region);
+                    (void)fluid.wake_in_box(lo - glm::vec2{reach}, hi + glm::vec2{reach});
+                }
+            }
+        }
     }
 }
 
@@ -2056,6 +2377,291 @@ void Fluid2DSolver::sense(Fluid2D& fluid, ecs::Entity entity, ecs::EventWriter<F
             });
         }
     }
+}
+
+namespace {
+
+// The last `sleep_stamp_` handed out; stamps are never reused, so one names one content of one fluid.
+std::atomic<std::uint64_t> g_sleep_stamp{0};
+
+}
+
+void Fluid2DSolver::restamp(Fluid2D& fluid) {
+    fluid.sleep_stamp_ = g_sleep_stamp.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+template <class F>
+void Fluid2DSolver::each_in_box(const Fluid2D& fluid, glm::vec2 lo, glm::vec2 hi, F&& fn) {
+    fluid.for_each_in_cells(lo, hi, [&](std::size_t i) {
+        const glm::vec2 q = fluid.positions_[i];
+        if (q.x >= lo.x && q.x <= hi.x && q.y >= lo.y && q.y <= hi.y) {
+            fn(i);
+        }
+    });
+}
+
+namespace {
+
+// A box over everything, finite so it can grow.
+constexpr float kFarBox = 1.0e30f;
+// Samples per side of an SDF block the sleepers keep a mark of (a divisor of kSdfChunkCells, even).
+constexpr int kSdfSleepBlock = 8;
+
+[[nodiscard]] bool boxes_overlap(glm::vec2 lo_a, glm::vec2 hi_a, glm::vec2 lo_b, glm::vec2 hi_b) {
+    return !(hi_a.x < lo_b.x || lo_a.x > hi_b.x || hi_a.y < lo_b.y || lo_a.y > hi_b.y);
+}
+
+[[nodiscard]] std::uint64_t shape_key(const ShapeBoundary& shape) {
+    SleepKey key;
+    key.u32(static_cast<std::uint32_t>(shape.kind));
+    key.vec2(shape.lo);
+    key.vec2(shape.hi);
+    key.vec2(shape.frame.position);
+    key.f32(shape.frame.cos_a);
+    key.f32(shape.frame.sin_a);
+    key.vec2(shape.half);
+    key.f32(shape.radius);
+    key.u32(static_cast<std::uint32_t>(shape.count));
+    for (int v = 0; v < shape.count; ++v) {
+        key.vec2(shape.vertices[static_cast<std::size_t>(v)]);
+    }
+    key.u32(shape.layer);
+    key.u32(shape.mask);
+    return key.value;
+}
+
+// The chunk index range a sample-index coordinate range covers, clamped to what an int holds.
+[[nodiscard]] int chunk_index(float sample) {
+    const float chunk = std::floor(sample / static_cast<float>(kSdfChunkCells));
+    return std::isfinite(chunk) ? static_cast<int>(std::clamp(chunk, -1.0e8f, 1.0e8f)) : 0;
+}
+
+// Gravity and the resolved parameters a sleeper rests under: a change wakes the whole fluid.
+[[nodiscard]] std::uint64_t sleep_env_key(const Fluid2D& fluid, glm::vec2 gravity) {
+    const Params p = resolve(fluid.params);
+    SleepKey key;
+    for (const float value : {p.radius, p.h, p.rest_density, p.viscosity, p.relaxation, p.tensile, p.friction,
+                              p.restitution, p.density, p.cohesion, p.vorticity, p.sleep_speed, p.wake_speed}) {
+        key.f32(value);
+    }
+    key.u32(static_cast<std::uint32_t>(p.iterations));
+    key.u32(static_cast<std::uint32_t>(p.substeps));
+    key.u32(p.sleep_ticks);
+    key.u32(fluid.params.layer);
+    key.u32(fluid.params.mask);
+    const float scale = std::isfinite(fluid.params.gravity_scale) ? fluid.params.gravity_scale : 0.0f;
+    key.vec2(finite(gravity) ? gravity * scale : glm::vec2{0.0f});
+    return key.value;
+}
+
+// A mark's key and box by their bits, for sorting and comparing marks.
+[[nodiscard]] std::array<std::uint64_t, 3> mark_bits(std::uint64_t key, glm::vec2 lo, glm::vec2 hi) {
+    const auto pair = [](glm::vec2 v) {
+        return (static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(v.x)) << 32) | std::bit_cast<std::uint32_t>(v.y);
+    };
+    return {key, pair(lo), pair(hi)};
+}
+
+}
+
+void Fluid2DSolver::sleep_marks(const Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 lo, glm::vec2 hi,
+                                std::vector<Fluid2D::SleepMark>& out) {
+    out.clear();
+    // Static shapes only: a shape on a movable body holds what is near it awake every step instead.
+    for (const ShapeBoundary& shape : boundaries.shapes) {
+        if (shape.movable || !layers_match(fluid.params, shape.layer, shape.mask) ||
+            !boxes_overlap(shape.lo, shape.hi, lo, hi)) {
+            continue;
+        }
+        out.push_back(Fluid2D::SleepMark{.key = shape_key(shape), .lo = shape.lo, .hi = shape.hi});
+    }
+    for (const SdfBoundary& sdf : boundaries.sdf) {
+        if (!layers_match(fluid.params, sdf.layer, sdf.mask)) {
+            continue;
+        }
+        const SdfField2D& field = *sdf.field;
+        SleepKey field_key;
+        field_key.vec2(sdf.frame.position);
+        field_key.f32(sdf.frame.cos_a);
+        field_key.f32(sdf.frame.sin_a);
+        field_key.vec2(field.origin());
+        field_key.f32(field.cell_size());
+        field_key.f32(field.band());
+        field_key.u32(static_cast<std::uint32_t>(field.outside()));
+        field_key.u32(sdf.layer);
+        field_key.u32(sdf.mask);
+        if (field.outside() == SdfOutside::Solid) {
+            // Unallocated space is solid everywhere: a change of the field itself wakes every sleeper.
+            out.push_back(Fluid2D::SleepMark{.key = field_key.value, .lo = glm::vec2{-kFarBox},
+                                             .hi = glm::vec2{kFarBox}});
+        }
+        if (field.chunk_count() == 0) {
+            continue;
+        }
+        // [lo, hi] in sample indices of the field, then the chunks around it (a chunk's cells reach one sample past
+        // its own on each side).
+        glm::vec2 local_lo{std::numeric_limits<float>::max()};
+        glm::vec2 local_hi{-std::numeric_limits<float>::max()};
+        for (const glm::vec2 corner : {lo, glm::vec2{hi.x, lo.y}, hi, glm::vec2{lo.x, hi.y}}) {
+            const glm::vec2 l = (sdf.frame.to_local(corner) - field.origin()) / field.cell_size();
+            local_lo = glm::min(local_lo, l);
+            local_hi = glm::max(local_hi, l);
+        }
+        const glm::ivec2 c0{chunk_index(local_lo.x - 1.0f), chunk_index(local_lo.y - 1.0f)};
+        const glm::ivec2 c1{chunk_index(local_hi.x + 1.0f), chunk_index(local_hi.y + 1.0f)};
+        const double range = (static_cast<double>(c1.x) - c0.x + 1.0) * (static_cast<double>(c1.y) - c0.y + 1.0);
+        std::vector<glm::ivec2> chunks;
+        if (range > static_cast<double>(field.chunk_count())) {
+            for (const glm::ivec2 chunk : field.chunk_coords()) {
+                if (chunk.x >= c0.x && chunk.x <= c1.x && chunk.y >= c0.y && chunk.y <= c1.y) {
+                    chunks.push_back(chunk);
+                }
+            }
+        } else {
+            for (int y = c0.y; y <= c1.y; ++y) {
+                for (int x = c0.x; x <= c1.x; ++x) {
+                    if (field.has_chunk({x, y})) {
+                        chunks.push_back({x, y});
+                    }
+                }
+            }
+        }
+        for (const glm::ivec2 chunk : chunks) {
+            const std::span<const std::int16_t> samples = field.chunk_samples(chunk);
+            // A mark per block of kSdfSleepBlock^2 samples, so an edit wakes what is near it, not the whole chunk.
+            for (int by = 0; by < kSdfChunkCells; by += kSdfSleepBlock) {
+                for (int bx = 0; bx < kSdfChunkCells; bx += kSdfSleepBlock) {
+                    // The block's cells (a sample reaches the cells on both sides of it), in world XY.
+                    const glm::ivec2 first = chunk * kSdfChunkCells + glm::ivec2{bx, by};
+                    const glm::vec2 a = field.origin() + field.cell_size() * (glm::vec2{first} - 1.0f);
+                    const glm::vec2 b =
+                            field.origin() + field.cell_size() * (glm::vec2{first} + static_cast<float>(kSdfSleepBlock) + 1.0f);
+                    glm::vec2 world_lo{std::numeric_limits<float>::max()};
+                    glm::vec2 world_hi{-std::numeric_limits<float>::max()};
+                    for (const glm::vec2 corner : {a, glm::vec2{b.x, a.y}, b, glm::vec2{a.x, b.y}}) {
+                        const glm::vec2 w = sdf.frame.to_world(corner);
+                        world_lo = glm::min(world_lo, w);
+                        world_hi = glm::max(world_hi, w);
+                    }
+                    if (!boxes_overlap(world_lo, world_hi, lo, hi)) {
+                        continue;
+                    }
+                    SleepKey key = field_key;
+                    key.u32(static_cast<std::uint32_t>(first.x));
+                    key.u32(static_cast<std::uint32_t>(first.y));
+                    for (int y = by; y < by + kSdfSleepBlock; ++y) {
+                        const std::int16_t* row = &samples[static_cast<std::size_t>(y * kSdfChunkCells + bx)];
+                        for (int x = 0; x < kSdfSleepBlock; x += 2) {
+                            key.u32(static_cast<std::uint32_t>(static_cast<std::uint16_t>(row[x])) |
+                                    (static_cast<std::uint32_t>(static_cast<std::uint16_t>(row[x + 1])) << 16));
+                        }
+                    }
+                    out.push_back(Fluid2D::SleepMark{.key = key.value, .lo = world_lo, .hi = world_hi});
+                }
+            }
+        }
+    }
+}
+
+void Fluid2DSolver::wake_before_step(Fluid2D& fluid, const Boundaries& boundaries, glm::vec2 gravity,
+                                     std::span<const std::uint8_t> emitted) {
+    const std::size_t n = fluid.positions_.size();
+    fluid.rest_ticks_.resize(n, 0);
+    fluid.asleep_.resize(n, 0);
+    if (!fluid.params.sleep || n == 0) {
+        // Sleeping off (or nothing to sleep): every particle is awake and nothing is kept.
+        (void)fluid.wake();
+        fluid.sleep_marks_.clear();
+        fluid.sleep_marks_valid_ = false;
+        return;
+    }
+    const Params p = resolve(fluid.params);
+    const float reach = p.h + p.radius;
+    const glm::vec2 grow{reach};
+    const auto count_asleep = [&] {
+        return static_cast<std::size_t>(std::count(fluid.asleep_.begin(), fluid.asleep_.end(), std::uint8_t{1}));
+    };
+    std::size_t asleep = count_asleep();
+
+    // Gravity or a parameter changed under the sleepers: they all wake.
+    const std::uint64_t env = sleep_env_key(fluid, gravity);
+    if (asleep > 0 && fluid.sleep_marks_valid_ && env != fluid.sleep_env_) {
+        (void)fluid.wake();
+        asleep = 0;
+    }
+    fluid.sleep_env_ = env;
+
+    // Held awake for this step, sleepers included: what is near a collider on a movable body (it may move into the
+    // fluid, and a body at rest in the fluid keeps being pushed) and near a source that emitted.
+    bool held_sleeper = false;
+    const auto hold = [&](glm::vec2 lo, glm::vec2 hi) {
+        each_in_box(fluid, lo - grow, hi + grow, [&](std::size_t i) {
+            held_sleeper = held_sleeper || fluid.asleep_[i] == 1;
+            fluid.asleep_[i] = 2;
+            fluid.rest_ticks_[i] = 0;
+        });
+    };
+    for (std::size_t k = 0; k < fluid.sources.size() && k < emitted.size(); ++k) {
+        if (emitted[k] != 0) {
+            const auto [lo, hi] = region_box(fluid.sources[k].region);
+            hold(lo, hi);
+        }
+    }
+    for (const ShapeBoundary& shape : boundaries.shapes) {
+        if (shape.movable && layers_match(fluid.params, shape.layer, shape.mask)) {
+            hold(shape.lo, shape.hi);
+        }
+    }
+    if (held_sleeper) {
+        restamp(fluid);
+    }
+    asleep = count_asleep();
+
+    // The marks of the boundaries are kept while a particle sleeps or can fall asleep at the end of this step, so the
+    // next step finds what changed since the sleepers last saw them.
+    bool may_sleep = false;
+    for (std::size_t i = 0; i < n && !may_sleep; ++i) {
+        may_sleep = fluid.asleep_[i] == 0 && fluid.rest_ticks_[i] + 1u >= p.sleep_ticks;
+    }
+    if (asleep == 0 && !may_sleep) {
+        fluid.sleep_marks_.clear();
+        fluid.sleep_marks_valid_ = false;
+        return;
+    }
+    glm::vec2 lo{std::numeric_limits<float>::max()};
+    glm::vec2 hi{-std::numeric_limits<float>::max()};
+    for (const glm::vec2 position : fluid.positions_) {
+        lo = glm::min(lo, position);
+        hi = glm::max(hi, position);
+    }
+    std::vector<Fluid2D::SleepMark> marks;
+    sleep_marks(fluid, boundaries, lo - grow, hi + grow, marks);
+    const auto mark_less = [](const Fluid2D::SleepMark& a, const Fluid2D::SleepMark& b) {
+        return mark_bits(a.key, a.lo, a.hi) < mark_bits(b.key, b.lo, b.hi);
+    };
+    const auto mark_equal = [](const Fluid2D::SleepMark& a, const Fluid2D::SleepMark& b) {
+        return mark_bits(a.key, a.lo, a.hi) == mark_bits(b.key, b.lo, b.hi);
+    };
+    if (asleep > 0 && fluid.sleep_marks_valid_) {
+        std::vector<Fluid2D::SleepMark>& before = fluid.sleep_marks_;
+        const bool same = before.size() == marks.size() &&
+                          std::equal(before.begin(), before.end(), marks.begin(), mark_equal);
+        if (!same) {
+            // What appeared or went away (a static collider added, moved or removed, an SDF chunk edited): the
+            // sleepers within a kernel support of it wake.
+            std::vector<Fluid2D::SleepMark> now = marks;
+            std::sort(before.begin(), before.end(), mark_less);
+            std::sort(now.begin(), now.end(), mark_less);
+            std::vector<Fluid2D::SleepMark> changed;
+            std::set_symmetric_difference(before.begin(), before.end(), now.begin(), now.end(),
+                                          std::back_inserter(changed), mark_less);
+            for (const Fluid2D::SleepMark& mark : changed) {
+                (void)fluid.wake_in_box(mark.lo - grow, mark.hi + grow);
+            }
+        }
+    }
+    fluid.sleep_marks_ = std::move(marks);
+    fluid.sleep_marks_valid_ = true;
 }
 
 namespace {
@@ -2135,6 +2741,11 @@ void set_fluid_scalar_kernels_2d(bool scalar) {
 FluidNeighbors2D fluid_neighbors_2d(std::span<const glm::vec2> positions, float h, JobSystem* jobs) {
     Fluid2DScratch s;
     s.predicted.assign(positions.begin(), positions.end());
+    s.order.resize(positions.size());
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        s.order[i] = static_cast<std::uint32_t>(i);
+    }
+    s.awake = positions.size();
     Params p;
     p.h = h;
     p.inv_h = 1.0f / h;
@@ -2146,10 +2757,15 @@ bool Fluid2D::spawn(glm::vec2 position, glm::vec2 velocity) {
     if (positions_.size() >= params.max_particles || !finite(position) || !finite(velocity)) {
         return false;
     }
+    rest_ticks_.resize(positions_.size(), 0);
+    asleep_.resize(positions_.size(), 0);
     positions_.push_back(position);
     velocities_.push_back(velocity);
     densities_.push_back(0.0f);
+    rest_ticks_.push_back(0);
+    asleep_.push_back(0);
     query_valid_ = false;
+    Fluid2DSolver::restamp(*this);
     return true;
 }
 
@@ -2184,7 +2800,60 @@ void Fluid2D::clear() {
     positions_.clear();
     velocities_.clear();
     densities_.clear();
+    rest_ticks_.clear();
+    asleep_.clear();
+    sleep_marks_.clear();
+    sleep_marks_valid_ = false;
     query_valid_ = false;
+    Fluid2DSolver::restamp(*this);
+}
+
+std::size_t Fluid2D::sleeping_count() const {
+    return static_cast<std::size_t>(std::count(asleep_.begin(), asleep_.end(), std::uint8_t{1}));
+}
+
+std::size_t Fluid2D::wake() {
+    std::size_t woke = 0;
+    for (std::size_t i = 0; i < asleep_.size(); ++i) {
+        woke += asleep_[i] == 1 ? 1 : 0;
+        asleep_[i] = 0;
+        rest_ticks_[i] = 0;
+    }
+    if (woke > 0) {
+        Fluid2DSolver::restamp(*this);
+    }
+    return woke;
+}
+
+std::size_t Fluid2D::wake(const FluidRegion2D& region) {
+    const auto [lo, hi] = region_box(region);
+    std::size_t woke = 0;
+    for_each_in_cells(lo, hi, [&](std::size_t i) {
+        if (i < asleep_.size() && region.contains(positions_[i])) {
+            woke += asleep_[i] == 1 ? 1 : 0;
+            asleep_[i] = 0;
+            rest_ticks_[i] = 0;
+        }
+    });
+    if (woke > 0) {
+        Fluid2DSolver::restamp(*this);
+    }
+    return woke;
+}
+
+std::size_t Fluid2D::wake_in_box(glm::vec2 lo, glm::vec2 hi) {
+    std::size_t woke = 0;
+    Fluid2DSolver::each_in_box(*this, lo, hi, [&](std::size_t i) {
+        if (asleep_[i] == 1) {
+            asleep_[i] = 0;
+            rest_ticks_[i] = 0;
+            ++woke;
+        }
+    });
+    if (woke > 0) {
+        Fluid2DSolver::restamp(*this);
+    }
+    return woke;
 }
 
 bool FluidRegion2D::contains(glm::vec2 point) const {
@@ -2334,12 +3003,17 @@ namespace {
 
 // The state's byte layout: magic, version, then the arrays. Every value little-endian; floats by their bits.
 constexpr std::uint32_t kStateMagic = 0x31464C57u;  // "WLF1"
-constexpr std::uint32_t kStateVersion = 1;
+// 2 adds each particle's sleep state and the sleepers' boundary marks; 1 (no sleep) still loads, every particle awake.
+constexpr std::uint32_t kStateVersion = 2;
 
 class StateWriter {
 public:
     void u8(std::uint8_t value) {
         bytes_.push_back(value);
+    }
+    void u16(std::uint16_t value) {
+        u8(static_cast<std::uint8_t>(value));
+        u8(static_cast<std::uint8_t>(value >> 8));
     }
     void u32(std::uint32_t value) {
         for (int shift = 0; shift < 32; shift += 8) {
@@ -2374,6 +3048,15 @@ public:
             return false;
         }
         value = bytes_[at_++];
+        return true;
+    }
+    [[nodiscard]] bool u16(std::uint16_t& value) {
+        std::uint8_t lo = 0;
+        std::uint8_t hi = 0;
+        if (!u8(lo) || !u8(hi)) {
+            return false;
+        }
+        value = static_cast<std::uint16_t>(lo | (hi << 8));
         return true;
     }
     [[nodiscard]] bool u32(std::uint32_t& value) {
@@ -2426,6 +3109,8 @@ std::vector<std::uint8_t> Fluid2D::save_state() const {
         out.vec2(positions_[i]);
         out.vec2(velocities_[i]);
         out.f32(i < densities_.size() ? densities_[i] : 0.0f);
+        out.u16(i < rest_ticks_.size() ? rest_ticks_[i] : 0);
+        out.u8(i < asleep_.size() && asleep_[i] == 1 ? 1 : 0);
     }
     out.u64(sources.size());
     for (const FluidSource2D& source : sources) {
@@ -2441,6 +3126,14 @@ std::vector<std::uint8_t> Fluid2D::save_state() const {
         out.f32(sensor.fill);
         out.u8(sensor.full ? 1 : 0);
     }
+    out.u8(sleep_marks_valid_ ? 1 : 0);
+    out.u64(sleep_env_);
+    out.u64(sleep_marks_.size());
+    for (const SleepMark& mark : sleep_marks_) {
+        out.u64(mark.key);
+        out.vec2(mark.lo);
+        out.vec2(mark.hi);
+    }
     return out.take();
 }
 
@@ -2449,15 +3142,24 @@ bool Fluid2D::load_state(std::span<const std::uint8_t> bytes) {
     std::uint32_t magic = 0;
     std::uint32_t version = 0;
     std::uint64_t count = 0;
-    if (!in.u32(magic) || !in.u32(version) || magic != kStateMagic || version != kStateVersion || !in.u64(count) ||
-        count > params.max_particles || count > in.left() / 20) {
+    if (!in.u32(magic) || !in.u32(version) || magic != kStateMagic || (version != 1 && version != kStateVersion)) {
+        return false;
+    }
+    const bool sleeping = version >= 2;
+    const std::size_t stride = sleeping ? 23 : 20;
+    if (!in.u64(count) || count > params.max_particles || count > in.left() / stride) {
         return false;
     }
     std::vector<glm::vec2> positions(static_cast<std::size_t>(count));
     std::vector<glm::vec2> velocities(static_cast<std::size_t>(count));
     std::vector<float> densities(static_cast<std::size_t>(count));
+    std::vector<std::uint16_t> rest(static_cast<std::size_t>(count), 0);
+    std::vector<std::uint8_t> asleep(static_cast<std::size_t>(count), 0);
     for (std::size_t i = 0; i < positions.size(); ++i) {
         if (!in.vec2(positions[i]) || !in.vec2(velocities[i]) || !in.f32(densities[i])) {
+            return false;
+        }
+        if (sleeping && (!in.u16(rest[i]) || !in.u8(asleep[i]) || asleep[i] > 1)) {
             return false;
         }
     }
@@ -2497,13 +3199,35 @@ bool Fluid2D::load_state(std::span<const std::uint8_t> bytes) {
         }
         full = flag != 0;
     }
+    std::uint8_t marks_valid = 0;
+    std::uint64_t env = 0;
+    std::vector<SleepMark> marks;
+    if (sleeping) {
+        std::uint64_t mark_count = 0;
+        if (!in.u8(marks_valid) || marks_valid > 1 || !in.u64(env) || !in.u64(mark_count) ||
+            mark_count > in.left() / 24) {
+            return false;
+        }
+        marks.resize(static_cast<std::size_t>(mark_count));
+        for (SleepMark& mark : marks) {
+            if (!in.u64(mark.key) || !in.vec2(mark.lo) || !in.vec2(mark.hi)) {
+                return false;
+            }
+        }
+    }
     if (in.left() != 0) {
         return false;
     }
     positions_ = std::move(positions);
     velocities_ = std::move(velocities);
     densities_ = std::move(densities);
+    rest_ticks_ = std::move(rest);
+    asleep_ = std::move(asleep);
+    sleep_marks_ = std::move(marks);
+    sleep_env_ = env;
+    sleep_marks_valid_ = marks_valid != 0;
     query_valid_ = false;
+    Fluid2DSolver::restamp(*this);
     if (source_state.size() == sources.size()) {
         for (std::size_t k = 0; k < sources.size(); ++k) {
             sources[k].carry = source_state[k].carry;
@@ -2539,6 +3263,22 @@ std::uint64_t Fluid2D::state_hash() const {
     hasher.u64(sensors.size());
     for (const FluidSensor2D& sensor : sensors) {
         hasher.u8(sensor.full ? 1 : 0);
+    }
+    // Sleep state decides what moves next. Without `sleep` it is all zero and left out, so a fluid that never sleeps
+    // hashes as before sleeping existed.
+    if (params.sleep) {
+        for (std::size_t i = 0; i < positions_.size(); ++i) {
+            hasher.u32(i < rest_ticks_.size() ? rest_ticks_[i] : 0u);
+            hasher.u8(i < asleep_.size() && asleep_[i] == 1 ? 1 : 0);
+        }
+        // The key of gravity and the parameters is left out, like the parameters themselves.
+        hasher.u8(sleep_marks_valid_ ? 1 : 0);
+        hasher.u64(sleep_marks_.size());
+        for (const SleepMark& mark : sleep_marks_) {
+            hasher.u64(mark.key);
+            hasher.vec2(mark.lo);
+            hasher.vec2(mark.hi);
+        }
     }
     return hasher.value();
 }
@@ -2681,9 +3421,12 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs, const FluidStepOptions2D& 
         return;
     }
     const float dt = world.ctx<Time>().fixed_delta_time;
-    if (dt > 0.0f && std::isfinite(dt)) {
-        for (ecs::Entity entity : view) {
-            Fluid2DSolver::emit(view.get<Fluid2D>(entity), dt);
+    // Per fluid in view order, per source: whether it emitted this tick (sleepers near it are held awake).
+    std::vector<std::vector<std::uint8_t>> emitted;
+    for (ecs::Entity entity : view) {
+        emitted.emplace_back();
+        if (dt > 0.0f && std::isfinite(dt)) {
+            Fluid2DSolver::emit(view.get<Fluid2D>(entity), dt, emitted.back());
         }
     }
     const glm::vec3 gravity = world.ctx<Physics2DConfig>().gravity;
@@ -2700,6 +3443,13 @@ void run_fluid_2d(ecs::World& world, JobSystem* jobs, const FluidStepOptions2D& 
     }
     // run_physics_2d ends with update_world_transforms, so the collider matrices are this tick's.
     Boundaries boundaries = gather_boundaries(world, reach_lo, reach_hi, options);
+    {
+        std::size_t index = 0;
+        for (ecs::Entity entity : view) {
+            Fluid2DSolver::wake_before_step(view.get<Fluid2D>(entity), boundaries, glm::vec2{gravity.x, gravity.y},
+                                            emitted[index++]);
+        }
+    }
     Fluid2DScratch& scratch = world.ctx<Fluid2DScratch>();
     ecs::EventWriter<FluidContactEvent2D> contacts{world};
     for (const FluidGroup2D& group : fluid_groups(world)) {

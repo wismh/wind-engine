@@ -62,6 +62,19 @@ struct Fluid2DParams {
     float vorticity = 0.0f;
     uint32_t layer = 1;           // what the fluid is, for the colliders' masks
     uint32_t mask = 0xFFFFFFFFu;  // which collider layers bound it
+    // Sleeping: a particle slower than `sleep_speed` for `sleep_ticks` fixed ticks in a row falls asleep. A sleeping
+    // particle is not solved (it keeps its position, its velocity is zero) but still counts as a neighbour of the
+    // awake ones, so a resting pool costs only what still moves. It wakes when an awake neighbour moves faster than
+    // `wake_speed`, near a collider on a Dynamic or Kinematic body, where a static collider or an SDF chunk changed,
+    // near a source that emitted or a drain that removed, when gravity or these parameters change, and on
+    // `Fluid2D::wake`. Off: no particle sleeps (and one asleep wakes on the next step). See ECS.md (2D fluids).
+    bool sleep = false;
+    // Radii per second. Not positive or non-finite: 0.5.
+    float sleep_speed = 0.5f;
+    // Fixed ticks below `sleep_speed`, clamped to [1, 65535].
+    int sleep_ticks = 60;
+    // Radii per second, at least `sleep_speed`. Not positive or non-finite: 4.
+    float wake_speed = 4.0f;
 };
 
 // A region of world XY for fluid sources, drains, sensors and queries: an axis-aligned box or a circle.
@@ -228,10 +241,21 @@ public:
     [[nodiscard]] std::span<const float> densities() const {
         return densities_;
     }
+    // Per particle, in spawn order: 1 while it sleeps (`params.sleep`), else 0.
+    [[nodiscard]] std::span<const std::uint8_t> sleeping() const {
+        return asleep_;
+    }
+    [[nodiscard]] std::size_t sleeping_count() const;
+    // Wakes every particle (all of them, or those inside `region`); they are solved again from the next step and
+    // need `sleep_ticks` quiet ticks to fall asleep again. Returns how many woke.
+    std::size_t wake();
+    std::size_t wake(const FluidRegion2D& region);
+
     // FNV-1a 64 of the simulation state: the particle count, then each particle's position and velocity bits in
-    // spawn order, then each source's carry and emitted count and each sensor's `full`. Equal on two peers exactly
-    // when their fluids are the same bits (desync detection, golden tests). Parameters, drain counts, sensor fills and
-    // densities (outputs of the last step) are not in it.
+    // spawn order, then each source's carry and emitted count and each sensor's `full`, and with `params.sleep` each
+    // particle's sleep state and what the sleepers saw of the boundaries. Equal on two peers exactly when their
+    // fluids are the same bits (desync detection, golden tests). Parameters, drain counts, sensor fills and densities
+    // (outputs of the last step) are not in it.
     [[nodiscard]] std::uint64_t state_hash() const;
 
 private:
@@ -240,10 +264,29 @@ private:
     void build_query_grid() const;
     template <class F>
     void for_each_in_cells(glm::vec2 lo, glm::vec2 hi, F&& fn) const;
+    // Wakes the sleepers whose position lies in [lo, hi]. Returns how many woke.
+    std::size_t wake_in_box(glm::vec2 lo, glm::vec2 hi);
 
     std::vector<glm::vec2> positions_;
     std::vector<glm::vec2> velocities_;
     std::vector<float> densities_;
+    // Sleep state, per particle: ticks in a row below the sleep speed (saturating), and asleep (1) or awake (0).
+    std::vector<std::uint16_t> rest_ticks_;
+    std::vector<std::uint8_t> asleep_;
+    // What the sleepers saw last step, to wake them where it changed: a key per static collider and SDF chunk near the
+    // fluid with its world box, and a key of gravity and the resolved parameters. Valid only while kept (a sleeper
+    // exists or can fall asleep this step).
+    struct SleepMark {
+        std::uint64_t key = 0;
+        glm::vec2 lo{0.0f};
+        glm::vec2 hi{0.0f};
+    };
+    std::vector<SleepMark> sleep_marks_;
+    std::uint64_t sleep_env_ = 0;
+    bool sleep_marks_valid_ = false;
+    // Not state: a process-wide fresh number each time the particle arrays or the set of sleepers change (0: never
+    // stamped), so the solver can keep its hash of the sleepers across steps while it is the same.
+    std::uint64_t sleep_stamp_ = 0;
     // The queries' lookup grid: a counting sort of the particles by cell (two radii) into a power-of-two hash table.
     // Rebuilt on the first query after the particles changed.
     mutable std::vector<std::uint32_t> query_bucket_start_;
