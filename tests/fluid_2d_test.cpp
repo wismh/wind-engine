@@ -1768,3 +1768,353 @@ TEST(Fluid2D, SimdAndScalarKernelsGiveTheSameBits) {
     engine::JobSystem jobs(3);
     EXPECT_EQ(simulate(false, &jobs), simulate(true, nullptr));
 }
+
+
+// LQ-38: resting particles sleep (`Fluid2DParams::sleep`): not solved, still neighbours of the awake ones, woken by fast
+// neighbours, movable colliders, static collider and SDF changes, sources, drains, gravity and `wake`.
+
+namespace {
+
+engine::Fluid2DParams sleepy() {
+    return engine::Fluid2DParams{.radius = kRadius, .sleep = true};
+}
+
+// Steps until every particle of `fluid` sleeps; the ticks it took, or -1 after `limit`.
+int settle(engine::ecs::World& world, engine::ecs::Entity fluid, int limit = 3600) {
+    for (int tick = 1; tick <= limit; ++tick) {
+        step(world);
+        const engine::Fluid2D& f = world.get<engine::Fluid2D>(fluid);
+        if (f.sleeping_count() == f.count()) {
+            return tick;
+        }
+    }
+    return -1;
+}
+
+struct SleepingPool {
+    engine::ecs::World world;
+    engine::ecs::Entity terrain{};
+    engine::ecs::Entity fluid{};
+    int ticks = -1;
+};
+
+// A 1.2 x 2.4 column (288 particles) released in a 3-unit SDF tank with sleeping on, stepped until all of it sleeps.
+SleepingPool sleeping_pool(engine::JobSystem* jobs = nullptr) {
+    SleepingPool pool{fluid_world(jobs)};
+    pool.terrain = add_terrain(pool.world, tank_field(3.f, 3.f));
+    pool.fluid = add_fluid(pool.world, sleepy());
+    (void)pool.world.get<engine::Fluid2D>(pool.fluid).spawn_box({0.f, 0.f}, {1.2f, 2.4f});
+    pool.ticks = settle(pool.world, pool.fluid);
+    return pool;
+}
+
+std::vector<std::uint32_t> fluid_bits(const engine::Fluid2D& fluid) {
+    std::vector<std::uint32_t> bits;
+    for (std::size_t i = 0; i < fluid.count(); ++i) {
+        bits.push_back(std::bit_cast<std::uint32_t>(fluid.positions()[i].x));
+        bits.push_back(std::bit_cast<std::uint32_t>(fluid.positions()[i].y));
+        bits.push_back(std::bit_cast<std::uint32_t>(fluid.velocities()[i].x));
+        bits.push_back(std::bit_cast<std::uint32_t>(fluid.velocities()[i].y));
+        bits.push_back(fluid.sleeping()[i]);
+    }
+    return bits;
+}
+
+// The surface's spread: the highest particle of each tenth of [0, width] (empty tenths skipped), highest minus lowest.
+float surface_spread(const engine::Fluid2D& fluid, float width) {
+    float lowest = 1.0e9f;
+    float highest = -1.0e9f;
+    for (int band = 0; band < 10; ++band) {
+        const float x0 = width * 0.1f * static_cast<float>(band);
+        const float top = surface_near(fluid, x0, x0 + width * 0.1f);
+        if (top > -1.0e8f) {
+            lowest = std::min(lowest, top);
+            highest = std::max(highest, top);
+        }
+    }
+    return highest - lowest;
+}
+
+float sum_x(const engine::Fluid2D& fluid) {
+    float sum = 0.f;
+    for (const glm::vec2 p : fluid.positions()) {
+        sum += p.x;
+    }
+    return sum;
+}
+
+engine::ecs::Entity drop_box(engine::ecs::World& world, glm::vec2 at, float density) {
+    const engine::ecs::Entity body = world.create();
+    world.emplace<engine::Transform>(body, engine::Transform{.position = {at.x, at.y, 0.f}});
+    world.emplace<engine::BoxCollider2D>(body, engine::BoxCollider2D{.size = {0.4f, 0.4f, 1.f}});
+    world.emplace<engine::RigidBody2D>(
+            body, engine::RigidBody2D{.type = engine::BodyType::Dynamic, .mass = 0.16f * density});
+    return body;
+}
+
+}
+
+TEST(Fluid2DSleep, APoolFallsAsleepLevelAndStill) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0) << "the pool comes to rest and sleeps";
+    const engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    EXPECT_EQ(fluid.count(), 288u);
+    EXPECT_EQ(kinetic_energy(fluid), 0.f);
+    EXPECT_GE(min_distance(fluid, pool.world.get<engine::SdfCollider2D>(pool.terrain).field), kRadius * 0.5f);
+    // Level: frozen where it came to rest, not mid-slosh.
+    EXPECT_LT(surface_spread(fluid, 3.f), 2.f * kRadius);
+    // The same pool without sleeping, as long: as high, and still moving a little.
+    engine::ecs::World awake = fluid_world();
+    (void)add_terrain(awake, tank_field(3.f, 3.f));
+    const engine::ecs::Entity reference = add_fluid(awake);
+    (void)awake.get<engine::Fluid2D>(reference).spawn_box({0.f, 0.f}, {1.2f, 2.4f});
+    step(awake, pool.ticks);
+    const engine::Fluid2D& moving = awake.get<engine::Fluid2D>(reference);
+    EXPECT_GT(kinetic_energy(moving), 0.f);
+    EXPECT_NEAR(mean_y(fluid), mean_y(moving), 0.5f * kRadius);
+    EXPECT_LT(surface_spread(moving, 3.f), 2.f * kRadius);
+    // Asleep it does not move at all: the same bits a second later.
+    const std::vector<std::uint32_t> before = fluid_bits(fluid);
+    step(pool.world, 60);
+    EXPECT_EQ(fluid_bits(pool.world.get<engine::Fluid2D>(pool.fluid)), before);
+}
+
+TEST(Fluid2DSleep, AwakeParticlesBesideSleepersDoNotJitterOrDrift) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    const std::vector<glm::vec2> rest{fluid.positions().begin(), fluid.positions().end()};
+    // A column through the middle of the pool, floor to surface, wakes; the sleepers on both sides bound it.
+    const std::size_t woke = fluid.wake(box_region({1.5f, 0.5f}, {0.3f, 1.f}));
+    EXPECT_GT(woke, 30u);
+    EXPECT_LT(woke, fluid.count() / 2);
+    float fastest = 0.f;
+    float drift = 0.f;
+    for (int i = 0; i < 120; ++i) {
+        step(pool.world);
+        const engine::Fluid2D& f = pool.world.get<engine::Fluid2D>(pool.fluid);
+        for (std::size_t k = 0; k < f.count(); ++k) {
+            fastest = std::max(fastest, glm::length(f.velocities()[k]));
+            drift = std::max(drift, glm::length(f.positions()[k] - rest[k]));
+        }
+    }
+    EXPECT_LT(fastest, 0.05f);
+    EXPECT_LT(drift, 0.25f * kRadius);
+    EXPECT_EQ(pool.world.get<engine::Fluid2D>(pool.fluid).sleeping_count(), fluid.count()) << "and they sleep again";
+}
+
+TEST(Fluid2DSleep, ADroppedBodyWakesThePoolAndFloats) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    const engine::ecs::Entity body = drop_box(pool.world, {1.5f, 1.5f}, 0.4f);
+    float splash = 0.f;
+    std::size_t fewest_asleep = pool.world.get<engine::Fluid2D>(pool.fluid).count();
+    for (int i = 0; i < 60; ++i) {
+        step(pool.world);
+        const engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+        fewest_asleep = std::min(fewest_asleep, fluid.sleeping_count());
+        for (const glm::vec2 v : fluid.velocities()) {
+            splash = std::max(splash, v.y);
+        }
+    }
+    EXPECT_LT(fewest_asleep, pool.world.get<engine::Fluid2D>(pool.fluid).count() / 2) << "the splash wakes the pool";
+    EXPECT_GT(splash, 0.5f) << "and throws water up";
+    step(pool.world, 600);
+    const engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    const float y = pool.world.get<engine::Transform>(body).position.y;
+    const float surface = surface_near(fluid, 0.f, 0.6f);
+    EXPECT_GT(y, surface - 0.25f) << "the box floats: the water under it holds it up";
+    EXPECT_LT(y, surface + 0.25f);
+    EXPECT_GE(min_distance(fluid, pool.world.get<engine::SdfCollider2D>(pool.terrain).field), kRadius * 0.5f);
+    // Water away from the box falls asleep again; what is near the floating box stays awake.
+    EXPECT_GT(fluid.sleeping_count(), 0u);
+    EXPECT_LT(fluid.sleeping_count(), fluid.count());
+}
+
+TEST(Fluid2DSleep, SaveAndLoadGiveTheSameBitsAsSteppingOn) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(3.f, 3.f));
+    const engine::ecs::Entity entity = add_fluid(world, sleepy());
+    engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+    (void)fluid.spawn_box({0.f, 0.f}, {1.2f, 2.4f});
+    fluid.save_particles = true;
+    // Part asleep, part awake, the rest counters running: every piece of sleep state is non-trivial.
+    for (int i = 0; i < 3600; ++i) {
+        step(world);
+        const std::size_t asleep = world.get<engine::Fluid2D>(entity).sleeping_count();
+        if (asleep > 100 && asleep < 200) {
+            break;
+        }
+    }
+    const std::size_t asleep = world.get<engine::Fluid2D>(entity).sleeping_count();
+    ASSERT_GT(asleep, 100u);
+    ASSERT_LT(asleep, 200u);
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World loaded = fluid_world();
+    auto result = engine::ecs::load_world_from_toml(loaded, saved);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_NE(only_fluid(loaded), nullptr);
+    EXPECT_TRUE(only_fluid(loaded)->params.sleep);
+    EXPECT_EQ(only_fluid(loaded)->state_hash(), world.get<engine::Fluid2D>(entity).state_hash());
+    EXPECT_EQ(only_fluid(loaded)->sleeping_count(), asleep);
+    for (int i = 0; i < 240; ++i) {
+        step(world);
+        step(loaded);
+        ASSERT_EQ(only_fluid(loaded)->state_hash(), world.get<engine::Fluid2D>(entity).state_hash()) << "tick " << i;
+    }
+    EXPECT_EQ(fluid_bits(*only_fluid(loaded)), fluid_bits(world.get<engine::Fluid2D>(entity)));
+    // The hash sees the sleep state: the same particles with the sleepers woken hash differently.
+    engine::Fluid2D copy = world.get<engine::Fluid2D>(entity);
+    ASSERT_GT(copy.sleeping_count(), 0u);
+    (void)copy.wake();
+    EXPECT_NE(copy.state_hash(), world.get<engine::Fluid2D>(entity).state_hash());
+}
+
+TEST(Fluid2DSleep, ThreeJobsAndScalarKernelsGiveTheSameBitsAsSerial) {
+    auto simulate = [](engine::JobSystem* jobs, bool scalar) {
+        engine::set_fluid_scalar_kernels_2d(scalar);
+        engine::ecs::World world = fluid_world(jobs);
+        (void)add_terrain(world, tank_field(4.f, 3.f));
+        const engine::ecs::Entity entity = add_fluid(world, sleepy());
+        // Over kGrain particles several times, so the awake and listed ranges split across workers.
+        (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {2.f, 2.f});
+        std::vector<std::uint32_t> bits;
+        std::size_t most_asleep = 0;
+        for (int i = 0; i < 40; ++i) {
+            step(world, 30);
+            const engine::Fluid2D& fluid = world.get<engine::Fluid2D>(entity);
+            most_asleep = std::max(most_asleep, fluid.sleeping_count());
+            bits.push_back(static_cast<std::uint32_t>(fluid.state_hash()));
+        }
+        // Then a body splashes into it: sleepers wake, others sleep on.
+        (void)drop_box(world, {2.f, 1.5f}, 0.5f);
+        for (int i = 0; i < 10; ++i) {
+            step(world, 30);
+            bits.push_back(static_cast<std::uint32_t>(world.get<engine::Fluid2D>(entity).state_hash()));
+        }
+        const std::vector<std::uint32_t> last = fluid_bits(world.get<engine::Fluid2D>(entity));
+        bits.insert(bits.end(), last.begin(), last.end());
+        engine::set_fluid_scalar_kernels_2d(false);
+        EXPECT_GT(most_asleep, 200u) << "the run has sleepers";
+        return bits;
+    };
+    const std::vector<std::uint32_t> serial = simulate(nullptr, false);
+    engine::JobSystem jobs(3);
+    EXPECT_EQ(simulate(&jobs, false), serial);
+    EXPECT_EQ(simulate(nullptr, true), serial);
+}
+
+TEST(Fluid2DSleep, CarvingTheTerrainWakesWhatIsNearTheEdit) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    // A pit in the floor under the right end of the pool.
+    (void)pool.world.get<engine::SdfCollider2D>(pool.terrain).field.carve_circle({2.6f, 0.f}, 0.3f);
+    step(pool.world);
+    const engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    EXPECT_LT(fluid.sleeping_count(), fluid.count()) << "the particles over the pit wake";
+    bool far_asleep = true;
+    for (std::size_t i = 0; i < fluid.count(); ++i) {
+        if (fluid.positions()[i].x < 0.5f) {
+            far_asleep = far_asleep && fluid.sleeping()[i] == 1;
+        }
+    }
+    EXPECT_TRUE(far_asleep) << "the far end of the pool sleeps on";
+    step(pool.world, 120);
+    float lowest = 1.0e9f;
+    for (const glm::vec2 p : pool.world.get<engine::Fluid2D>(pool.fluid).positions()) {
+        lowest = std::min(lowest, p.y);
+    }
+    EXPECT_LT(lowest, -0.1f) << "water runs into the pit";
+}
+
+TEST(Fluid2DSleep, RemovingAStaticWallWakesTheWaterItHeld) {
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(3.f, 3.f));
+    const engine::ecs::Entity wall = world.create();
+    world.emplace<engine::Transform>(wall, engine::Transform{.position = {1.3f, 1.f, 0.f}});
+    world.emplace<engine::BoxCollider2D>(wall, engine::BoxCollider2D{.size = {0.1f, 2.f, 1.f}});
+    const engine::ecs::Entity entity = add_fluid(world, sleepy());
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {1.2f, 1.2f});
+    ASSERT_GT(settle(world, entity), 0) << "the water behind the wall sleeps";
+    world.destroy(wall);
+    step(world, 120);
+    float right = 0.f;
+    for (const glm::vec2 p : world.get<engine::Fluid2D>(entity).positions()) {
+        right = std::max(right, p.x);
+    }
+    EXPECT_GT(right, 2.f) << "without the wall the water flows on";
+}
+
+TEST(Fluid2DSleep, AStaticColliderPlacedInThePoolPushesTheWaterOut) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    const engine::ecs::Entity rock = pool.world.create();
+    pool.world.emplace<engine::Transform>(rock, engine::Transform{.position = {1.5f, 0.2f, 0.f}});
+    pool.world.emplace<engine::CircleCollider2D>(rock, engine::CircleCollider2D{.radius = 0.15f});
+    step(pool.world, 30);
+    float closest = 1.0e9f;
+    for (const glm::vec2 p : pool.world.get<engine::Fluid2D>(pool.fluid).positions()) {
+        closest = std::min(closest, glm::length(p - glm::vec2{1.5f, 0.2f}));
+    }
+    EXPECT_GE(closest, 0.15f + kRadius * 0.5f) << "no particle left in the rock";
+}
+
+TEST(Fluid2DSleep, ADrainEmptiesASleepingPoolAndASourceWakesIt) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    engine::Fluid2D& fluid = pool.world.get<engine::Fluid2D>(pool.fluid);
+    const std::size_t full = fluid.count();
+    fluid.drains.push_back(engine::FluidDrain2D{.region = box_region({2.9f, 0.1f}, {0.1f, 0.1f})});
+    step(pool.world, 300);
+    EXPECT_LT(pool.world.get<engine::Fluid2D>(pool.fluid).count(), full - 40) << "the pool flows into the drain";
+
+    SleepingPool tap = sleeping_pool();
+    ASSERT_GT(tap.ticks, 0);
+    engine::Fluid2D& tapped = tap.world.get<engine::Fluid2D>(tap.fluid);
+    const std::vector<glm::vec2> rest{tapped.positions().begin(), tapped.positions().end()};
+    tapped.sources.push_back(engine::FluidSource2D{
+            .region = box_region({1.5f, 0.6f}, {0.2f, 0.05f}), .rate = 60.f, .velocity = {0.f, -1.f}});
+    step(tap.world, 60);
+    const engine::Fluid2D& after = tap.world.get<engine::Fluid2D>(tap.fluid);
+    EXPECT_GT(after.count(), rest.size());
+    float moved = 0.f;
+    for (std::size_t i = 0; i < rest.size(); ++i) {
+        moved = std::max(moved, glm::length(after.positions()[i] - rest[i]));
+    }
+    EXPECT_GT(moved, 0.5f * kRadius) << "the pool under the tap makes room for the new water";
+    EXPECT_LT(*std::max_element(after.densities().begin(), after.densities().end()), 1.5f);
+}
+
+TEST(Fluid2DSleep, GravityTheFlagAndWakeWakeIt) {
+    SleepingPool pool = sleeping_pool();
+    ASSERT_GT(pool.ticks, 0);
+    const float x_before = sum_x(pool.world.get<engine::Fluid2D>(pool.fluid));
+    pool.world.ctx<engine::Physics2DConfig>().gravity = {4.f, -10.f, 0.f};
+    step(pool.world);
+    EXPECT_EQ(pool.world.get<engine::Fluid2D>(pool.fluid).sleeping_count(), 0u) << "new gravity wakes everything";
+    step(pool.world, 60);
+    EXPECT_GT(sum_x(pool.world.get<engine::Fluid2D>(pool.fluid)), x_before + 10.f) << "and the pool tilts toward it";
+
+    SleepingPool flag = sleeping_pool();
+    ASSERT_GT(flag.ticks, 0);
+    flag.world.get<engine::Fluid2D>(flag.fluid).params.sleep = false;
+    step(flag.world);
+    EXPECT_EQ(flag.world.get<engine::Fluid2D>(flag.fluid).sleeping_count(), 0u) << "sleeping off wakes everything";
+
+    SleepingPool woken = sleeping_pool();
+    ASSERT_GT(woken.ticks, 0);
+    engine::Fluid2D& f = woken.world.get<engine::Fluid2D>(woken.fluid);
+    EXPECT_EQ(f.wake(), f.count());
+    EXPECT_EQ(f.sleeping_count(), 0u);
+    EXPECT_EQ(f.wake(), 0u);
+}
+
+TEST(Fluid2DSleep, OffByDefault) {
+    EXPECT_FALSE(engine::Fluid2DParams{}.sleep);
+    engine::ecs::World world = fluid_world();
+    (void)add_terrain(world, tank_field(3.f, 3.f));
+    const engine::ecs::Entity entity = add_fluid(world);
+    (void)world.get<engine::Fluid2D>(entity).spawn_box({0.f, 0.f}, {3.f, 0.4f});
+    step(world, 300);
+    EXPECT_EQ(world.get<engine::Fluid2D>(entity).sleeping_count(), 0u);
+}
