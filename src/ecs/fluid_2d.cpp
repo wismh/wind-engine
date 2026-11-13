@@ -30,6 +30,13 @@
 #include <utility>
 #include <vector>
 
+#if defined(_M_X64) || defined(__SSE2__)
+#include <emmintrin.h>
+// The solver's hot loops run four particles per SSE2 register (x64 baseline). Elsewhere (wasm, arm64) the scalar loops
+// run; both give the same bits.
+#define ENGINE_FLUID_SSE 1
+#endif
+
 // docs/tech/modules/ECS.md (2D fluids). Position Based Fluids, Macklin and Mueller 2013, in 2D.
 //
 // The solver works in units of the kernel support: every particle offset is multiplied by 1 / h, so the kernels are
@@ -51,7 +58,7 @@ constexpr float kTensileDq = 0.2f;
 // Neighbours kept per particle, in cell order. About 24 at rest; the cap only bites under heavy compression.
 constexpr std::size_t kMaxNeighbors = kFluidMaxNeighbors2D;
 // Particles per parallel_for range.
-constexpr std::size_t kGrain = 256;
+constexpr std::size_t kGrain = 64;
 // Particles per SDF `sample_many` batch (stack arrays).
 constexpr std::size_t kSdfBatch = 64;
 // A solver delta is at most this many radii per iteration: a deep overlap (a spawn inside another particle, a
@@ -706,9 +713,8 @@ struct Fluid2DScratch {
     std::vector<std::uint32_t> sorted;
     std::vector<std::uint32_t> neighbor_count;
     std::vector<std::uint32_t> neighbors;
-    // Per neighbour slot, this iteration: the spiky gradient (h units) and the poly6 weight.
-    std::vector<glm::vec2> gradient;
-    std::vector<float> weight;
+    // Per neighbour slot, this iteration: the poly6 weight and the spiky gradient (h units), at `weight_slot`.
+    std::vector<float> kernel;
     std::vector<const SdfBoundary*> sdf;
     std::vector<const ShapeBoundary*> shapes;
     ShapeGrid2D grid;
@@ -753,6 +759,11 @@ struct Fluid2DSolver {
     static void record_push(std::size_t i, const ShapeBoundary& shape, glm::vec2 moved,
                             glm::vec2 position, glm::vec2 normal, Fluid2DScratch& s);
     static void project_range(std::size_t begin, std::size_t end, Fluid2DScratch& s);
+    // The density constraint's lambda (and density) of particles [begin, end), keeping each neighbour's kernel
+    // gradient and weight for the delta pass.
+    static void lambda_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s);
+    // The position correction (s.delta) of particles [begin, end) from the lambdas and the kept kernel terms.
+    static void delta_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s);
 };
 
 namespace {
@@ -951,6 +962,253 @@ namespace {
 
 }
 
+namespace {
+
+// Tests run the scalar kernels on x64 too (`set_fluid_scalar_kernels_2d`), to compare their bits with the SIMD ones.
+bool g_scalar_kernels = false;
+
+// Where particle i keeps neighbour slot k's kernel terms: the poly6 weight, the spiky gradient's x and y, and one
+// unused float, so the SIMD pass writes a slot with one 16-byte store.
+[[nodiscard]] std::size_t weight_slot(std::size_t i, std::size_t k) {
+    return (i * kMaxNeighbors + k) * 4;
+}
+
+// Lambda of particle i from its neighbour sums (the scalar tail of `lambda_range`, shared by both paths).
+void finish_lambda(std::size_t i, float rho, glm::vec2 grad_i, float sum_sq, bool mixed, Fluid2DScratch& s) {
+    const Params& own = s.members[s.owner[i]];
+    const float inv_rest = s.inv_rest[i];
+    const float inv_mass = 1.0f / s.mass[i];
+    // Both sums in units of rest density: grad C = grad W / rho_0.
+    const float own_share = mixed ? glm::dot(grad_i, grad_i) * inv_mass : glm::dot(grad_i, grad_i);
+    sum_sq = (sum_sq + own_share) * (inv_rest * inv_rest);
+    const float ratio = rho * inv_rest;
+    s.density[i] = ratio;
+    const float c = ratio - 1.0f;
+    s.lambda[i] = c > 0.0f ? -c / (sum_sq + own.relaxation) : 0.0f;
+}
+
+void lambda_one(std::size_t i, const Params& p, bool mixed, Fluid2DScratch& s) {
+    const glm::vec2 pi = s.predicted[i];
+    const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+    float rho = kPoly6;
+    glm::vec2 grad_i{0.0f};
+    float sum_sq = 0.0f;
+    for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
+        const std::uint32_t j = nb[k];
+        const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
+        const float r2 = glm::dot(d, d);
+        const float w = poly6(r2);
+        const glm::vec2 grad = spiky_grad(d, std::sqrt(r2));
+        const std::size_t at = weight_slot(i, k);
+        s.kernel[at] = w;
+        s.kernel[at + 1] = grad.x;
+        s.kernel[at + 2] = grad.y;
+        rho += w;
+        grad_i += grad;
+        // Each particle's share of the correction is its inverse mass (heaviest 1): a neighbour's gradient counts
+        // by its weight. 1 in a lone fluid.
+        sum_sq += mixed ? glm::dot(grad, grad) / s.mass[j] : glm::dot(grad, grad);
+    }
+    finish_lambda(i, rho, grad_i, sum_sq, mixed, s);
+}
+
+// Delta of particle i from its neighbour sum (the scalar tail of `delta_range`).
+void finish_delta(std::size_t i, glm::vec2 sum, const Params& p, bool mixed, Fluid2DScratch& s) {
+    const Params& own = s.members[s.owner[i]];
+    const float inv_rest = s.inv_rest[i];
+    const float inv_mass = 1.0f / s.mass[i];
+    // i takes its inverse mass's share of every correction: a lighter particle yields to a heavier one, so the
+    // heavier sinks through it (buoyancy). 1 in a lone fluid.
+    glm::vec2 delta = mixed ? sum * (inv_rest * p.h * inv_mass) : sum * (inv_rest * p.h);
+    const float len2 = glm::dot(delta, delta);
+    if (len2 > own.max_delta * own.max_delta) {
+        delta *= own.max_delta / std::sqrt(len2);
+    }
+    s.delta[i] = delta;
+}
+
+void delta_one(std::size_t i, const Params& p, bool mixed, Fluid2DScratch& s) {
+    const Params& own = s.members[s.owner[i]];
+    const float li = s.lambda[i];
+    const float inv_rest = s.inv_rest[i];
+    const std::uint32_t* nb = &s.neighbors[i * kMaxNeighbors];
+    const float* slots = &s.kernel[weight_slot(i, 0)];
+    const float* lambdas = s.lambda.data();
+    const std::uint32_t count = s.neighbor_count[i];
+    glm::vec2 sum{0.0f};
+    for (std::uint32_t k = 0; k < count; ++k) {
+        const std::uint32_t j = nb[k];
+        const float* slot = slots + k * 4;
+        const float w = slot[0] * own.inv_w_dq;
+        const float w2 = w * w;
+        const float scorr = -own.tensile * w2 * w2;
+        // The neighbour's constraint in units of its own rest density. 1 in a lone fluid.
+        const float rr = mixed ? s.inv_rest[j] / inv_rest : 1.0f;
+        sum += (li + lambdas[j] * rr + scorr) * glm::vec2{slot[1], slot[2]};
+    }
+    finish_delta(i, sum, p, mixed, s);
+}
+
+#if defined(ENGINE_FLUID_SSE)
+// a where `mask` is set, otherwise b.
+[[nodiscard]] __m128 select(__m128 mask, __m128 a, __m128 b) {
+    return _mm_or_ps(_mm_and_ps(mask, a), _mm_andnot_ps(mask, b));
+}
+
+// The x and y of four positions.
+void gather_xy(const glm::vec2* at, const std::uint32_t (&j)[4], __m128& x, __m128& y) {
+    const __m128 a = _mm_castpd_ps(_mm_load_sd(reinterpret_cast<const double*>(&at[j[0]])));
+    const __m128 b = _mm_castpd_ps(_mm_load_sd(reinterpret_cast<const double*>(&at[j[1]])));
+    const __m128 c = _mm_castpd_ps(_mm_load_sd(reinterpret_cast<const double*>(&at[j[2]])));
+    const __m128 d = _mm_castpd_ps(_mm_load_sd(reinterpret_cast<const double*>(&at[j[3]])));
+    const __m128 ab = _mm_unpacklo_ps(a, b);  // x0 x1 y0 y1
+    const __m128 cd = _mm_unpacklo_ps(c, d);  // x2 x3 y2 y3
+    x = _mm_movelh_ps(ab, cd);
+    y = _mm_movehl_ps(cd, ab);
+}
+
+[[nodiscard]] __m128 gather(const float* at, const std::uint32_t (&j)[4]) {
+    return _mm_setr_ps(at[j[0]], at[j[1]], at[j[2]], at[j[3]]);
+}
+
+// The four particles of group i0 (i0 a multiple of 4): their neighbour lists (a lane past `n` reads lane 0's), their
+// counts (0 past `n`), their positions, and the longest count. `build_neighbors` pads every list of a group to the
+// longest with the particle itself, so slots up to it are valid indices.
+struct Group4 {
+    const std::uint32_t* lists[4];
+    __m128i count;
+    __m128 x;
+    __m128 y;
+    std::uint32_t most = 0;
+    int valid = 0;
+};
+
+[[nodiscard]] Group4 group_of(std::size_t i0, std::size_t n, const Fluid2DScratch& s, const glm::vec2* positions) {
+    Group4 g{};
+    alignas(16) std::int32_t counts[4];
+    std::uint32_t own[4];
+    for (int l = 0; l < 4; ++l) {
+        const std::size_t i = i0 + static_cast<std::size_t>(l);
+        const bool valid = i < n;
+        own[l] = static_cast<std::uint32_t>(valid ? i : i0);
+        g.lists[l] = &s.neighbors[own[l] * kMaxNeighbors];
+        const std::uint32_t count = valid ? s.neighbor_count[i] : 0;
+        counts[l] = static_cast<std::int32_t>(count);
+        g.most = std::max(g.most, count);
+        g.valid += valid ? 1 : 0;
+    }
+    g.count = _mm_load_si128(reinterpret_cast<const __m128i*>(counts));
+    gather_xy(positions, own, g.x, g.y);
+    return g;
+}
+
+[[nodiscard]] __m128 active_at(std::uint32_t k, __m128i count) {
+    return _mm_castsi128_ps(_mm_cmplt_epi32(_mm_set1_epi32(static_cast<std::int32_t>(k)), count));
+}
+
+// Four particles at once, one per lane. Every lane runs `lambda_one`'s operations in its order (same products, sums
+// and comparisons; SSE never contracts a multiply and an add), so a lane's result is the scalar one, bit for bit.
+// A lane past its particle's neighbour count keeps its sums.
+template <bool mixed>
+void lambda_four(std::size_t i0, std::size_t n, const Params& p, Fluid2DScratch& s) {
+    const __m128 one = _mm_set1_ps(1.0f);
+    const __m128 inv_h = _mm_set1_ps(p.inv_h);
+    const __m128 poly = _mm_set1_ps(kPoly6);
+    const __m128 spiky = _mm_set1_ps(kSpikyGrad);
+    const __m128 tiny = _mm_set1_ps(1.0e-6f);
+    const Group4 g = group_of(i0, n, s, s.predicted.data());
+    __m128 rho = poly;
+    __m128 gx = _mm_setzero_ps();
+    __m128 gy = _mm_setzero_ps();
+    __m128 sum_sq = _mm_setzero_ps();
+    float* kernel[4];
+    for (int l = 0; l < 4; ++l) {
+        kernel[l] = &s.kernel[weight_slot(l < g.valid ? i0 + static_cast<std::size_t>(l) : i0, 0)];
+    }
+    for (std::uint32_t k = 0; k < g.most; ++k) {
+        const std::uint32_t j[4] = {g.lists[0][k], g.lists[1][k], g.lists[2][k], g.lists[3][k]};
+        const __m128 active = active_at(k, g.count);
+        __m128 qx;
+        __m128 qy;
+        gather_xy(s.predicted.data(), j, qx, qy);
+        const __m128 dx = _mm_mul_ps(_mm_sub_ps(g.x, qx), inv_h);
+        const __m128 dy = _mm_mul_ps(_mm_sub_ps(g.y, qy), inv_h);
+        const __m128 r2 = _mm_add_ps(_mm_mul_ps(dx, dx), _mm_mul_ps(dy, dy));
+        // poly6: ((k t) t) t, 0 where r2 >= 1.
+        const __m128 t = _mm_sub_ps(one, r2);
+        const __m128 w = _mm_andnot_ps(_mm_cmpge_ps(r2, one), _mm_mul_ps(_mm_mul_ps(_mm_mul_ps(poly, t), t), t));
+        // spiky_grad: d ((k u) u / r), 0 where r <= 1e-6 or r >= 1.
+        const __m128 r = _mm_sqrt_ps(r2);
+        const __m128 u = _mm_sub_ps(one, r);
+        const __m128 f = _mm_div_ps(_mm_mul_ps(_mm_mul_ps(spiky, u), u), r);
+        const __m128 none = _mm_or_ps(_mm_cmple_ps(r, tiny), _mm_cmpge_ps(r, one));
+        const __m128 grx = _mm_andnot_ps(none, _mm_mul_ps(dx, f));
+        const __m128 gry = _mm_andnot_ps(none, _mm_mul_ps(dy, f));
+        // Each lane's (w, gx, gy, 0) slot; slots past a lane's count are padding (written, never read). A lane past
+        // `n` writes lane 0's slots before lane 0 does.
+        __m128 row0 = w;
+        __m128 row1 = grx;
+        __m128 row2 = gry;
+        __m128 row3 = _mm_setzero_ps();
+        _MM_TRANSPOSE4_PS(row0, row1, row2, row3);
+        _mm_storeu_ps(kernel[3] + k * 4, row3);
+        _mm_storeu_ps(kernel[2] + k * 4, row2);
+        _mm_storeu_ps(kernel[1] + k * 4, row1);
+        _mm_storeu_ps(kernel[0] + k * 4, row0);
+        rho = select(active, _mm_add_ps(rho, w), rho);
+        gx = select(active, _mm_add_ps(gx, grx), gx);
+        gy = select(active, _mm_add_ps(gy, gry), gy);
+        __m128 square = _mm_add_ps(_mm_mul_ps(grx, grx), _mm_mul_ps(gry, gry));
+        if constexpr (mixed) {
+            square = _mm_div_ps(square, gather(s.mass.data(), j));
+        }
+        sum_sq = select(active, _mm_add_ps(sum_sq, square), sum_sq);
+    }
+    alignas(16) float rho_out[4];
+    alignas(16) float gx_out[4];
+    alignas(16) float gy_out[4];
+    alignas(16) float sum_out[4];
+    _mm_store_ps(rho_out, rho);
+    _mm_store_ps(gx_out, gx);
+    _mm_store_ps(gy_out, gy);
+    _mm_store_ps(sum_out, sum_sq);
+    for (int l = 0; l < g.valid; ++l) {
+        finish_lambda(i0 + static_cast<std::size_t>(l), rho_out[l], glm::vec2{gx_out[l], gy_out[l]}, sum_out[l],
+                      mixed, s);
+    }
+}
+
+#endif
+
+}
+
+void Fluid2DSolver::lambda_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s) {
+#if defined(ENGINE_FLUID_SSE)
+    // Ranges start at multiples of kGrain (a multiple of 4); only the last group of the last range is partial.
+    if (!g_scalar_kernels) {
+        for (std::size_t i = begin; i < end; i += 4) {
+            if (mixed) {
+                lambda_four<true>(i, end, p, s);
+            } else {
+                lambda_four<false>(i, end, p, s);
+            }
+        }
+        return;
+    }
+#endif
+    for (std::size_t i = begin; i < end; ++i) {
+        lambda_one(i, p, mixed, s);
+    }
+}
+
+void Fluid2DSolver::delta_range(std::size_t begin, std::size_t end, const Params& p, bool mixed, Fluid2DScratch& s) {
+    // Scalar on every target: the pass is mostly a gather of the neighbours' lambdas, which SSE2 loads one lane at a
+    // time; four lanes measured no faster than this loop.
+    for (std::size_t i = begin; i < end; ++i) {
+        delta_one(i, p, mixed, s);
+    }
+}
+
 void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* jobs, Fluid2DScratch& s) {
     std::uint32_t table = 64;
     while (static_cast<std::size_t>(table) < 2 * n) {
@@ -998,25 +1256,39 @@ void Fluid2DSolver::build_neighbors(const Params& p, std::size_t n, JobSystem* j
                 for (int dx = -1; dx <= 1 && count < kMaxNeighbors; ++dx) {
                     const glm::ivec2 c{ci.x + dx, ci.y + dy};
                     const std::uint32_t b = cell_hash(c, mask);
-                    for (std::uint32_t k = s.bucket_start[b]; k < s.bucket_start[b + 1]; ++k) {
-                        if (s.sorted_cell[k] != c) {
-                            continue;
-                        }
+                    // Branch-free: every candidate is written at `count`, which moves on only when it is a neighbour
+                    // (the test fails about two times in three, unpredictably). Same list, same order.
+                    const std::uint32_t stop = s.bucket_start[b + 1];
+                    for (std::uint32_t k = s.bucket_start[b]; k < stop; ++k) {
                         const std::uint32_t j = s.sorted[k];
-                        if (j == i) {
-                            continue;
-                        }
                         const glm::vec2 d = pi - s.sorted_position[k];
-                        if (glm::dot(d, d) < h2) {
-                            out[count++] = j;
-                            if (count == kMaxNeighbors) {
-                                break;
-                            }
+                        const glm::ivec2 ck = s.sorted_cell[k];
+                        const bool take = (ck.x == c.x) & (ck.y == c.y) & (j != i) & (glm::dot(d, d) < h2);
+                        out[count] = j;
+                        count += take ? 1u : 0u;
+                        if (count == kMaxNeighbors) {
+                            break;
                         }
                     }
                 }
             }
             s.neighbor_count[i] = count;
+        }
+    });
+    // The SIMD passes run four particles in step to the longest of their lists: pad the shorter ones with the particle
+    // itself (a slot past the count is never summed).
+    for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i0 = begin; i0 < end; i0 += 4) {
+            const std::size_t stop = std::min(i0 + 4, end);
+            std::uint32_t most = 0;
+            for (std::size_t i = i0; i < stop; ++i) {
+                most = std::max(most, s.neighbor_count[i]);
+            }
+            for (std::size_t i = i0; i < stop; ++i) {
+                for (std::uint32_t k = s.neighbor_count[i]; k < most; ++k) {
+                    s.neighbors[i * kMaxNeighbors + k] = static_cast<std::uint32_t>(i);
+                }
+            }
         }
     });
 }
@@ -1463,8 +1735,7 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
             }
         });
         build_neighbors(p, n, jobs, s);
-        s.gradient.resize(n * kMaxNeighbors);
-        s.weight.resize(n * kMaxNeighbors);
+        s.kernel.resize(n * kMaxNeighbors * 4);
         select_boundaries(group, p, boundaries, n, s);
         s.coupled = any_mass &&
                     std::any_of(s.shapes.begin(), s.shapes.end(), [](const ShapeBoundary* shape) { return shape->body >= 0; });
@@ -1475,72 +1746,11 @@ void Fluid2DSolver::step(const FluidGroup2D& group, Boundaries& boundaries, glm:
         for (int iteration = 0; iteration < p.iterations; ++iteration) {
             // Lambda: the density constraint C_i = rho_i / rho_0 - 1 >= 0 (only compression pushes). Keeps each
             // neighbour's kernel gradient and weight for the delta pass, which reads the same positions.
-            for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-                for (std::size_t i = begin; i < end; ++i) {
-                    const Params& own = s.members[s.owner[i]];
-                    const float inv_rest = s.inv_rest[i];
-                    const float inv_mass = 1.0f / s.mass[i];
-                    const glm::vec2 pi = s.predicted[i];
-                    const std::size_t base = i * kMaxNeighbors;
-                    const std::uint32_t* nb = &s.neighbors[base];
-                    glm::vec2* grads = &s.gradient[base];
-                    float* weights = &s.weight[base];
-                    float rho = kPoly6;
-                    glm::vec2 grad_i{0.0f};
-                    float sum_sq = 0.0f;
-                    for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
-                        const std::uint32_t j = nb[k];
-                        const glm::vec2 d = (pi - s.predicted[j]) * p.inv_h;
-                        const float r2 = glm::dot(d, d);
-                        const float w = poly6(r2);
-                        const glm::vec2 grad = spiky_grad(d, std::sqrt(r2));
-                        weights[k] = w;
-                        grads[k] = grad;
-                        rho += w;
-                        grad_i += grad;
-                        // Each particle's share of the correction is its inverse mass (heaviest 1): a neighbour's
-                        // gradient counts by its weight. 1 in a lone fluid.
-                        sum_sq += mixed ? glm::dot(grad, grad) / s.mass[j] : glm::dot(grad, grad);
-                    }
-                    // Both sums in units of rest density: grad C = grad W / rho_0.
-                    const float own_share = mixed ? glm::dot(grad_i, grad_i) * inv_mass : glm::dot(grad_i, grad_i);
-                    sum_sq = (sum_sq + own_share) * (inv_rest * inv_rest);
-                    const float ratio = rho * inv_rest;
-                    density[i] = ratio;
-                    const float c = ratio - 1.0f;
-                    s.lambda[i] = c > 0.0f ? -c / (sum_sq + own.relaxation) : 0.0f;
-                }
-            });
+            for_ranges(jobs, n,
+                       [&](std::size_t begin, std::size_t end) { lambda_range(begin, end, p, mixed, s); });
             // Delta: gathered from the neighbours' lambdas, with the s_corr tensile term.
             for_ranges(jobs, n, [&](std::size_t begin, std::size_t end) {
-                for (std::size_t i = begin; i < end; ++i) {
-                    const Params& own = s.members[s.owner[i]];
-                    const float li = s.lambda[i];
-                    const float inv_rest = s.inv_rest[i];
-                    const float inv_mass = 1.0f / s.mass[i];
-                    const std::size_t base = i * kMaxNeighbors;
-                    const std::uint32_t* nb = &s.neighbors[base];
-                    const glm::vec2* grads = &s.gradient[base];
-                    const float* weights = &s.weight[base];
-                    glm::vec2 sum{0.0f};
-                    for (std::uint32_t k = 0; k < s.neighbor_count[i]; ++k) {
-                        const std::uint32_t j = nb[k];
-                        const float w = weights[k] * own.inv_w_dq;
-                        const float w2 = w * w;
-                        const float scorr = -own.tensile * w2 * w2;
-                        // The neighbour's constraint in units of its own rest density. 1 in a lone fluid.
-                        const float rr = mixed ? s.inv_rest[j] / inv_rest : 1.0f;
-                        sum += (li + s.lambda[j] * rr + scorr) * grads[k];
-                    }
-                    // i takes its inverse mass's share of every correction: a lighter particle yields to a heavier
-                    // one, so the heavier sinks through it (buoyancy). 1 in a lone fluid.
-                    glm::vec2 delta = mixed ? sum * (inv_rest * p.h * inv_mass) : sum * (inv_rest * p.h);
-                    const float len2 = glm::dot(delta, delta);
-                    if (len2 > own.max_delta * own.max_delta) {
-                        delta *= own.max_delta / std::sqrt(len2);
-                    }
-                    s.delta[i] = delta;
-                }
+                delta_range(begin, end, p, mixed, s);
                 // Apply, sweep and project the same range in the same pass: the delta pass reads no positions,
                 // only the lambdas and the kept kernel terms, so moving these particles here races with nothing.
                 for (std::size_t i = begin; i < end; ++i) {
@@ -1916,6 +2126,10 @@ void apply_coupling(ecs::World& world, const Boundaries& boundaries, glm::vec2 g
     }
 }
 
+}
+
+void set_fluid_scalar_kernels_2d(bool scalar) {
+    g_scalar_kernels = scalar;
 }
 
 FluidNeighbors2D fluid_neighbors_2d(std::span<const glm::vec2> positions, float h, JobSystem* jobs) {
