@@ -212,6 +212,28 @@ Changes that keep every result bit for bit (the golden hashes did not move): `Jo
 
 Profile of `fluid_dam_4k` on 11 workers, per tick at the defaults (2 substeps, 4 iterations): neighbour searches about 0.8 ms, the lambda passes about 1.2 ms, delta with apply, sweep and projection about 0.9 ms, velocity and XSPH about 0.25 ms. The lambda pass is compute bound (about 10 ns per neighbour pair serial: a square root and a division each); sorting the particles spatially inside the step (Morton order) changed nothing at 4k, whose working set is already in cache, and was not kept. At 1 substep and 3 iterations the step costs about 1.5 ms, but the fluid suite's quality checks then fail (multiphase layering, a body's splash, resting pools' kinetic energy), so the defaults stay. The 1 ms goal is open.
 
+### Performance, SIMD (LQ-55)
+
+Changes that keep every result bit for bit on every target (the golden hashes did not move; `Fluid2D.SimdAndScalarKernelsGiveTheSameBits` runs both paths on x64):
+
+- The lambda pass runs four particles per SSE2 register on x64 (`lambda_four`): each lane is one particle and runs the scalar loop's operations in its order, over the longest neighbour list of the four, with a lane past its own count keeping its sums. The neighbour search pads the shorter lists of a group of four with the particle itself so every slot is a valid index. It writes each neighbour's weight and gradient as one 16-byte record (one transposed store per lane). Elsewhere (wasm, arm64) the scalar loop runs.
+- The delta pass stays scalar: it is mostly a gather of the neighbours' lambdas, which SSE2 loads a lane at a time, and four lanes ran no faster. Variants measured and dropped: interleaving four particles' records per slot (scalar reads slower), rebuilding the gradient from positions instead of storing it (a gather per slot, slower than reading 12 bytes), and a ternary on the gradient factor, which MSVC compiled into a pass four times slower.
+- The neighbour search tests its candidates without branches: each one is written at the list's end, which moves on only for a neighbour (the test fails about two times in three, unpredictably).
+- Ranges of 64 particles instead of 256: 4,096 particles made 16 ranges for 12 threads, two rounds with half the threads idle in the second.
+
+Best of two runs against `dev` (the commit before), same machine, built the same way and run alternately (6 cores, 12 threads):
+
+| Scenario | `--threads 0` dev | branch | default threads dev | branch |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 18,708 | 10,475 (-44%) | 3,055 | 1,888 (-38%) |
+| `fluid_dam_16k` | 78,673 | 50,422 (-36%) | 10,209 | 8,242 (-19%) |
+| `fluid_rest_4k` | 18,540 | 10,207 (-45%) | 3,167 | 1,947 (-39%) |
+| `fluid_compound_dam_4k` | 18,786 | 10,869 (-42%) | 3,360 | 2,307 (-31%) |
+| `fluid_compound_rest_4k` | 19,233 | 10,682 (-44%) | 3,411 | 2,211 (-35%) |
+| `fluid_crates_4k` | 19,052 | 11,234 (-41%) | 3,213 | 2,048 (-36%) |
+
+Profile of `fluid_dam_4k` per tick after the change, serial: neighbour searches 2.7 ms, lambda passes 4.0 ms, delta 1.35 ms, sweep and projection 1.8 ms, velocity and XSPH 0.9 ms; on the default threads 0.48, 0.70, 0.54 (with apply, sweep and projection) and 0.18 ms. The threaded run is about 5.8 times the serial one on 6 physical cores, so the 1 ms goal at the defaults would need the serial step near 6 ms; it is still open.
+
 ## Deterministic simulation (LQ-63)
 
 The switch from libm `sin`, `cos` and `atan2` to the engine's deterministic functions ([Principles](../architecture/Principles.md#deterministic-simulation)), measured against the commit before it: the whole suite, `--all --threads 0 --skip-large`, best of two runs each, Windows, MSVC, RelWithDebInfo. MSVC already compiled with `/fp:precise` and no contraction, so on this target the change is the trigonometry alone. Most rows move within the run-to-run noise (about 5 percent). Rows dominated by contacts on rotated shapes cost a little more: `tumbler` 21,724 to 22,612 us (+4 percent), `static_contact_2k` 998 to 1,045 (+5), `static_contact_2k_compound` 965 to 1,025 (+6), `3d_large_island` 2,198 to 2,300 (+5). The fluid gets slightly cheaper (`fluid_dam_4k` 20,087 to 19,747), since collider frames now come from the matrix axis without an angle. The cost per platform (clang, Emscripten, arm64) is a separate backlog ticket.
