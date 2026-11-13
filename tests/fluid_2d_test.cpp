@@ -1739,3 +1739,32 @@ TEST(Fluid2DBox, FillsItsParentFluidOnceAndRoundTrips) {
     });
     EXPECT_TRUE(found);
 }
+
+// LQ-55: the lambda pass runs four particles per SSE2 register on x64 and the scalar loop elsewhere. Every lane keeps
+// the scalar order of operations, so both give the same bits: compared here on x64 by forcing the scalar loop. 401
+// particles leave a partial group of four at the end; two fluids of different densities run the mixed kernels.
+TEST(Fluid2D, SimdAndScalarKernelsGiveTheSameBits) {
+    auto simulate = [](bool scalar, engine::JobSystem* jobs) {
+        engine::set_fluid_scalar_kernels_2d(scalar);
+        engine::ecs::World world = fluid_world(jobs);
+        (void)add_terrain(world, tank_field());
+        const engine::ecs::Entity water = add_fluid(
+                world, engine::Fluid2DParams{.radius = kRadius, .tensile_strength = 0.1f, .cohesion = 8.f});
+        engine::Fluid2D& fluid = world.get<engine::Fluid2D>(water);
+        (void)fluid.spawn_box({0.f, 0.f}, {2.f, 2.f}, {0.5f, 0.f});
+        (void)fluid.spawn({3.f, 2.5f}, {0.f, -1.f});
+        const engine::ecs::Entity oil = add_fluid(world, engine::Fluid2DParams{.radius = kRadius, .density = 0.4f});
+        (void)world.get<engine::Fluid2D>(oil).spawn_box({2.2f, 0.f}, {3.f, 1.f});
+        std::vector<std::uint64_t> hashes;
+        for (int s = 0; s < 60; ++s) {
+            step(world);
+            hashes.push_back(world.get<engine::Fluid2D>(water).state_hash());
+            hashes.push_back(world.get<engine::Fluid2D>(oil).state_hash());
+        }
+        engine::set_fluid_scalar_kernels_2d(false);
+        return hashes;
+    };
+    EXPECT_EQ(simulate(false, nullptr), simulate(true, nullptr));
+    engine::JobSystem jobs(3);
+    EXPECT_EQ(simulate(false, &jobs), simulate(true, nullptr));
+}

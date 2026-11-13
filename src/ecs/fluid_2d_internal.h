@@ -37,6 +37,11 @@ struct FluidNeighbors2D {
     std::vector<std::uint32_t> list;
 };
 
+// The solver's hot loops (lambda, delta) run four particles per SSE2 register on x64 and the scalar loops elsewhere;
+// both give the same bits. True runs the scalar loops on x64 too, so a test can compare the two. Main thread only,
+// between steps.
+void set_fluid_scalar_kernels_2d(bool scalar);
+
 // Runs the solver's spatial-hash neighbour search (every other particle closer than `h`) on `positions`.
 [[nodiscard]] FluidNeighbors2D fluid_neighbors_2d(std::span<const glm::vec2> positions, float h, JobSystem* jobs);
 
