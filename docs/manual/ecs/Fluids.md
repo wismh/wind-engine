@@ -145,11 +145,19 @@ Taps, drains and sensors are saved with the world: their settings, not how much 
 
 About 4.6 us per particle per tick on one thread with the defaults, and it scales across the job workers: 4,000 particles cost about 3 ms a tick on a 12-thread desktop, 16,000 about 10 ms. Results are the same for any number of workers.
 
+A pool that has come to rest costs as much as a splashing one, unless you let it sleep: set `sleep = true` in the fluid's parameters. A particle that barely moves for a second (`sleep_speed`, half a radius per second, for `sleep_ticks`, 60) falls asleep and is no longer simulated, but still holds up the water around it, so a settled 4,000-particle pool costs a few tenths of a millisecond instead of milliseconds. Water wakes where something happens: a splash, a body that moves near it (a body floating in it keeps its water awake), terrain carved or a collider added or removed near it, a tap or drain, a change of gravity, or `water.wake()` / `water.wake(region)` from your code. It is off by default because sleeping water is frozen: a very slow flow stops, and a pool that falls asleep while it still sloshes a little keeps that surface. Turn it on for pools that settle.
+
+```cpp
+world.emplace<engine::Fluid2D>(pool, engine::Fluid2DParams{.radius = 0.05f, .sleep = true});
+// After opening a hidden valve your code moves by hand:
+world.get<engine::Fluid2D>(pool).wake(valve_region);
+```
+
 `fluid_2d` is saved with the world: its parameters, taps, drains and sensors. The water itself is saved only when you set `save_particles = true` on the fluid; then a loaded game has the same water, to the bit. Leave it off for large fluids you can spawn again (a few megabytes per 100,000 particles). Over the network, every player simulates the fluid: see [Fluids over the network](#8-fluids-over-the-network).
 
 To place a pool in a scene, add a child entity to the fluid's entity with a Transform and a `FluidBox2D` (`size`, optional `velocity`): the fluid fills that box with water the first time it steps. In the editor the World tab shows the box and the water it will hold, and draws the particles of every fluid; move the box with the gizmo and size it in the Inspector.
 
-The fluid is built to give the same bits on every platform the engine supports, not only for any number of workers, so two peers that feed it the same inputs keep the same water (checked so far on Windows with MSVC and clang, and on Web). `fluid.state_hash()` is a 64-bit hash of its particles: compare it between peers to catch a desync.
+The fluid is built to give the same bits on every platform the engine supports, not only for any number of workers, so two peers that feed it the same inputs keep the same water (checked so far on Windows with MSVC and clang, and on Web). `fluid.state_hash()` is a 64-bit hash of its particles (and of which ones sleep): compare it between peers to catch a desync.
 
 ## 8. Fluids over the network
 

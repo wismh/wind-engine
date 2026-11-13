@@ -88,9 +88,10 @@ inline constexpr float kRadius = 0.05f;
 
 enum class Tank { Sdf, Compound, SdfCrates };
 
-// A `side` x `side` column of particles at rest spacing against the tank's left wall, released at once. With `warmup`
-// ticks the column first runs that long untimed: a pool that has spread and come to rest. A compound tank also has
-// 4,000 far tiles; run_physics_2d runs once first, so the fluid reads the static parts from the solver's cache.
+// A `side` x `side` column of particles at rest spacing against the tank's left wall, released at once, with sleeping
+// on (LQ-38). With `warmup` ticks the column first runs that long untimed: a pool that has spread and come to rest. A
+// compound tank also has 4,000 far tiles; run_physics_2d runs once first, so the fluid reads the static parts from the
+// solver's cache.
 [[nodiscard]] BenchResult bench_dam(const std::string& name, int side, int steps, int warmup, Tank tank,
                                     JobSystem* jobs) {
     const float column = static_cast<float>(side) * 2.f * kRadius;
@@ -110,7 +111,7 @@ enum class Tank { Sdf, Compound, SdfCrates };
         run_physics_2d(world, jobs);
     }
     const ecs::Entity entity = world.create();
-    world.emplace<Fluid2D>(entity, Fluid2DParams{.radius = kRadius, .max_particles = 1u << 20});
+    world.emplace<Fluid2D>(entity, Fluid2DParams{.radius = kRadius, .max_particles = 1u << 20, .sleep = true});
     (void) world.get<Fluid2D>(entity).spawn_box({0.f, 0.f}, {column, column});
     const auto count = static_cast<int>(world.get<Fluid2D>(entity).count());
     // Crates: 16 light dynamic boxes (half the water's density) dropped across the tank, floating by the end. The
@@ -126,11 +127,20 @@ enum class Tank { Sdf, Compound, SdfCrates };
         }
     }
     const bool physics = tank == Tank::SdfCrates;
+    // The first tick after the release at which every particle sleeps, or -1.
+    int steps_to_sleep = -1;
+    const auto all_asleep = [&](int tick) {
+        const Fluid2D& fluid = world.get<Fluid2D>(entity);
+        if (steps_to_sleep < 0 && fluid.sleeping_count() == fluid.count()) {
+            steps_to_sleep = tick;
+        }
+    };
     for (int s = 0; s < warmup; ++s) {
         if (physics) {
             run_physics_2d(world, jobs);
         }
         run_fluid_2d(world, jobs);
+        all_asleep(s + 1);
     }
 
     double sum_us = 0.0;
@@ -143,6 +153,7 @@ enum class Tank { Sdf, Compound, SdfCrates };
         const auto start = Clock::now();
         run_fluid_2d(world, jobs);
         const double us = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
+        all_asleep(warmup + s + 1);
         sum_us += us;
         min_us = std::min(min_us, us);
         max_us = std::max(max_us, us);
@@ -173,8 +184,8 @@ enum class Tank { Sdf, Compound, SdfCrates };
             .mean_us = mean_us,
             .min_us = min_us,
             .max_us = max_us,
-            .sleeping_at_end = 0,
-            .steps_to_sleep = -1,
+            .sleeping_at_end = static_cast<int>(fluid.sleeping_count()),
+            .steps_to_sleep = steps_to_sleep,
             .approx_memory_kb = static_cast<std::size_t>(count) * (5 * sizeof(float)) / 1024,
             .passed_stability = stable,
             .notes = std::to_string(mean_us * 1000.0 / std::max(1, count)) + " ns per particle",
@@ -194,9 +205,9 @@ std::vector<BenchResult> run_fluid_2d_benchmarks(const BenchOptions& options, Jo
     const Case cases[] = {
             {"fluid_dam_4k", 64, 0, Tank::Sdf},
             {"fluid_dam_16k", 128, 0, Tank::Sdf},
-            {"fluid_rest_4k", 64, 600, Tank::Sdf},
+            {"fluid_rest_4k", 64, 3600, Tank::Sdf},
             {"fluid_compound_dam_4k", 64, 0, Tank::Compound},
-            {"fluid_compound_rest_4k", 64, 600, Tank::Compound},
+            {"fluid_compound_rest_4k", 64, 3600, Tank::Compound},
             {"fluid_crates_4k", 64, 0, Tank::SdfCrates},
     };
     std::vector<BenchResult> results;

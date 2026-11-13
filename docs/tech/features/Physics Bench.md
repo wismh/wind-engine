@@ -147,14 +147,14 @@ An SDF boundary costs about 200 ns per particle on one thread, linear in the cou
 
 ## Fluids (LQ-27)
 
-`bench/physics/bench_fluid_2d.cpp`, in the `--2d` suite. Each row calls `run_fluid_2d` directly (no `install_fluid_2d`) and times it alone (gather included) for 300 fixed ticks of 1/60 s from the release: a dam break. A square column of particles at rest spacing (`radius` 0.05, every other parameter default: 2 substeps, 4 iterations) stands against the left wall of an open-top `SdfCollider2D` tank (0.1-unit cells, 0.4-unit band) 2.5 columns wide, gravity -10. The "Bodies" column is the particle count. Stability: no particle lost or non-finite, none closer than half a radius to the walls.
+`bench/physics/bench_fluid_2d.cpp`, in the `--2d` suite. Each row calls `run_fluid_2d` directly (no `install_fluid_2d`) and times it alone (gather included) for 300 fixed ticks of 1/60 s from the release: a dam break. Since LQ-38 every row runs with `Fluid2DParams::sleep` on (off by default in the engine); the "Sleep" column is the particles asleep at the end and, in brackets, the tick after the release at which all of them slept. A square column of particles at rest spacing (`radius` 0.05, every other parameter default: 2 substeps, 4 iterations) stands against the left wall of an open-top `SdfCollider2D` tank (0.1-unit cells, 0.4-unit band) 2.5 columns wide, gravity -10. The "Bodies" column is the particle count. Stability: no particle lost or non-finite, none closer than half a radius to the walls.
 
 | Scenario | What it measures |
 | --- | --- |
 | `fluid_dam_4k` | a 64 x 64 column (4,096 particles, 6.4 units) collapsing across a 16-unit tank |
 | `fluid_dam_16k` | a 128 x 128 column (16,384 particles) in a 32-unit tank |
-| `fluid_rest_4k` | `fluid_dam_4k` after 600 untimed ticks: the pool has spread and come to rest (LQ-59) |
-| `fluid_compound_dam_4k`, `fluid_compound_rest_4k` | the same two in a tank of `CompoundCollider2D` parts instead of the SDF: 0.25-unit square tiles, 1 unit thick (about 2,000 parts), plus a second compound of 4,000 tiles far below that the fluid never reaches. `run_physics_2d` runs once before timing, so the fluid reads the static parts from the solver's cache (LQ-57) |
+| `fluid_rest_4k` | `fluid_dam_4k` after 3,600 untimed ticks: the pool has spread and come to rest (LQ-59; 600 ticks until LQ-38, when the pool still sloshed at 0.3 to 1 units per second) |
+| `fluid_compound_dam_4k`, `fluid_compound_rest_4k` | the same two (the rest row also after 3,600 ticks) in a tank of `CompoundCollider2D` parts instead of the SDF: 0.25-unit square tiles, 1 unit thick (about 2,000 parts), plus a second compound of 4,000 tiles far below that the fluid never reaches. `run_physics_2d` runs once before timing, so the fluid reads the static parts from the solver's cache (LQ-57) |
 | `fluid_crates_4k` | `fluid_dam_4k` with 16 light dynamic crates (0.4 units, half the water's density) dropped across the tank. `run_physics_2d` steps before each fluid step, untimed: the row times the fluid with its two-way coupling (LQ-56) |
 
 Windows, MSVC, RelWithDebInfo, 12 hardware threads, mean microseconds per tick, ns per particle in brackets:
@@ -233,6 +233,23 @@ Best of two runs against `dev` (the commit before), same machine, built the same
 | `fluid_crates_4k` | 19,052 | 11,234 (-41%) | 3,213 | 2,048 (-36%) |
 
 Profile of `fluid_dam_4k` per tick after the change, serial: neighbour searches 2.7 ms, lambda passes 4.0 ms, delta 1.35 ms, sweep and projection 1.8 ms, velocity and XSPH 0.9 ms; on the default threads 0.48, 0.70, 0.54 (with apply, sweep and projection) and 0.18 ms. The threaded run is about 5.8 times the serial one on 6 physical cores, so the 1 ms goal at the defaults would need the serial step near 6 ms; it is still open.
+
+### Sleeping (LQ-38)
+
+Resting particles sleep ([ECS](../modules/ECS.md#2d-fluids)): a sleeper is not solved but stays a neighbour of the awake particles, the sleepers' hash is built once and kept while they do not change, and a group with nothing awake skips its step. Best of two runs against `dev` (the commit before), alternating, same machine (6 cores, 12 threads); both with the rest rows warmed up 3,600 ticks, the branch with `sleep` on:
+
+| Scenario | `--threads 0` dev | branch | default threads dev | branch |
+| --- | ---: | ---: | ---: | ---: |
+| `fluid_dam_4k` | 10,760 | 10,510 (-2%) | 1,920 | 2,111 (+10%, noise: 2,318 against 2,268 over five more runs) |
+| `fluid_dam_16k` | 53,514 | 51,796 (-3%) | 10,051 | 9,708 (-3%) |
+| `fluid_rest_4k` | 10,820 | 120 (90 times less) | 2,058 | 119 (17 times less) |
+| `fluid_compound_dam_4k` | 11,349 | 11,041 (-3%) | 2,324 | 2,351 (+1%) |
+| `fluid_compound_rest_4k` | 11,116 | 196 (57 times less) | 2,209 | 204 (11 times less) |
+| `fluid_crates_4k` | 11,585 | 11,385 (-2%) | 2,074 | 2,263 (+9%, noise: medians 2,693 against 2,641 over five more runs) |
+
+The dam rows do not sleep within their 300 ticks and cost what they did; the threaded rows of this machine vary by a quarter between runs. The SDF pool falls asleep within the warmup (4,095 of 4,096 at its end: one particle at the surface keeps moving a little and stays awake), the compound one at tick 2,992. What is left is the fixed cost of a tick that solves almost nothing: the gather and scatter of the group, each fluid's reach, groups and boundary marks (the SDF blocks or compound tiles around the pool, hashed once a tick), and for the one awake particle its two hashes and the sleepers next to it; it does not depend on the threads.
+
+Found while measuring: one hash of every particle per substep cost about 64 us at 4k, so the sleepers' hash is built once per step and kept across steps (the steady state went from 265 to 124 us serial). Not kept: the speed threshold on the particle's velocity, which in a resting pool is the noise of the last substep's boundary response (a particle 0.1 mm from rest read 0.027 units per second now and then and never slept); the rest test is the step's displacement over `dt`. The two-hash neighbour search first cost the dam rows 6 percent serial, with sleeping off: MSVC reloaded the hash's arrays after every store to the list; read through local pointers it costs nothing.
 
 ## Deterministic simulation (LQ-63)
 
