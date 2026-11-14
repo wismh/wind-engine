@@ -1195,6 +1195,10 @@ void register_builtin_components(
                 out.field("vorticity", c.params.vorticity);
                 out.field("layer", c.params.layer);
                 out.field("mask", c.params.mask);
+                out.field("sleep", c.params.sleep);
+                out.field("sleep_speed", c.params.sleep_speed);
+                out.field("sleep_ticks", c.params.sleep_ticks);
+                out.field("wake_speed", c.params.wake_speed);
                 write_fluid_list(out, "sources", c.sources, [](ComponentWriter& w, const FluidSource2D& source) {
                     write_fluid_region(w, source.region);
                     w.field("rate", source.rate);
@@ -1233,6 +1237,10 @@ void register_builtin_components(
                 (void)in.field("vorticity", c.params.vorticity);
                 (void)in.field("layer", c.params.layer);
                 (void)in.field("mask", c.params.mask);
+                (void)in.field("sleep", c.params.sleep);
+                (void)in.field("sleep_speed", c.params.sleep_speed);
+                (void)in.field("sleep_ticks", c.params.sleep_ticks);
+                (void)in.field("wake_speed", c.params.wake_speed);
                 read_fluid_list(in, "sources", c.sources, [](ComponentReader& r, FluidSource2D& source) {
                     read_fluid_region(r, source.region);
                     (void)r.field("rate", source.rate);

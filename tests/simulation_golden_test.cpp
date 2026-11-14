@@ -42,6 +42,7 @@ constexpr std::uint64_t kGoldenTerrainField = 0xcf18cbc3cbefb34eull;
 constexpr std::uint64_t kGoldenDamBreakFluid = 0xb2576ea4bcce9772ull;  // LQ-64: boundaries in content order
 constexpr std::uint64_t kGoldenDamBreakBodies = 0xe14ec2bcaa61dc8full;  // LQ-64: boundaries in content order
 constexpr std::uint64_t kGoldenStack3D = 0xd0aa1e5806fe43faull;
+constexpr std::uint64_t kGoldenSleepingPool = 0xbdd890d4456c49b7ull;  // LQ-38: a pool that falls asleep, then is woken
 
 // The gap above |value|: one float ulp (the smallest denormal at zero).
 double ulp_of(float value) {
@@ -248,6 +249,39 @@ DamBreakResult run_dam_break(engine::JobSystem* jobs) {
     return {result.state_hash(), engine::physics_state_hash_2d(world), lowest};
 }
 
+struct SleepingPoolResult {
+    std::uint64_t fluid = 0;
+    std::size_t asleep = 0;        // before the wall goes
+    std::size_t asleep_after = 0;  // at the end
+};
+
+// LQ-38: the dam break's tank with sleeping on. The pool comes to rest and falls asleep behind a static box, the box is
+// removed (the sleepers next to it wake) and a body drops in. Pins the sleep path (two hashes, listed sleepers, marks,
+// holds, wakes) on every target.
+SleepingPoolResult run_sleeping_pool(engine::JobSystem* jobs) {
+    engine::ecs::World world = physics_world(jobs);
+    engine::install_fluid_2d(world, jobs);
+    world.ctx<engine::Physics2DConfig>().gravity = glm::vec3{0.f, -10.f, 0.f};
+    add_static_box(world, {2.f, -0.25f}, {5.f, 0.5f});
+    add_static_box(world, {-0.25f, 1.5f}, {0.5f, 4.f});
+    add_static_box(world, {4.25f, 1.5f}, {0.5f, 4.f});
+    const engine::ecs::Entity gate = add_static_box(world, {2.6f, 0.3f}, {0.6f, 0.6f}, 0.6f);
+
+    const engine::ecs::Entity water = world.create();
+    engine::Fluid2D fluid{engine::Fluid2DParams{.radius = 0.05f, .sleep = true}};
+    (void)fluid.spawn_box({0.f, 0.f}, {1.2f, 1.2f});
+    world.emplace<engine::Fluid2D>(water, std::move(fluid));
+    step(world, 1500);
+    SleepingPoolResult out;
+    out.asleep = world.get<engine::Fluid2D>(water).sleeping_count();
+    world.destroy(gate);
+    add_box_2d(world, {1.f, 1.5f}, {0.4f, 0.3f}, 0.4f, 1.f);
+    step(world, 180);
+    out.fluid = world.get<engine::Fluid2D>(water).state_hash();
+    out.asleep_after = world.get<engine::Fluid2D>(water).sleeping_count();
+    return out;
+}
+
 engine::ecs::Entity add_box_3d(engine::ecs::World& world, glm::vec3 center, glm::vec3 size, glm::vec3 euler,
         engine::BodyType type) {
     const engine::ecs::Entity entity = world.create();
@@ -322,6 +356,15 @@ TEST(SimulationGolden, DamBreakMatchesGoldenForAnyWorkerCount) {
     EXPECT_GT(serial.lowest, -0.01f);
     EXPECT_EQ(serial.fluid, kGoldenDamBreakFluid) << "dam break fluid hash " << hex(serial.fluid);
     EXPECT_EQ(serial.bodies, kGoldenDamBreakBodies) << "dam break bodies hash " << hex(serial.bodies);
+}
+
+TEST(SimulationGolden, SleepingPoolMatchesGoldenForAnyWorkerCount) {
+    const SleepingPoolResult serial = run_sleeping_pool(nullptr);
+    engine::JobSystem jobs{3};
+    EXPECT_EQ(run_sleeping_pool(&jobs).fluid, serial.fluid);
+    EXPECT_GT(serial.asleep, 100u) << "the scene sleeps before the wall goes";
+    EXPECT_LT(serial.asleep_after, serial.asleep) << "and the splash woke some of it";
+    EXPECT_EQ(serial.fluid, kGoldenSleepingPool) << "sleeping pool fluid hash " << hex(serial.fluid);
 }
 
 TEST(SimulationGolden, Stack3DMatchesGoldenForAnyWorkerCount) {
