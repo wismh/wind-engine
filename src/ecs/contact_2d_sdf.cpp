@@ -209,7 +209,8 @@ static_assert(std::is_trivially_default_constructible_v<Penetration>);
 
 ContactManifold2D contact_sdf_2d(const ContactShape2D& body, const ContactShape2D& field) {
     if (field.sdf == nullptr || body.kind == ContactShapeKind::Sdf) {
-        return {};
+        ContactManifold2D empty;
+        return empty;
     }
     const SinCos rotation = det_sin_cos(field.angle);
     const FieldFrame frame{field.center, rotation.cos, rotation.sin};
