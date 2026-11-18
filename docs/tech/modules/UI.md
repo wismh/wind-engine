@@ -275,7 +275,7 @@ Generated binders (`asset_codegen`) emit `static constexpr BindingId` members an
 
 ## Input
 
-Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../features/Input%20Mapper.md). `run_input` drains `MouseEvent` for the frame. Direct calls (`handle_pointer`, `handle_key`, `handle_text_input`, …) exist on `canvas.h` for tests and for code outside that system.
+Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../features/Input%20Mapper.md). `run_input` drains `MouseEvent` for the frame. A `MouseEvent::touch` press over a ScrollView defers the click and can content-scroll with inertia ([UI Input](../features/UI%20Input.md#touch-scrolling)). Direct calls (`handle_pointer`, `touch_down`, `handle_key`, `handle_text_input`, …) exist on `canvas.h` for tests and for code outside that system.
 
 `MouseConsumed::consumed_windows` is a set of `WindowId` on the process `Presentation`. `reset_pointer_frame` clears it at the start of `simulate_worlds`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. `sync_frame` reads that same object for click-through. `world.ctx<ui::MouseConsumed>()` does not see the hits. See [Windowing](../features/Windowing.md).
 

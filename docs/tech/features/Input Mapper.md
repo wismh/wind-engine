@@ -80,10 +80,10 @@ The system must have `set_router`. A handler asks the router for the world bound
 | `handle_mouse_wheel` | `MouseEvent` Wheel with `wheel_y`. Adds it to the `MouseAxis::Wheel` motion |
 | `handle_text_input` | `TextInputEvent` |
 | `handle_text_editing` | `TextEditingEvent` (`start` and `length` are code points; -1 is unset) |
-| `handle_touch` | `InputEvent` for `ControlKind::Touch` and that finger id. The first finger also synthesizes left-button Down/Up on `kPrimaryWindow` |
-| `handle_touch_move` | Move on `kPrimaryWindow` while that finger is the primary one |
+| `handle_touch` | `InputEvent` for `ControlKind::Touch` and that finger id. The first finger also synthesizes left-button Down/Up on `kPrimaryWindow` with `MouseEvent::touch` |
+| `handle_touch_move` | Move on `kPrimaryWindow` while that finger is the primary one, with `MouseEvent::touch` |
 
-`MouseEvent::clicks` is the OS click count (1, 2, 3+). Move and wheel stay at 1. `is_held` is true while at least one control bound to that action is down. `primary_touch_finger` is the finger currently synthesizing the mouse, if any.
+`MouseEvent::clicks` is the OS click count (1, 2, 3+). Move and wheel stay at 1. `MouseEvent::touch` is set only for the primary finger's synthetic mouse events; a real mouse leaves it false so the UI can defer a ScrollView tap to release ([UI Input](UI%20Input.md#touch-scrolling)). `is_held` is true while at least one control bound to that action is down. `primary_touch_finger` is the finger currently synthesizing the mouse, if any.
 
 `denormalize_touch` maps a 0–1 finger position onto a drawable size. Negative drawable extents are treated as 0.
 

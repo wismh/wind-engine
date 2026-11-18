@@ -8,10 +8,12 @@ Pointer and keys become ECS events in [Input Mapper](Input%20Mapper.md). `run_in
 
 | `MouseEvent::Kind` | Call |
 | --- | --- |
-| Down | `handle_pointer` with the button and `clicks` |
-| Move | `update_pointer_hover`, and `update_text_selection` while the button is down |
-| Up | `end_drag` and `end_pan` |
+| Down | `handle_pointer` with the button and `clicks`, or `touch_down` when `MouseEvent::touch` |
+| Move | `touch_move` when `touch`, then `update_pointer_hover`, `update_drag`, `update_pan`, and `update_text_selection` |
+| Up | `touch_up` when `touch`, then `end_drag` and `end_pan` |
 | Wheel | `handle_wheel` |
+
+After the mouse events of the frame, `run_input` calls `update_touch_scroll(world, Time::delta_time)` so a held swipe tracks velocity and a released fling keeps moving.
 
 An event with `MouseEvent::locked` (the window is in relative mouse mode with focus, the cursor hidden) is skipped for Down, Move, and Wheel: no hover, press, scroll, or consumption at a point the player cannot see. A locked Up still sets `down` false and ends a drag and a pan. `run_dock_input` and `run_pointer_targets` skip the same events; a target is never hovered in a locked window and a locked Up ends its press without a `Click` ([Input Mapper](Input%20Mapper.md#locked-mouse)).
 
@@ -167,13 +169,24 @@ A `Slider` (`<Slider value="{binding v}" min max step/>`, [UI](../modules/UI.md#
 
 A drag starts only when `drag` is bound and `data_context` is set. It writes a 0–1 fraction through `write_property_float` as the pointer moves. `drag-orientation` picks the axis. A later move drops that drag if `data_context` is gone.
 
+### Touch scrolling
+
+`InputSystem::handle_touch` marks `MouseEvent::touch`. A mouse keeps press-time clicks; a finger over a scrollable ancestor does not. `touch_down` / `touch_move` / `touch_up` / `update_touch_scroll` (`canvas.h`, helpers in `src/ui/touch_scroll.*`) own that path. State is `ctx<UiTouchScrolls>()`: `pending` while the finger has not crossed the slop, `active` while dragging or flinging.
+
+- **Immediate press.** No scrollable ancestor, or the hit is a Slider / `drag` binding / Viewport camera / TextInput / selectable Label / scrollbar track: `handle_pointer` runs on Down, same as a mouse.
+- **Pending press.** Otherwise the press is stored and the window is consumed. Lifting within `kTouchSlop` (8 layout units) runs `handle_pointer` at the press point (command, checkbox, focus). A move past the slop picks the innermost scroller that can move on the dominant axis; no match cancels the tap without scrolling.
+- **Held scroll.** `scroll = start_scroll - (pointer - start) / scale`, clamped and written through `scroll-x` / `scroll-y` like the wheel. No command runs.
+- **Fling.** On Up, if the smoothed scroll velocity is at least `kFlingMinSpeed`, the scroll stays `active` with `held = false`. Each frame `update_touch_scroll` advances by `velocity * dt`, decays with `exp(-2.5 * dt)`, and stops below `kFlingStopSpeed` or at an edge. A new Down during a fling stops it and that press does not run a tap (`caught_fling`).
+
+A mouse Down never enters this path: content drag does not scroll.
+
 A pan starts only on a Viewport with a camera binding when `data_context` is set. `pan-x` and `pan-y` take deltas in layout pixels. A later move drops that pan if `data_context` is gone.
 
 Scroll, drag, and pan write through `generated_owner` when that pointer is set, otherwise the canvas `data_context`. Scroll bindings (`scroll-x`, `scroll-y`) are read into the element clamped to `[0, max_scroll]` of the last layout, so a view-model may ask for the end with any value past it; the view-model keeps its own value, and a list that grew is clamped to its new extent on the next frame. They are written that way, including from a scrollbar drag. Wheel scroll still updates `scroll_x` / `scroll_y` on the element when `data_context` is null. Only the binding write is skipped.
 
 ## Tests
 
-`tests/pointer_target_test.cpp`, `tests/ui_pointer_events_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/pointer_target_test.cpp`, `tests/ui_pointer_events_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp` (wheel, scrollbar, touch swipe / tap / fling), `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`, `tests/input_test.cpp` (`MouseEvent::touch`).
 
 ## See also
 
