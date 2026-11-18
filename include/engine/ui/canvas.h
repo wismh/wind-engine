@@ -215,6 +215,40 @@ struct UiActiveScrollbars {
     std::unordered_map<WindowId, ActiveScrollbarDrag> drags;
 };
 
+// A finger is down over a scrollable element and has not yet moved past the touch slop: a tap or the start of a
+// swipe. The press runs (command, toggle, focus) on release at `start`, unless the finger swipes first.
+struct PendingTouchPress {
+    ecs::Entity canvas_entity{};
+    glm::vec2 start{};
+    float space_scale = 1.0f;
+    std::uint8_t clicks = 1;
+    // The press stopped a fling: lifting the finger does not run it.
+    bool caught_fling = false;
+    // The scrollable elements under `start`, innermost first. A swipe scrolls the first that scrolls along its
+    // dominant axis.
+    std::vector<ElementId> scrollers;
+};
+
+// A ScrollView a finger is dragging (`held`), or one still gliding after the finger left it.
+struct ActiveTouchScroll {
+    ecs::Entity canvas_entity{};
+    // A stale id (the scroller left the tree) ends the scroll.
+    ElementId element{};
+    glm::vec2 start_pointer{};
+    glm::vec2 start_scroll{};
+    float space_scale = 1.0f;
+    bool held = true;
+    // The scroll position the last update_touch_scroll() saw, and the smoothed scroll velocity in layout units per
+    // second measured from it.
+    glm::vec2 last_scroll{};
+    glm::vec2 velocity{};
+};
+
+struct UiTouchScrolls {
+    std::unordered_map<WindowId, PendingTouchPress> pending;
+    std::unordered_map<WindowId, ActiveTouchScroll> active;
+};
+
 // Holds the pointer for every window other than kPrimaryWindow. The primary pointer lives in
 // Presentation::pointer. pointer_for() is the only read.
 struct UiPointers {
@@ -278,6 +312,18 @@ void end_pan(ecs::World& world, WindowId window = kPrimaryWindow);
 
 // Wheel zoom-to-cursor on the innermost Viewport under (x, y). No-op if zoom is unbound.
 void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window = kPrimaryWindow);
+
+// Touch counterparts of handle_pointer() / update_drag() / end_drag() for a press that MouseEvent::touch marks.
+// A finger down over a scrollable element waits: lifting it within the slop runs handle_pointer() at the press point,
+// a swipe past the slop scrolls instead and runs nothing. A finger down on an element that drags by itself (a Slider,
+// a `drag` binding, a Viewport camera, a TextInput, a selectable Label, a scrollbar) or over nothing scrollable is
+// handle_pointer() at once. A finger down during a fling stops it, and that press runs nothing.
+void touch_down(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow, std::uint8_t clicks = 1);
+void touch_move(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+void touch_up(ecs::World& world, WindowId window = kPrimaryWindow);
+// Once a frame, after the input events: measures the velocity of held touch scrolls and moves released ones by their
+// decaying velocity until it runs out or they reach an edge.
+void update_touch_scroll(ecs::World& world, float dt);
 
 // The focused element by id, not by pointer: a row that leaves an ItemsControl window while it has focus is a stale
 // id that resolves to nothing (focus is dropped), never a dangling `Element*`.

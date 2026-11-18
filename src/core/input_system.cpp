@@ -315,6 +315,15 @@ void InputSystem::handle_text_editing(std::string_view text, int start, int leng
 
 void InputSystem::handle_mouse_button(
         WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks) {
+    send_mouse_button(window, button, down, position, clicks, false);
+}
+
+void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative) {
+    send_mouse_move(window, position, relative, false);
+}
+
+void InputSystem::send_mouse_button(
+        WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks, bool touch) {
     ecs::World* const world = world_for(window);
     if (world == nullptr) {
         return;
@@ -326,6 +335,7 @@ void InputSystem::handle_mouse_button(
             .button = button,
             .clicks = clicks,
             .locked = is_mouse_locked(window),
+            .touch = touch,
     });
     if (button == MouseButton::None) {
         return;
@@ -333,7 +343,7 @@ void InputSystem::handle_mouse_button(
     apply_digital(mouse_control(button), down, window);
 }
 
-void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative) {
+void InputSystem::send_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative, bool touch) {
     ecs::World* const world = world_for(window);
     if (world == nullptr) {
         return;
@@ -344,6 +354,7 @@ void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::ve
             .position = position,
             .relative = relative,
             .locked = is_mouse_locked(window),
+            .touch = touch,
     });
     mouse_motion_[static_cast<std::size_t>(MouseAxis::X)] += relative.x;
     mouse_motion_[static_cast<std::size_t>(MouseAxis::Y)] += relative.y;
@@ -371,14 +382,14 @@ void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 pos
     if (down) {
         if (!primary_finger_.has_value()) {
             primary_finger_ = finger_id;
-            handle_mouse_button(kPrimaryWindow, MouseButton::Left, true, position);
+            send_mouse_button(kPrimaryWindow, MouseButton::Left, true, position, 1, true);
         }
         apply_digital(touch_control(finger_id), true, kPrimaryWindow);
         return;
     }
     apply_digital(touch_control(finger_id), false, kPrimaryWindow);
     if (primary_finger_ == finger_id) {
-        handle_mouse_button(kPrimaryWindow, MouseButton::Left, false, position);
+        send_mouse_button(kPrimaryWindow, MouseButton::Left, false, position, 1, true);
         primary_finger_.reset();
     }
 }
@@ -388,7 +399,7 @@ void InputSystem::handle_touch_move(std::uint32_t finger_id, glm::vec2 position,
         return;
     }
     if (primary_finger_ == finger_id) {
-        handle_mouse_move(kPrimaryWindow, position, relative);
+        send_mouse_move(kPrimaryWindow, position, relative, true);
     }
 }
 

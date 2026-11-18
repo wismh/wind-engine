@@ -78,6 +78,9 @@ struct MouseEvent {
     // The window is in relative mouse mode (IWindowControl::set_relative_mouse) and has focus: the cursor is hidden,
     // so `position` points at nothing. The UI and pointer targets skip Down, Move, and Wheel while it is set.
     bool locked = false;
+    // The primary finger of a touch screen sent it (InputSystem::handle_touch). The UI scrolls a ScrollView under a
+    // dragged finger and runs a tap on release; a mouse keeps its press-time click.
+    bool touch = false;
 };
 
 struct KeyEvent {
@@ -186,6 +189,9 @@ private:
     };
 
     [[nodiscard]] ecs::World* world_for(WindowId window) const;
+    void send_mouse_button(
+            WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks, bool touch);
+    void send_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative, bool touch);
     void apply_digital(Control control, bool down, WindowId window);
     void release_held(Control control, ActionId action);
 

@@ -105,13 +105,24 @@ namespace engine {
                     // since the pointer got there.
                     (void) ui::update_cursor(world, event.window);
                     pointer.down = true;
-                    ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window,
-                                                     input_batch, event.button == MouseButton::Left, event.clicks);
+                    if (event.touch) {
+                        // A finger over a ScrollView waits for the slop: tap on Up, swipe scrolls (canvas.h).
+                        ui::touch_down(world, event.position.x, event.position.y, event.window, event.clicks);
+                    } else {
+                        ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window,
+                                                         input_batch, event.button == MouseButton::Left, event.clicks);
+                    }
                 } else if (event.kind == MouseEvent::Kind::Up) {
                     pointer.down = false;
+                    if (event.touch) {
+                        ui::touch_up(world, event.window);
+                    }
                     ui::end_drag(world, event.window);
                     ui::end_pan(world, event.window);
                 } else if (event.kind == MouseEvent::Kind::Move) {
+                    if (event.touch) {
+                        ui::touch_move(world, event.position.x, event.position.y, event.window);
+                    }
                     // Keeps MouseConsumed current on hover, not just on click —
                     // without this, a window that only recomputes it on Down never learns the pointer
                     // moved off (or onto) a UI element between clicks.
@@ -129,6 +140,7 @@ namespace engine {
                                                    event.window, input_batch);
                 }
             }
+            ui::update_touch_scroll(world, world.ctx<Time>().delta_time);
             for (const KeyEvent &event: ecs::EventReader<KeyEvent>{world, world.ctx<ecs::EventCursor<KeyEvent>>()}) {
                 ui::handle_key(world, event.key, event.down, event.repeat, event.window);
             }

@@ -14,6 +14,9 @@
 #include "ui/input_batch.h"
 #include "ui/text_select.h"
 #include "ui/text_wrap.h"
+#include "ui/touch_scroll.h"
+
+#include <glm/geometric.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -50,6 +53,27 @@ namespace engine::ui {
             if (scroll) {
                 document.windows_dirty = true;
             }
+        }
+
+        // One axis of `element`'s scroll, clamped to its range. Writes its `scroll-x` / `scroll-y` binding too: the
+        // next bind reads that back over the element.
+        void set_scroll(ecs::World &world, ecs::Entity canvas_entity, Element &element, bool vertical, float value) {
+            float &scroll = vertical ? element.scroll_y : element.scroll_x;
+            const float max_scroll = vertical ? element.max_scroll_y : element.max_scroll_x;
+            scroll = std::clamp(value, 0.0f, std::max(0.0f, max_scroll));
+            mark_edited(world, canvas_entity, element, kDirtyFrame, true);
+            const BindingId binding = vertical ? element.scroll_y_binding : element.scroll_x_binding;
+            if (!is_bound(binding)) {
+                return;
+            }
+            UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
+            if (canvas == nullptr || !canvas->data_context) {
+                return;
+            }
+            ViewModel *target = element.generated_owner != nullptr
+                                        ? static_cast<ViewModel *>(const_cast<void *>(element.generated_owner))
+                                        : canvas->data_context.get();
+            target->write_property_float(binding, scroll);
         }
 
         // One pseudo-class of an element the input code changed (a checkbox toggled, focus moved).
@@ -1203,15 +1227,8 @@ namespace engine::ui {
                         if (available > 0.0f) {
                             const float target_thumb_y = local_pointer.y - track.y - thumb.h * 0.5f;
                             const float fraction = std::clamp(target_thumb_y / available, 0.0f, 1.0f);
-                            hit->element->scroll_y = fraction * hit->element->max_scroll_y;
-                            mark_edited(world, hit->entity, *hit->element, kDirtyFrame, true);
-                            if (is_bound(hit->element->scroll_y_binding) && hit->canvas->data_context) {
-                                ViewModel *target = hit->element->generated_owner != nullptr
-                                                            ? static_cast<ViewModel *>(
-                                                                      const_cast<void *>(hit->element->generated_owner))
-                                                            : hit->canvas->data_context.get();
-                                target->write_property_float(hit->element->scroll_y_binding, hit->element->scroll_y);
-                            }
+                            set_scroll(world, hit->entity, *hit->element, true,
+                                       fraction * hit->element->max_scroll_y);
                         }
                     }
                 }
@@ -1301,19 +1318,8 @@ namespace engine::ui {
                         const float available = sdrag.track_h - sdrag.thumb_h;
                         if (available > 0.0f) {
                             const float delta_scroll = (dy / available) * sdrag.max_scroll_y;
-                            elem->scroll_y =
-                                    std::clamp(sdrag.drag_start_scroll_y + delta_scroll, 0.0f, sdrag.max_scroll_y);
-                            mark_edited(world, sdrag.canvas_entity, *elem, kDirtyFrame, true);
-                            if (is_bound(sdrag.scroll_y_binding)) {
-                                UiCanvas *canvas = world.try_get<UiCanvas>(sdrag.canvas_entity);
-                                if (canvas != nullptr && canvas->data_context) {
-                                    ViewModel *target =
-                                            sdrag.owner != nullptr
-                                                    ? static_cast<ViewModel *>(const_cast<void *>(sdrag.owner))
-                                                    : canvas->data_context.get();
-                                    target->write_property_float(sdrag.scroll_y_binding, elem->scroll_y);
-                                }
-                            }
+                            set_scroll(world, sdrag.canvas_entity, *elem, true,
+                                       std::min(sdrag.drag_start_scroll_y + delta_scroll, sdrag.max_scroll_y));
                         }
                     }
                 }
@@ -1499,28 +1505,12 @@ namespace engine::ui {
                 constexpr float kScrollStep = 40.0f;
                 bool scrolled = false;
                 if (is_scrollable_y(*scrollable)) {
-                    scrollable->scroll_y =
-                            std::clamp(scrollable->scroll_y - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_y);
-                    mark_edited(world, prepared->entity, *scrollable, kDirtyFrame, true);
-                    if (is_bound(scrollable->scroll_y_binding) && prepared->canvas->data_context) {
-                        ViewModel *target =
-                                scrollable->generated_owner != nullptr
-                                        ? static_cast<ViewModel *>(const_cast<void *>(scrollable->generated_owner))
-                                        : prepared->canvas->data_context.get();
-                        target->write_property_float(scrollable->scroll_y_binding, scrollable->scroll_y);
-                    }
+                    set_scroll(world, prepared->entity, *scrollable, true,
+                               scrollable->scroll_y - wheel_y * kScrollStep);
                     scrolled = true;
                 } else if (is_scrollable_x(*scrollable)) {
-                    scrollable->scroll_x =
-                            std::clamp(scrollable->scroll_x - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_x);
-                    mark_edited(world, prepared->entity, *scrollable, kDirtyFrame, true);
-                    if (is_bound(scrollable->scroll_x_binding) && prepared->canvas->data_context) {
-                        ViewModel *target =
-                                scrollable->generated_owner != nullptr
-                                        ? static_cast<ViewModel *>(const_cast<void *>(scrollable->generated_owner))
-                                        : prepared->canvas->data_context.get();
-                        target->write_property_float(scrollable->scroll_x_binding, scrollable->scroll_x);
-                    }
+                    set_scroll(world, prepared->entity, *scrollable, false,
+                               scrollable->scroll_x - wheel_y * kScrollStep);
                     scrolled = true;
                 }
                 if (scrolled) {
@@ -1572,6 +1562,272 @@ namespace engine::ui {
     void handle_wheel_for_run_input(ecs::World &world, float x, float y, float wheel_y, WindowId window,
                                     UiInputBatchCache &batch) {
         handle_wheel_impl(world, x, y, wheel_y, window, &batch);
+    }
+
+    namespace {
+
+        // Scrollable ancestors of `hit`, innermost first. Ensures each id is in the arena before it is stored.
+        std::vector<ElementId> scrollers_from(UiDocument &document, Element &hit) {
+            std::vector<ElementId> scrollers;
+            Element *current = &hit;
+            while (current != nullptr) {
+                if (is_scrollable(*current)) {
+                    if (!document.arena.alive(current->handle)) {
+                        document.reindex();
+                    }
+                    if (!current->handle.is_null()) {
+                        scrollers.push_back(current->handle);
+                    }
+                }
+                if (current->parent.is_null()) {
+                    break;
+                }
+                const auto found = document.find(current->parent);
+                current = found ? *found : nullptr;
+            }
+            return scrollers;
+        }
+
+        // True when the press should go straight to handle_pointer: the hit handles its own drag, or nothing under it
+        // scrolls.
+        bool touch_press_runs_immediately(const PointerHit &hit, float x, float y,
+                                          const std::vector<ElementId> &scrollers) {
+            if (scrollers.empty()) {
+                return true;
+            }
+            if (hit.element->kind == ElementKind::TextInput || label_text_selectable(*hit.element)) {
+                return true;
+            }
+            if (hit.element->kind == ElementKind::Slider || is_bound(hit.element->drag_binding)) {
+                return true;
+            }
+            if (hit.element->kind == ElementKind::Viewport && has_viewport_camera(*hit.element)) {
+                return true;
+            }
+            if (is_scrollable_y(*hit.element)) {
+                const glm::vec2 local = hit.local(x, y);
+                const render::Rect track = scrollbar_track_rect(*hit.element);
+                if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, local.x, local.y)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        Element *touch_scroll_element(ecs::World &world, const ActiveTouchScroll &scroll) {
+            UiInstance *instance = world.try_get<UiInstance>(scroll.canvas_entity);
+            if (instance == nullptr) {
+                return nullptr;
+            }
+            const auto found = instance->document.find(scroll.element);
+            return found ? *found : nullptr;
+        }
+
+        void apply_held_touch_scroll(ecs::World &world, ActiveTouchScroll &scroll, float x, float y) {
+            Element *elem = touch_scroll_element(world, scroll);
+            if (elem == nullptr) {
+                return;
+            }
+            const glm::vec2 delta{(x - scroll.start_pointer.x) / scroll.space_scale,
+                                  (y - scroll.start_pointer.y) / scroll.space_scale};
+            if (is_scrollable_y(*elem)) {
+                set_scroll(world, scroll.canvas_entity, *elem, true, scroll.start_scroll.y - delta.y);
+            }
+            if (is_scrollable_x(*elem)) {
+                set_scroll(world, scroll.canvas_entity, *elem, false, scroll.start_scroll.x - delta.x);
+            }
+        }
+
+        // Picks the innermost scroller that can move on the dominant swipe axis.
+        ElementId pick_touch_scroller(UiDocument &document, const std::vector<ElementId> &scrollers, glm::vec2 moved) {
+            const bool prefer_y = std::abs(moved.y) >= std::abs(moved.x);
+            for (const ElementId id : scrollers) {
+                const auto found = document.find(id);
+                Element *elem = found ? *found : nullptr;
+                if (elem == nullptr) {
+                    continue;
+                }
+                if (prefer_y ? is_scrollable_y(*elem) : is_scrollable_x(*elem)) {
+                    return id;
+                }
+            }
+            return {};
+        }
+
+    } // namespace
+
+    void touch_down(ecs::World &world, float x, float y, WindowId window, std::uint8_t clicks) {
+        UiTouchScrolls &state = world.ctx<UiTouchScrolls>();
+        bool caught_fling = false;
+        if (const auto it = state.active.find(window); it != state.active.end()) {
+            caught_fling = !it->second.held;
+            state.active.erase(it);
+        }
+        state.pending.erase(window);
+
+        const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
+        if (!hit) {
+            return;
+        }
+        UiInstance *instance = world.try_get<UiInstance>(hit->entity);
+        if (instance == nullptr) {
+            handle_pointer(world, x, y, window, true, clicks);
+            return;
+        }
+        const std::vector<ElementId> scrollers = scrollers_from(instance->document, *hit->element);
+        if (touch_press_runs_immediately(*hit, x, y, scrollers)) {
+            handle_pointer(world, x, y, window, true, clicks);
+            return;
+        }
+
+        state.pending[window] = PendingTouchPress{
+                hit->entity,
+                glm::vec2{x, y},
+                hit->space.scale,
+                clicks,
+                caught_fling,
+                scrollers,
+        };
+    }
+
+    void touch_move(ecs::World &world, float x, float y, WindowId window) {
+        UiTouchScrolls &state = world.ctx<UiTouchScrolls>();
+        if (const auto active = state.active.find(window); active != state.active.end()) {
+            if (active->second.held) {
+                if (touch_scroll_element(world, active->second) == nullptr) {
+                    state.active.erase(active);
+                    return;
+                }
+                apply_held_touch_scroll(world, active->second, x, y);
+                presentation_of(world).mouse.consumed_windows.insert(window);
+            }
+            return;
+        }
+
+        const auto pending_it = state.pending.find(window);
+        if (pending_it == state.pending.end()) {
+            return;
+        }
+        PendingTouchPress &pending = pending_it->second;
+        const float scale = pending.space_scale > 0.0f ? pending.space_scale : 1.0f;
+        const glm::vec2 moved{(x - pending.start.x) / scale, (y - pending.start.y) / scale};
+        if (!past_touch_slop(moved)) {
+            presentation_of(world).mouse.consumed_windows.insert(window);
+            return;
+        }
+
+        UiInstance *instance = world.try_get<UiInstance>(pending.canvas_entity);
+        if (instance == nullptr) {
+            state.pending.erase(pending_it);
+            return;
+        }
+        const ElementId picked = pick_touch_scroller(instance->document, pending.scrollers, moved);
+        if (picked.is_null()) {
+            // Past the slop on an axis no ancestor scrolls: the tap is cancelled, nothing scrolls.
+            state.pending.erase(pending_it);
+            presentation_of(world).mouse.consumed_windows.insert(window);
+            return;
+        }
+        const auto found = instance->document.find(picked);
+        Element *elem = found ? *found : nullptr;
+        if (elem == nullptr) {
+            state.pending.erase(pending_it);
+            return;
+        }
+
+        ActiveTouchScroll scroll{
+                pending.canvas_entity,
+                picked,
+                pending.start,
+                glm::vec2{elem->scroll_x, elem->scroll_y},
+                scale,
+                true,
+                glm::vec2{elem->scroll_x, elem->scroll_y},
+                glm::vec2{0.0f, 0.0f},
+        };
+        state.pending.erase(pending_it);
+        apply_held_touch_scroll(world, scroll, x, y);
+        scroll.last_scroll = {elem->scroll_x, elem->scroll_y};
+        state.active[window] = scroll;
+        presentation_of(world).mouse.consumed_windows.insert(window);
+    }
+
+    void touch_up(ecs::World &world, WindowId window) {
+        UiTouchScrolls &state = world.ctx<UiTouchScrolls>();
+        if (const auto pending_it = state.pending.find(window); pending_it != state.pending.end()) {
+            const PendingTouchPress pending = pending_it->second;
+            state.pending.erase(pending_it);
+            if (!pending.caught_fling) {
+                handle_pointer(world, pending.start.x, pending.start.y, window, true, pending.clicks);
+            }
+            return;
+        }
+
+        const auto active_it = state.active.find(window);
+        if (active_it == state.active.end()) {
+            return;
+        }
+        ActiveTouchScroll &scroll = active_it->second;
+        if (!scroll.held) {
+            return;
+        }
+        scroll.held = false;
+        scroll.velocity = clamp_fling_velocity(scroll.velocity);
+        if (glm::length(scroll.velocity) < kFlingMinSpeed || touch_scroll_element(world, scroll) == nullptr) {
+            state.active.erase(active_it);
+        }
+    }
+
+    void update_touch_scroll(ecs::World &world, float dt) {
+        if (dt <= 0.0f) {
+            return;
+        }
+        UiTouchScrolls *state = world.try_ctx<UiTouchScrolls>();
+        if (state == nullptr || state->active.empty()) {
+            return;
+        }
+        std::vector<WindowId> finished;
+        for (auto &[window, scroll] : state->active) {
+            Element *elem = touch_scroll_element(world, scroll);
+            if (elem == nullptr) {
+                finished.push_back(window);
+                continue;
+            }
+            if (scroll.held) {
+                const glm::vec2 current{elem->scroll_x, elem->scroll_y};
+                scroll.velocity = track_scroll_velocity(scroll.velocity, current - scroll.last_scroll, dt);
+                scroll.last_scroll = current;
+                continue;
+            }
+
+            scroll.velocity = decay_fling_velocity(scroll.velocity, dt);
+            if (glm::length(scroll.velocity) < kFlingStopSpeed) {
+                finished.push_back(window);
+                continue;
+            }
+
+            const float prev_x = elem->scroll_x;
+            const float prev_y = elem->scroll_y;
+            if (is_scrollable_y(*elem)) {
+                set_scroll(world, scroll.canvas_entity, *elem, true, prev_y + scroll.velocity.y * dt);
+            }
+            if (is_scrollable_x(*elem)) {
+                set_scroll(world, scroll.canvas_entity, *elem, false, prev_x + scroll.velocity.x * dt);
+            }
+            if (is_scrollable_y(*elem) && elem->scroll_y == prev_y) {
+                scroll.velocity.y = 0.0f;
+            }
+            if (is_scrollable_x(*elem) && elem->scroll_x == prev_x) {
+                scroll.velocity.x = 0.0f;
+            }
+            scroll.last_scroll = {elem->scroll_x, elem->scroll_y};
+            if (glm::length(scroll.velocity) < kFlingStopSpeed) {
+                finished.push_back(window);
+            }
+        }
+        for (const WindowId window : finished) {
+            state->active.erase(window);
+        }
     }
 
     namespace {
