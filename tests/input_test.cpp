@@ -470,12 +470,27 @@ TEST(Input, TouchPrimaryMapsToLeftMouse) {
     EXPECT_EQ(events[0].kind, engine::MouseEvent::Kind::Down);
     EXPECT_EQ(events[0].button, engine::MouseButton::Left);
     EXPECT_EQ(events[0].position, down_pos);
+    EXPECT_TRUE(events[0].touch);
     EXPECT_EQ(events[1].kind, engine::MouseEvent::Kind::Move);
     EXPECT_EQ(events[1].position, move_pos);
     EXPECT_EQ(events[1].relative, rel);
+    EXPECT_TRUE(events[1].touch);
     EXPECT_EQ(events[2].kind, engine::MouseEvent::Kind::Up);
     EXPECT_EQ(events[2].button, engine::MouseButton::Left);
     EXPECT_EQ(events[2].position, up_pos);
+    EXPECT_TRUE(events[2].touch);
+}
+
+TEST(Input, MouseButtonIsNotTouch) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {1.f, 2.f});
+    input.handle_mouse_move(engine::kPrimaryWindow, {3.f, 4.f}, {1.f, 0.f});
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_FALSE(events[0].touch);
+    EXPECT_FALSE(events[1].touch);
 }
 
 TEST(Input, ExtraFingerDoesNotEmitMouse) {
