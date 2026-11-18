@@ -11,6 +11,8 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include "ui/touch_scroll.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -332,4 +334,233 @@ TEST(UiScroll, ScrollbarThumbDragUpdatesScroll) {
     EXPECT_GT(vm->scroll_pos.get(), 0.0f);
 
     engine::ui::end_drag(world);
+}
+
+namespace {
+
+struct ScrollFixture {
+    engine::ecs::World world;
+    std::shared_ptr<ScrollViewModel> vm = std::make_shared<ScrollViewModel>();
+    engine::ecs::Entity entity{};
+    bool ready = false;
+};
+
+ScrollFixture make_vertical_scroll_fixture() {
+    ScrollFixture fix;
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(R"(
+        ScrollView { width: 100px; height: 100px; overflow-y: auto; }
+        Button { width: 100px; height: 50px; }
+    )", warnings);
+    if (!sheet.has_value()) {
+        return fix;
+    }
+
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+            <ScrollView scroll-y="{binding scroll_pos}">
+                <Button id="btn1" content="1" command="{binding click}"/>
+                <Button id="btn2" content="2" command="{binding click}"/>
+                <Button id="btn3" content="3" command="{binding click}"/>
+            </ScrollView>
+        </Canvas>
+    )", nullptr, fix.vm.get());
+    if (!parsed.has_value()) {
+        return fix;
+    }
+
+    engine::ui::UiCanvas canvas;
+    canvas.rect = engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = fix.vm;
+    fix.entity = fix.world.create();
+    fix.world.emplace<engine::ui::UiCanvas>(fix.entity, canvas);
+    fix.world.emplace<engine::ui::UiInstance>(fix.entity, engine::ui::UiInstance{*parsed, *sheet});
+    engine::ui::begin_frame(fix.world);
+    fix.ready = true;
+    return fix;
+}
+
+} // namespace
+
+TEST(UiScroll, TouchTapOnButtonRunsCommandOnUp) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::touch_down(fix.world, 50.0f, 25.0f);
+    EXPECT_EQ(fix.vm->clicks, 0);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().pending.contains(engine::kPrimaryWindow));
+
+    engine::ui::touch_up(fix.world);
+    EXPECT_EQ(fix.vm->clicks, 1);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().pending.empty());
+}
+
+TEST(UiScroll, TouchSwipeScrollsAndSkipsCommand) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::touch_down(fix.world, 50.0f, 25.0f);
+    // Past kTouchSlop (8 layout px): finger moves up → scroll_y increases.
+    engine::ui::touch_move(fix.world, 50.0f, 25.0f - 40.0f);
+    EXPECT_FLOAT_EQ(fix.vm->scroll_pos.get(), 40.0f);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().active.contains(engine::kPrimaryWindow));
+
+    engine::ui::touch_up(fix.world);
+    EXPECT_EQ(fix.vm->clicks, 0);
+}
+
+TEST(UiScroll, TouchMoveWithinSlopStaysATap) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::touch_down(fix.world, 50.0f, 25.0f);
+    engine::ui::touch_move(fix.world, 50.0f, 25.0f - 4.0f);
+    EXPECT_FLOAT_EQ(fix.vm->scroll_pos.get(), 0.0f);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().pending.contains(engine::kPrimaryWindow));
+
+    engine::ui::touch_up(fix.world);
+    EXPECT_EQ(fix.vm->clicks, 1);
+}
+
+TEST(UiScroll, TouchSwipeClampsToMaxScroll) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    // max_scroll_y = 50 (3*50 - 100).
+    engine::ui::touch_down(fix.world, 50.0f, 50.0f);
+    engine::ui::touch_move(fix.world, 50.0f, 50.0f - 200.0f);
+    EXPECT_FLOAT_EQ(fix.vm->scroll_pos.get(), 50.0f);
+}
+
+TEST(UiScroll, MouseDragDoesNotContentScroll) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::handle_pointer(fix.world, 50.0f, 25.0f);
+    EXPECT_EQ(fix.vm->clicks, 1);
+    engine::ui::update_drag(fix.world, 50.0f, 25.0f - 40.0f);
+    EXPECT_FLOAT_EQ(fix.vm->scroll_pos.get(), 0.0f);
+}
+
+TEST(UiScroll, TouchOutsideScrollViewRunsCommandOnDown) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ScrollViewModel>();
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(R"(
+        Button { width: 80px; height: 40px; }
+    )", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+            <Button content="Go" command="{binding click}"/>
+        </Canvas>
+    )", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiCanvas canvas;
+    canvas.rect = engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, *sheet});
+    engine::ui::begin_frame(world);
+
+    engine::ui::touch_down(world, 40.0f, 20.0f);
+    EXPECT_EQ(vm->clicks, 1);
+    EXPECT_TRUE(world.ctx<engine::ui::UiTouchScrolls>().pending.empty());
+}
+
+TEST(UiScroll, TouchFlingDecaysAndStopsAtEdge) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::touch_down(fix.world, 50.0f, 80.0f);
+    engine::ui::touch_move(fix.world, 50.0f, 80.0f - 30.0f);
+    ASSERT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().active.contains(engine::kPrimaryWindow));
+    // Seed a fling toward the top (negative scroll velocity) after release.
+    engine::ui::ActiveTouchScroll &scroll = fix.world.ctx<engine::ui::UiTouchScrolls>().active[engine::kPrimaryWindow];
+    scroll.velocity = {0.0f, -400.0f};
+    scroll.held = false;
+    scroll.last_scroll = {0.0f, fix.vm->scroll_pos.get()};
+
+    engine::ui::update_touch_scroll(fix.world, 1.0f / 60.0f);
+    EXPECT_LT(fix.vm->scroll_pos.get(), 30.0f);
+    EXPECT_GE(fix.vm->scroll_pos.get(), 0.0f);
+
+    for (int i = 0; i < 120; ++i) {
+        engine::ui::update_touch_scroll(fix.world, 1.0f / 60.0f);
+    }
+    EXPECT_FLOAT_EQ(fix.vm->scroll_pos.get(), 0.0f);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().active.empty());
+}
+
+TEST(UiScroll, TouchDownStopsFlingAndSkipsTap) {
+    ScrollFixture fix = make_vertical_scroll_fixture();
+    ASSERT_TRUE(fix.ready);
+    engine::ui::touch_down(fix.world, 50.0f, 80.0f);
+    engine::ui::touch_move(fix.world, 50.0f, 80.0f - 30.0f);
+    engine::ui::ActiveTouchScroll &scroll = fix.world.ctx<engine::ui::UiTouchScrolls>().active[engine::kPrimaryWindow];
+    scroll.velocity = {0.0f, 500.0f};
+    scroll.held = false;
+
+    engine::ui::touch_down(fix.world, 50.0f, 25.0f);
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().active.empty());
+    ASSERT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().pending.contains(engine::kPrimaryWindow));
+    EXPECT_TRUE(fix.world.ctx<engine::ui::UiTouchScrolls>().pending[engine::kPrimaryWindow].caught_fling);
+
+    engine::ui::touch_up(fix.world);
+    EXPECT_EQ(fix.vm->clicks, 0);
+}
+
+TEST(UiScroll, TouchScrollHelpers) {
+    EXPECT_FALSE(engine::ui::past_touch_slop({7.0f, 0.0f}));
+    EXPECT_TRUE(engine::ui::past_touch_slop({8.0f, 0.0f}));
+
+    const glm::vec2 tracked = engine::ui::track_scroll_velocity({0.0f, 0.0f}, {0.0f, 10.0f}, 0.05f);
+    EXPECT_NEAR(tracked.y, 200.0f, 1e-3f);
+
+    const glm::vec2 decayed = engine::ui::decay_fling_velocity({0.0f, 100.0f}, 1.0f);
+    EXPECT_LT(decayed.y, 100.0f);
+    EXPECT_GT(decayed.y, 0.0f);
+
+    const glm::vec2 capped = engine::ui::clamp_fling_velocity({0.0f, 10000.0f});
+    EXPECT_FLOAT_EQ(capped.y, engine::ui::kFlingMaxSpeed);
+}
+
+TEST(UiScroll, HorizontalTouchSwipe) {
+    using namespace engine::ui;
+    engine::ecs::World world;
+    auto vm = std::make_shared<ScrollViewModel>();
+    std::vector<std::string> warnings;
+    auto sheet = parse_css(R"(
+        ScrollView { width: 100px; height: 40px; overflow-x: auto; overflow-y: hidden; flex-direction: row; }
+        Button { width: 80px; height: 40px; }
+    )", warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    auto parsed = parse_xml(R"(
+        <Canvas>
+            <ScrollView direction="horizontal" scroll-x="{binding scroll_pos}">
+                <Button content="1" command="{binding click}"/>
+                <Button content="2" command="{binding click}"/>
+                <Button content="3" command="{binding click}"/>
+            </ScrollView>
+        </Canvas>
+    )", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    UiCanvas canvas;
+    canvas.rect = engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f};
+    canvas.fit = UiFit::Fixed;
+    canvas.data_context = vm;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<UiCanvas>(entity, canvas);
+    world.emplace<UiInstance>(entity, UiInstance{*parsed, *sheet});
+    begin_frame(world);
+    // First pointer hit runs bind+layout (same as the vertical touch tests).
+    touch_down(world, 50.0f, 20.0f);
+
+    Element *sv = find_by_kind(world.get<UiInstance>(entity).document.root, ElementKind::ScrollView);
+    ASSERT_NE(sv, nullptr);
+    EXPECT_EQ(sv->direction, StackDirection::Horizontal);
+    ASSERT_GT(sv->max_scroll_x, 0.0f);
+
+    touch_move(world, 50.0f - 30.0f, 20.0f);
+    EXPECT_FLOAT_EQ(vm->scroll_pos.get(), 30.0f);
+    EXPECT_EQ(vm->clicks, 0);
 }
